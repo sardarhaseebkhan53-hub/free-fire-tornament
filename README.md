@@ -282,4 +282,4 @@ free-fire-tornament/
 └── README.md          # this file
 ```
 
-**Build record:** PR #1 (Phase 1, merged) · **[PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2)** (Phases 2–6, in progress — one commit per phase).
+**Build record:** PR #1 (Phase 1) ✅ merged · PR #2 (Phases 2–6 + docs) ✅ merged — next phase continues on this branch.
