@@ -4,6 +4,9 @@ API-first backend for the CLUTCHNEX Free Fire tournament platform.
 **Express 5 + TypeScript + Prisma 7 + PostgreSQL.** The same REST APIs will
 serve the web app today and a future Flutter app later without changes.
 
+> 📋 Full project status — every phase with detailed scope and what's
+> completed — lives in the **root [`README.md`](../README.md)**.
+
 ## Quick start (no Docker, no Postgres install)
 
 ```bash
