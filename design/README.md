@@ -2,6 +2,10 @@
 
 Status: **ALL 42 CONCEPTS DELIVERED — AWAITING FINAL APPROVAL (UI GATE)**
 
+Implemented so far (Phase 7): screens **12, 14, 15, 16, 17, 22** are live in the
+Next.js app — user shell, dashboard, wallet, add money, payment proof,
+transactions, withdraw. Remaining screens ship with their phases.
+
 All concepts follow the CLUTCHNEX premium esports design system.
 
 ## Batch 1 — Public Website (DONE, 10/10)

@@ -41,8 +41,8 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 4 | Public website + public API + financial engine | ✅ Done |
 | 5 | Tournament engine | ✅ Done |
 | 6 | Teams & matches | ✅ Done |
-| 7 | Wallet & manual payments | ⬜ Next |
-| 8 | Results & prize distribution | ⬜ |
+| 7 | Wallet & manual payments | ✅ Done |
+| 8 | Results & prize distribution | ⬜ Next |
 | 9 | Admin panel | ⬜ |
 | 10 | Financial dashboard | ⬜ |
 | 11 | Support + WhatsApp + NEXA chatbot | ⬜ |
@@ -148,14 +148,36 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
   single-writer dev database; all settings lookups hoisted out of transactions.
 - **Verified:** 19/19 backend checks + Phase 5 regression green.
 
-### ⬜ Phase 7 — Wallet & manual payments *(next)*
-Add Money (JazzCash/EasyPaisa/bank instructions → transaction ID + screenshot →
-`PENDING`), duplicate-TID blocking, admin approve/reject crediting the ledger,
-withdrawals with the approval chain (pending → approved → processing → paid, or
-rejected with ledger reversal), coin conversion at the admin-set rate, transaction
-history.
+### ✅ Phase 7 — Wallet & manual payments
+- **Wallet API** (`/api/wallet`): overview (balances + admin-configured limits + recent
+  ledger rows), paginated transaction history with in/out/net totals over any filter
+  (type/bucket/direction/date-range/reference search), server-side **CSV export**,
+  and atomic cash→coins conversion at the admin-set rate.
+- **Manual deposits**: JazzCash / EasyPaisa / bank instructions from the seeded
+  `PaymentAccount` rows → transaction ID + sender + **screenshot upload** (multer,
+  MIME/size-gated, served back owner-or-staff-only) → `PENDING`. Duplicate TIDs are
+  blocked by a DB unique constraint (`DUPLICATE_TRANSACTION`), min/max deposit from
+  settings; deposits are **never auto-credited**.
+- **Admin review**: approve credits the cash ledger exactly once (PENDING-status
+  guard + audit + notification); reject records the reason with no money movement.
+- **Withdrawals**: winning-balance-only with the full approval chain
+  (PENDING → APPROVED → PROCESSING → PAID with mandatory payout reference).
+  Funds are debited into a holding at request time; rejection or player cancel
+  reverses the holding via a `WITHDRAWAL_REVERSAL` ledger entry. Overdraw,
+  below-minimum, and chain-skipping are all refused.
+- **UI (design-locked, screens 12/14/15/16/17/22)**: user-app shell (sidebar +
+  wallet chips + profile card), redesigned dashboard, wallet home, Add Money
+  (stepper, quick amounts, coins preview, method cards), Submit Payment Proof
+  (account details with copy + QR, drag-drop screenshot, verification timeline),
+  Transactions (filters, summary cards, balance before/after, pagination, CSV),
+  and Withdraw Winnings (MAX/quick amounts, method picker, live rules panel,
+  recent withdrawals). Fonts (Space Grotesk + Inter) now self-hosted.
+- **Verified:** `npm run verify:wallet` — 41/41 checks (duplicate TID across
+  users, idempotent approval, chain enforcement, reversals, coin conversion,
+  totals math, screenshot ownership, audits, ledger integrity) + Phase 5 join
+  regression green; `next build` clean.
 
-### ⬜ Phase 8 — Results & prize distribution
+### ⬜ Phase 8 — Results & prize distribution *(next)*
 Player result submission with screenshots, admin verification (verify/reject/
 disqualify), points calculation (placement + kills × rate), winner determination,
 **idempotent** prize distribution (placement + kill-pool with cap rules + MVP),
@@ -236,6 +258,7 @@ npm run dev             # http://localhost:3000
 | Where | Script | Purpose |
 |---|---|---|
 | backend | `npm run verify:join` | Concurrency/financial test suite for the join engine |
+| backend | `npm run verify:wallet` | Wallet ledger + manual payments test suite |
 | backend | `npm run db:seed` | Reset demo data |
 | backend | `npm run typecheck` | `tsc --noEmit` |
 | frontend | `npx next build` | Production build check |
@@ -282,4 +305,4 @@ free-fire-tornament/
 └── README.md          # this file
 ```
 
-**Build record:** PR #1 (Phase 1, merged) · **[PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2)** (Phases 2–6, in progress — one commit per phase).
+**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · Phase 7 in review on this branch.

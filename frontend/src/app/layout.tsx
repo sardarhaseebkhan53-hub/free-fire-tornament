@@ -1,6 +1,11 @@
 import type { Metadata, Viewport } from 'next';
-import { Navbar } from '@/components/navbar';
-import { Footer } from '@/components/footer';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import '@fontsource/space-grotesk/500.css';
+import '@fontsource/space-grotesk/600.css';
+import '@fontsource/space-grotesk/700.css';
 import { BottomNav } from '@/components/bottom-nav';
 import { WhatsAppFab } from '@/components/whatsapp-fab';
 import './globals.css';
@@ -31,9 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="h-full">
       <body className="flex min-h-screen flex-col bg-base text-fg">
-        <Navbar />
-        <main className="flex-1 pb-24 lg:pb-0">{children}</main>
-        <Footer />
+        {children}
         <BottomNav />
         <WhatsAppFab />
       </body>

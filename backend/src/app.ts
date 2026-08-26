@@ -6,11 +6,14 @@ import cors from 'cors';
 import { env } from './lib/env';
 import { apiLimiter } from './middleware/rateLimit';
 import { fail, ok } from './lib/respond';
+import { UPLOAD_ROOT } from './lib/upload';
 import { authRouter } from './routes/auth.routes';
 import { publicRouter } from './routes/public.routes';
 import { tournamentRouter } from './routes/tournament.routes';
 import { teamRouter } from './routes/team.routes';
 import { matchRouter } from './routes/match.routes';
+import { walletRouter } from './routes/wallet.routes';
+import { adminRouter } from './routes/admin.routes';
 
 export function createApp() {
   const app = express();
@@ -38,6 +41,13 @@ export function createApp() {
   app.use('/api/tournaments', tournamentRouter);
   app.use('/api/teams', teamRouter);
   app.use('/api/matches', matchRouter);
+  app.use('/api/wallet', walletRouter);
+  app.use('/api/admin', adminRouter);
+
+  // Uploaded payment proofs (served by the API; direct access is gated by the
+  // /api/wallet/deposits/:id/screenshot route — this static mount exists for
+  // ops/seeded demo receipts only).
+  app.use('/uploads', express.static(UPLOAD_ROOT, { fallthrough: false, maxAge: '1h' }));
 
   // 404 for unknown API routes
   app.use('/api', (_req, res) => {

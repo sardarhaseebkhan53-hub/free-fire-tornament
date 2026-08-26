@@ -16,7 +16,8 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "studio": "prisma studio",
-    "verify:join": "tsx scripts/verify-join-engine.mts"
+    "verify:join": "tsx scripts/verify-join-engine.mts",
+    "verify:wallet": "tsx scripts/verify-wallet.mts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
