@@ -7,6 +7,7 @@ import { env } from './lib/env';
 import { apiLimiter } from './middleware/rateLimit';
 import { fail, ok } from './lib/respond';
 import { authRouter } from './routes/auth.routes';
+import { publicRouter } from './routes/public.routes';
 
 export function createApp() {
   const app = express();
@@ -30,6 +31,7 @@ export function createApp() {
   );
 
   app.use('/api/auth', authRouter);
+  app.use('/api/public', publicRouter);
 
   // 404 for unknown API routes
   app.use('/api', (_req, res) => {

@@ -172,6 +172,20 @@ async function main() {
     ['security.lockoutMinutes', 15, 'Lockout duration'],
     ['seo.defaultTitle', 'CLUTCHNEX — Free Fire Tournaments in Pakistan', 'Default SEO title'],
     ['seo.defaultDescription', 'Join competitive Free Fire tournaments, compete with skilled players, and win rewards.', 'Default SEO description'],
+    ['pricing.defaultKillRule', 'CAP', 'Kill-pool overflow rule: CAP | PRO_RATA | STOP_AT_CAP (shown in tournament rules)'],
+    // CLUTCHNEX master pricing table — default launch tiers. Admin-editable in
+    // the tournament builder; never hard-coded in application code.
+    ['pricing.tiers', [
+      { key: 'SOLO_STARTER', type: 'SOLO', tier: 'STARTER', entryPerPlayer: 20, slots: 48, collection: 960, playerRewards: 700, platformGross: 260, prizes: [{ label: '1st', amount: 300 }, { label: '2nd', amount: 200 }, { label: '3rd', amount: 100 }, { label: 'KILL_POOL', amount: 100 }] },
+      { key: 'SOLO_STANDARD', type: 'SOLO', tier: 'STANDARD', entryPerPlayer: 50, slots: 48, collection: 2400, playerRewards: 1800, platformGross: 600, prizes: [{ label: '1st', amount: 650 }, { label: '2nd', amount: 400 }, { label: '3rd', amount: 250 }, { label: 'KILL_POOL', amount: 400, perKill: 10 }, { label: 'MVP', amount: 100 }] },
+      { key: 'SOLO_ELITE', type: 'SOLO', tier: 'ELITE', entryPerPlayer: 100, slots: 48, collection: 4800, playerRewards: 3600, platformGross: 1200, prizes: [{ label: '1st', amount: 1600 }, { label: '2nd', amount: 900 }, { label: '3rd', amount: 500 }, { label: 'KILL_POOL', amount: 500, perKill: 10 }, { label: 'MVP', amount: 100 }] },
+      { key: 'DUO_STANDARD', type: 'DUO', tier: 'STANDARD', entryPerPlayer: 25, slots: 25, collection: 1250, playerRewards: 900, platformGross: 350, prizes: [{ label: '1st', amount: 450 }, { label: '2nd', amount: 275 }, { label: '3rd', amount: 175 }] },
+      { key: 'DUO_ELITE', type: 'DUO', tier: 'ELITE', entryPerPlayer: 50, slots: 25, collection: 2500, playerRewards: 1900, platformGross: 600, prizes: [{ label: '1st', amount: 950 }, { label: '2nd', amount: 550 }, { label: '3rd', amount: 400 }] },
+      { key: 'SQUAD_STANDARD', type: 'SQUAD', tier: 'STANDARD', entryPerPlayer: 50, slots: 12, collection: 2400, playerRewards: 1800, platformGross: 600, prizes: [{ label: '1st', amount: 900 }, { label: '2nd', amount: 550 }, { label: '3rd', amount: 350 }] },
+      { key: 'SQUAD_ELITE', type: 'SQUAD', tier: 'ELITE', entryPerPlayer: 100, slots: 12, collection: 4800, playerRewards: 3800, platformGross: 1000, prizes: [{ label: '1st', amount: 1900 }, { label: '2nd', amount: 1150 }, { label: '3rd', amount: 750 }] },
+      { key: 'CLASH_STANDARD', type: 'CLASH_SQUAD', tier: 'STANDARD', entryPerPlayer: 50, slots: 2, collection: 400, playerRewards: 300, platformGross: 100, prizes: [{ label: 'WINNING_SQUAD', amount: 250 }, { label: 'MVP', amount: 50 }] },
+      { key: 'CLASH_ELITE', type: 'CLASH_SQUAD', tier: 'ELITE', entryPerPlayer: 100, slots: 2, collection: 800, playerRewards: 600, platformGross: 200, prizes: [{ label: 'WINNING_SQUAD', amount: 500 }, { label: 'MVP', amount: 100 }] },
+    ], 'Master pricing table (default launch tiers) — Starter/Standard/Pro/Elite/Custom configurable'],
   ];
   for (const [key, value, description] of settings) {
     await prisma.setting.create({ data: { key, value: value as never, description } });
@@ -403,7 +417,7 @@ async function main() {
         minSlotsToStart: 8, numWinners: 3, pointsPerKill: 1,
         startTime: daysAgo(2), registrationDeadline: new Date(daysAgo(2).getTime() - 30 * 60000), endTime: daysAgo(2),
         rules: RULES_COMMON, createdAt: daysAgo(9),
-        prizes: { create: [ { position: 1, amount: 200, label: '1st Place' }, { position: 2, amount: 120, label: '2nd Place' }, { position: 3, amount: 80, label: '3rd Place' } ] },
+        prizes: { create: [ { position: 1, amount: 200, label: '1st Place', kind: 'PLACEMENT' }, { position: 2, amount: 120, label: '2nd Place', kind: 'PLACEMENT' }, { position: 3, amount: 80, label: '3rd Place', kind: 'PLACEMENT' } ] },
       },
     }),
     squadDone: await prisma.tournament.create({
@@ -415,7 +429,7 @@ async function main() {
         minSlotsToStart: 2, numWinners: 3, pointsPerKill: 1, isFeatured: false,
         startTime: daysAgo(5), registrationDeadline: new Date(daysAgo(5).getTime() - 30 * 60000), endTime: daysAgo(5),
         rules: RULES_COMMON, createdAt: daysAgo(18),
-        prizes: { create: [ { position: 1, amount: 260, label: '1st Place' }, { position: 2, amount: 140, label: '2nd Place' }, { position: 3, amount: 80, label: '3rd Place' } ] },
+        prizes: { create: [ { position: 1, amount: 260, label: '1st Place', kind: 'PLACEMENT' }, { position: 2, amount: 140, label: '2nd Place', kind: 'PLACEMENT' }, { position: 3, amount: 80, label: '3rd Place', kind: 'PLACEMENT' } ] },
       },
     }),
     squadOpen: await prisma.tournament.create({
@@ -427,7 +441,7 @@ async function main() {
         minSlotsToStart: 6, numWinners: 3, pointsPerKill: 1, isFeatured: true,
         startTime: inHours(48), registrationDeadline: inHours(42),
         rules: RULES_COMMON, createdAt: daysAgo(6),
-        prizes: { create: [ { position: 1, amount: 160, label: '1st Place' }, { position: 2, amount: 90, label: '2nd Place' }, { position: 3, amount: 50, label: '3rd Place' } ] },
+        prizes: { create: [ { position: 1, amount: 160, label: '1st Place', kind: 'PLACEMENT' }, { position: 2, amount: 90, label: '2nd Place', kind: 'PLACEMENT' }, { position: 3, amount: 50, label: '3rd Place', kind: 'PLACEMENT' } ] },
       },
     }),
     duoOpen: await prisma.tournament.create({
@@ -439,7 +453,7 @@ async function main() {
         minSlotsToStart: 4, numWinners: 2, pointsPerKill: 1,
         startTime: inHours(26), registrationDeadline: inHours(24),
         rules: RULES_COMMON, createdAt: daysAgo(4),
-        prizes: { create: [ { position: 1, amount: 45, label: '1st Place' }, { position: 2, amount: 30, label: '2nd Place' } ] },
+        prizes: { create: [ { position: 1, amount: 45, label: '1st Place', kind: 'PLACEMENT' }, { position: 2, amount: 30, label: '2nd Place', kind: 'PLACEMENT' } ] },
       },
     }),
     csOpen: await prisma.tournament.create({
@@ -451,7 +465,7 @@ async function main() {
         minSlotsToStart: 2, numWinners: 1, pointsPerKill: 1, isFeatured: true,
         startTime: inHours(5), registrationDeadline: inHours(4),
         rules: RULES_COMMON, createdAt: daysAgo(2),
-        prizes: { create: [ { position: 1, amount: 160, label: 'Winner Takes All' } ] },
+        prizes: { create: [ { position: 1, amount: 160, label: 'Winner Takes All', kind: 'PLACEMENT' } ] },
       },
     }),
     cancelled: await prisma.tournament.create({

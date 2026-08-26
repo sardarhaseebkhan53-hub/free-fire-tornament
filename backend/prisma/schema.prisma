@@ -703,9 +703,12 @@ model Prize {
   id           String     @id @default(cuid())
   tournamentId String
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  position     Int // 1-based
+  position     Int // 1-based (ordering only for non-placement kinds)
   amount       Decimal    @db.Decimal(14, 2)
-  label        String? // e.g. "1st Place", "MVP Bonus"
+  label        String? // e.g. "1st Place", "MVP", "Kill Pool"
+  kind         String? // PLACEMENT | KILL_POOL | MVP | BONUS (null = legacy placement)
+  perKill      Decimal?   @db.Decimal(14, 2) // for KILL_POOL: rate per kill
+  cap          Decimal?   @db.Decimal(14, 2) // for KILL_POOL: mandatory budget cap
 
   @@unique([tournamentId, position])
   @@map("prizes")
