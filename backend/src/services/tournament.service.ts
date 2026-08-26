@@ -76,6 +76,10 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
   const teamSize = TEAM_SIZE[t.type];
   const feePerPlayer = Number(t.entryFeePerPlayer);
 
+  // Resolve settings BEFORE opening the transaction: reading them inside would
+  // use the global client and deadlock the single-writer embedded database.
+  const currency = await getSetting('platform.currency', 'PKR');
+
   // Resolve who is paying: solo = the player; team modes = every member pays
   // their own share (the captain triggers the join on behalf of the team).
   let payerIds: string[] = [userId];
@@ -163,7 +167,6 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
       if (inc.count === 0) throw badRequest('VALIDATION_ERROR', 'Coupon usage limit reached');
     }
 
-    const currency = await getSetting('platform.currency', 'PKR');
 
     // 4. Ledger debits + registrations for every payer
     const registrations = [];
@@ -266,6 +269,9 @@ export async function cancelRegistration(userId: string, tournamentSlug: string)
     throw forbidden('Only the team captain can cancel a team registration.');
   }
 
+  // Hoisted out of the transaction — see joinTournament note.
+  const currency = await getSetting('platform.currency', 'PKR');
+
   return prisma.$transaction(async (tx) => {
     const targets = isTeam
       ? await tx.tournamentRegistration.findMany({
@@ -274,7 +280,6 @@ export async function cancelRegistration(userId: string, tournamentSlug: string)
       : [mine];
 
     const refundPercent = Number(t.refundPercent) / 100;
-    const currency = await getSetting('platform.currency', 'PKR');
     let refundedTotal = 0;
 
     for (const reg of targets) {
@@ -334,12 +339,14 @@ export async function adminCancelTournament(adminId: string, tournamentId: strin
     throw badRequest('VALIDATION_ERROR', 'Tournament is already closed.');
   }
 
+  // Hoisted out of the transaction — see joinTournament note.
+  const currency = await getSetting('platform.currency', 'PKR');
+
   return prisma.$transaction(async (tx) => {
     const regs = await tx.tournamentRegistration.findMany({
       where: { tournamentId, status: 'CONFIRMED' },
     });
     const refundPercent = Number(t.refundPercent) / 100;
-    const currency = await getSetting('platform.currency', 'PKR');
     let refunded = 0;
 
     for (const reg of regs) {

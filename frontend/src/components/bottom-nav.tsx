@@ -6,8 +6,8 @@ import { Home, Swords, Trophy, Wallet, User } from 'lucide-react';
 
 const ITEMS = [
   { href: '/', label: 'Home', icon: Home },
-  { href: '/tournaments', label: 'Arenas', icon: Trophy },
-  { href: '/leaderboard', label: 'Ranks', icon: Swords },
+  { href: '/tournaments', label: 'Tournaments', icon: Trophy },
+  { href: '/matches', label: 'Matches', icon: Swords },
   { href: '/wallet', label: 'Wallet', icon: Wallet },
   { href: '/dashboard', label: 'Profile', icon: User },
 ];
