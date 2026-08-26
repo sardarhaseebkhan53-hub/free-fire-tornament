@@ -17,6 +17,9 @@ backend/.env
 pgdata/
 uploads/
 
+# Prisma generated client (regenerated via `npm run db:generate`)
+backend/generated/
+
 # Logs & OS
 *.log
 .DS_Store
