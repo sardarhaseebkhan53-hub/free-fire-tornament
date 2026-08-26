@@ -8,6 +8,7 @@ import { apiLimiter } from './middleware/rateLimit';
 import { fail, ok } from './lib/respond';
 import { authRouter } from './routes/auth.routes';
 import { publicRouter } from './routes/public.routes';
+import { tournamentRouter } from './routes/tournament.routes';
 
 export function createApp() {
   const app = express();
@@ -32,6 +33,7 @@ export function createApp() {
 
   app.use('/api/auth', authRouter);
   app.use('/api/public', publicRouter);
+  app.use('/api/tournaments', tournamentRouter);
 
   // 404 for unknown API routes
   app.use('/api', (_req, res) => {

@@ -9,6 +9,7 @@ import type { TournamentDetails } from '@/lib/types';
 import { money, MODE_LABEL, STATUS_LABEL, dateTime } from '@/lib/format';
 import { Badge, Avatar, SectionHeading } from '@/components/ui';
 import { Countdown } from '@/components/countdown';
+import { JoinTournament } from '@/components/join-tournament';
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -56,17 +57,14 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
           <div className="mt-6 flex flex-wrap items-center gap-4">
             {t.registrationOpen ? (
-              <>
-                <Link
-                  href="/login"
-                  className="rounded-input bg-accent px-8 py-3.5 text-sm font-bold text-white shadow-[0_0_28px_rgba(139,92,246,0.45)] transition hover:bg-accent-strong"
-                >
-                  JOIN TOURNAMENT — {money(t.entryFeePerTeam)} {t.teamSize > 1 ? '/ team' : '/ player'}
-                </Link>
-                <p className="text-sm text-fg-2">
-                  Starts in <Countdown targetMs={t.startsInMs} className="font-bold text-fg" />
-                </p>
-              </>
+              <p className="text-sm text-fg-2">
+                Registration closes in{' '}
+                <Countdown
+                  targetMs={new Date(t.registrationDeadline).getTime() - Date.now()}
+                  className="font-bold text-warning"
+                />{' '}
+                · match starts in <Countdown targetMs={t.startsInMs} className="font-bold text-fg" />
+              </p>
             ) : (
               <p className="text-sm font-semibold text-fg-3">
                 {t.status === 'COMPLETED' ? 'This tournament has finished — results below.' : 'Registration is closed.'}
@@ -192,11 +190,16 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               <div className="flex justify-between"><dt className="text-fg-2">Points / kill</dt><dd className="tabular font-semibold text-fg">{t.pointsPerKill}</dd></div>
               <div className="flex justify-between"><dt className="text-fg-2">Refund on cancel</dt><dd className="tabular font-semibold text-success">{Number(t.refundPercent)}%</dd></div>
             </dl>
-            {t.registrationOpen && (
-              <Link href="/login" className="mt-5 block rounded-input bg-accent px-4 py-3 text-center text-sm font-bold text-white transition hover:bg-accent-strong">
-                JOIN TOURNAMENT
-              </Link>
-            )}
+            <div className="mt-5">
+              <JoinTournament
+                slug={t.slug}
+                type={t.type}
+                entryPerPlayer={Number(t.entryFeePerPlayer)}
+                entryPerTeam={t.entryFeePerTeam}
+                teamSize={t.teamSize}
+                registrationOpen={t.registrationOpen}
+              />
+            </div>
           </div>
 
           {t.rules && (

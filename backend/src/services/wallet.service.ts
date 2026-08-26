@@ -50,7 +50,6 @@ export async function applyWalletTx(
   return prisma.$transaction(async (tx) => {
     const wallet = await tx.wallet.findUnique({ where: { userId } });
     if (!wallet) throw badRequest('NOT_FOUND', 'Wallet not found');
-
     const before = wallet[COLUMN[bucket]].toNumber();
     const after = direction === 'CREDIT' ? before + amount : before - amount;
     if (after < -0.0001) {
@@ -78,5 +77,5 @@ export async function applyWalletTx(
     });
 
     return entry;
-  });
+  }, { timeout: 20_000, maxWait: 10_000 });
 }
