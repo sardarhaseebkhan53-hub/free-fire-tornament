@@ -10,7 +10,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../../generated/prisma';
 
 const DEFAULT_URL =
-  'postgresql://postgres:postgres@127.0.0.1:5432/postgres?connection_limit=1';
+  'postgresql://postgres:postgres@127.0.0.1:5432/postgres?connection_limit=5';
 
 function buildClient(): PrismaClient {
   const connectionString = process.env.DATABASE_URL ?? DEFAULT_URL;

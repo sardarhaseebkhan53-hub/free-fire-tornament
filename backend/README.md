@@ -68,3 +68,26 @@ tournaments, verified matches with results and winners, credited prizes,
 pending/approved/rejected deposits, pending/processing/rejected withdrawals,
 coupons, referrals, tickets, notifications, blog, FAQs, legal pages, settings
 and audit logs — with a fully consistent wallet ledger in PKR.
+
+## Auth API (Phase 3)
+
+Base: `/api/auth`. Envelope: `{ success, message?, code?, data }`.
+
+| Method | Path                  | Auth  | Purpose |
+| ------ | --------------------- | ----- | ------- |
+| POST   | `/register`           | —     | Create account (+ referral link, verification email) |
+| POST   | `/login`              | —     | Access JWT + rotating HttpOnly refresh cookie |
+| POST   | `/refresh`            | cookie| Rotate session (old token single-use) |
+| POST   | `/logout`             | cookie| Revoke refresh + clear cookie |
+| POST   | `/verify-email`       | —     | Verify email (grants configurable welcome bonus) |
+| POST   | `/resend-verification`| —     | Re-send verification link |
+| POST   | `/forgot-password`    | —     | Email a 1-hour reset token |
+| POST   | `/reset-password`     | —     | Set new password, revoke all sessions |
+| POST   | `/change-password`    | Bearer| Change password (revokes other sessions) |
+| GET    | `/me`                 | Bearer| Profile + wallet + stats |
+
+Security: bcrypt hashing, JWT access (15m) + rotating refresh (7d) stored as
+SHA-256 hashes, per-email login lockout (settings-driven), route rate limits,
+RBAC middleware (`USER < MODERATOR < ADMIN < SUPER_ADMIN`), and no secret or
+stack-trace leakage in responses. In development, emails print to the API log
+and register/forgot responses include a `…TokenDevOnly` field for easy testing.
