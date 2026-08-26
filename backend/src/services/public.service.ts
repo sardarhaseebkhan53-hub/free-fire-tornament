@@ -234,6 +234,42 @@ export async function listFaqs() {
   });
 }
 
+export async function getPublicPlayer(username: string) {
+  const user = await prisma.user.findUnique({
+    where: { username: username.toLowerCase() },
+    select: {
+      username: true,
+      avatar: true,
+      createdAt: true,
+      role: true,
+      profile: {
+        select: { freeFireIGN: true, city: true, bio: true, showPublicProfile: true },
+      },
+      stats: {
+        select: { matchesPlayed: true, wins: true, kills: true, totalPoints: true, earnings: true },
+      },
+    },
+  });
+  // Public profiles only, players only, and only when the player allows it.
+  if (!user || user.role !== 'USER' || user.profile?.showPublicProfile === false) {
+    throw notFound('Player not found');
+  }
+  const stats = user.stats;
+  const winRate =
+    stats && stats.matchesPlayed > 0 ? Math.round((stats.wins / stats.matchesPlayed) * 100) : 0;
+  return {
+    username: user.username,
+    avatar: user.avatar,
+    joinedAt: user.createdAt,
+    freeFireIGN: user.profile?.freeFireIGN ?? null,
+    city: user.profile?.city ?? null,
+    bio: user.profile?.bio ?? null,
+    stats: stats
+      ? { ...stats, winRate }
+      : { matchesPlayed: 0, wins: 0, kills: 0, totalPoints: 0, earnings: 0, winRate: 0 },
+  };
+}
+
 export async function publicSettings() {
   const keys = [
     'platform.name', 'platform.tagline', 'platform.currency', 'platform.currencySymbol',

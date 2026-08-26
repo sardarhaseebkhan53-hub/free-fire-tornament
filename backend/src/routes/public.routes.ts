@@ -77,6 +77,10 @@ publicRouter.get('/pages/:slug', async (req, res) => {
   return ok(res, await svc.getStaticPage(String(req.params.slug).slice(0, 60)));
 });
 
+publicRouter.get('/players/:username', async (req, res) => {
+  return ok(res, await svc.getPublicPlayer(String(req.params.username).slice(0, 40)));
+});
+
 publicRouter.get('/faqs', async (_req, res) => {
   return ok(res, await svc.listFaqs());
 });
