@@ -1058,3 +1058,24 @@ model FraudAlert {
   @@index([userId])
   @@map("fraud_alerts")
 }
+
+// -----------------------------------------------------------------------------
+// PLATFORM EXPENSES (gross vs net accounting — spec §22)
+//
+// Net Platform Profit = Platform Gross − Payment Costs − Refunds − Promotions
+// − Referral Costs − Operational Costs − Taxes. Refunds/promotions/referral
+// costs are derived from the ledger; the buckets below are admin-recorded.
+// -----------------------------------------------------------------------------
+
+model Expense {
+  id          String   @id @default(cuid())
+  category    String // PAYMENT_COST | OPERATIONAL | TAX | PROMOTION | OTHER
+  amount      Decimal  @db.Decimal(14, 2)
+  note        String?
+  occurredAt  DateTime @default(now())
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([category, occurredAt])
+  @@map("expenses")
+}

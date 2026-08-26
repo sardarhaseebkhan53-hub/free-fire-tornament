@@ -124,7 +124,7 @@ function stat(userId: string): StatAcc {
 // ---------------------------------------------------------------------------
 async function wipe() {
   const tables = [
-    'fraud_alerts', 'audit_logs', 'player_stats', 'seo_configs', 'advertisements',
+    'expenses', 'fraud_alerts', 'audit_logs', 'player_stats', 'seo_configs', 'advertisements',
     'payment_accounts', 'settings', 'faqs', 'static_pages', 'blog_posts',
     'notifications', 'disputes', 'support_messages', 'support_tickets',
     'coupon_redemptions', 'coupons', 'referral_rewards', 'winners', 'prizes',
@@ -173,6 +173,7 @@ async function main() {
     ['seo.defaultTitle', 'CLUTCHNEX — Free Fire Tournaments in Pakistan', 'Default SEO title'],
     ['seo.defaultDescription', 'Join competitive Free Fire tournaments, compete with skilled players, and win rewards.', 'Default SEO description'],
     ['pricing.defaultKillRule', 'CAP', 'Kill-pool overflow rule: CAP | PRO_RATA | STOP_AT_CAP (shown in tournament rules)'],
+    ['pricing.lossWarningThreshold', 0, 'Publish warning when estimated profit falls below this (PKR); admin must confirm losses explicitly'],
     // CLUTCHNEX master pricing table — default launch tiers. Admin-editable in
     // the tournament builder; never hard-coded in application code.
     ['pricing.tiers', [
@@ -930,6 +931,15 @@ async function main() {
     data: [
       { userId: P('ali_phantom'), kind: 'DEPOSIT_TID_DUPLICATE_ATTEMPT', severity: 'MEDIUM', details: { transactionId: 'JC8492017365', note: 'TID belongs to another user — blocked at submission' }, status: 'OPEN', createdAt: hoursAgo(26) },
       { userId: P('usman_t'), kind: 'MULTIPLE_FAILED_LOGINS', severity: 'LOW', details: { attempts: 5 }, status: 'DISMISSED', reviewedById: moderator.id, reviewedAt: daysAgo(4), createdAt: daysAgo(4) },
+    ],
+  });
+
+  // Platform expenses (gross-vs-net accounting buckets — spec §22)
+  await prisma.expense.createMany({
+    data: [
+      { category: 'PAYMENT_COST', amount: 180, note: 'JazzCash/EasyPaisa payout fees — August', occurredAt: daysAgo(6), createdById: admin.id },
+      { category: 'OPERATIONAL', amount: 2500, note: 'Hosting + monitoring — August', occurredAt: daysAgo(10), createdById: superAdmin.id },
+      { category: 'PROMOTION', amount: 400, note: 'Welcome bonuses campaign top-up', occurredAt: daysAgo(12), createdById: admin.id },
     ],
   });
 
