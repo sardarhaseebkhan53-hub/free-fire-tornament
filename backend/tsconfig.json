@@ -17,6 +17,6 @@
     "sourceMap": false,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "prisma/seed.ts", "scripts/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*.ts", "prisma/seed.ts", "scripts/**/*.ts", "prisma.config.ts"],
+  "exclude": ["node_modules", "dist", "generated"]
 }

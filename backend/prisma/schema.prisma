@@ -1,0 +1,1081 @@
+// =============================================================================
+// CLUTCHNEX — Free Fire esports tournament platform
+// Prisma schema (Phase 2) — PostgreSQL
+//
+// Conventions:
+//  - All money amounts are Decimal(14,2) in the platform currency (default PKR,
+//    admin-configurable via the `platform.currency` Setting).
+//  - Wallet is an immutable ledger: every balance change writes a
+//    WalletTransaction with balanceBefore/balanceAfter.
+//  - Every sensitive action is auditable via AuditLog.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Prisma 7: connection URL lives in prisma.config.ts (CLI) and is passed
+  // via a driver adapter at runtime (see src/lib/prisma.ts). Never hardcoded here.
+}
+
+// -----------------------------------------------------------------------------
+// ENUMS
+// -----------------------------------------------------------------------------
+
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  PENDING_VERIFICATION
+  SUSPENDED
+  BANNED
+}
+
+enum TokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+  REFRESH
+}
+
+enum WalletBucket {
+  CASH //    money deposited by the user
+  COINS //   tournament credits (converted from deposits at admin-set rate)
+  WINNING // tournament winnings
+  BONUS //   promotional rewards with restrictions
+}
+
+enum WalletTxType {
+  DEPOSIT
+  ENTRY_FEE
+  ENTRY_REFUND
+  WINNING
+  WITHDRAWAL
+  WITHDRAWAL_REVERSAL
+  BONUS_CREDIT
+  BONUS_DEBIT
+  REFERRAL_REWARD
+  COIN_CONVERSION
+  ADMIN_CREDIT
+  ADMIN_DEBIT
+}
+
+enum WalletTxDirection {
+  CREDIT
+  DEBIT
+}
+
+enum WalletTxStatus {
+  COMPLETED
+  PENDING
+  REVERSED
+}
+
+enum PaymentMethod {
+  JAZZCASH
+  EASYPAISA
+  BANK_TRANSFER
+}
+
+enum DepositStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  PAID
+  REJECTED
+  CANCELLED
+}
+
+enum TournamentType {
+  SOLO
+  DUO
+  SQUAD
+  CLASH_SQUAD
+}
+
+enum TournamentStatus {
+  DRAFT
+  REGISTRATION_OPEN
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum RegistrationStatus {
+  CONFIRMED
+  CANCELLED
+  REFUNDED
+  DISQUALIFIED
+}
+
+enum TeamType {
+  DUO
+  SQUAD
+}
+
+enum TeamRole {
+  CAPTAIN
+  MEMBER
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
+}
+
+enum MatchStatus {
+  SCHEDULED
+  CREDENTIALS_RELEASED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum ParticipantStatus {
+  REGISTERED
+  PLAYED
+  DISQUALIFIED
+}
+
+enum ResultStatus {
+  PENDING
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum WinnerStatus {
+  PENDING
+  CREDITED
+  FAILED
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED
+}
+
+enum CouponStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+enum TicketCategory {
+  PAYMENT
+  TOURNAMENT
+  WITHDRAWAL
+  ACCOUNT
+  TEAM
+  TECHNICAL
+  REPORT_PLAYER
+  OTHER
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_USER
+  RESOLVED
+  CLOSED
+}
+
+enum NotificationType {
+  TOURNAMENT_JOINED
+  TOURNAMENT_UPDATE
+  MATCH_STARTING
+  ROOM_CREDENTIALS
+  RESULT_VERIFIED
+  TOURNAMENT_COMPLETED
+  WINNING_CREDITED
+  DEPOSIT_APPROVED
+  DEPOSIT_REJECTED
+  WITHDRAWAL_UPDATE
+  SUPPORT_REPLY
+  REFERRAL_REWARD
+  TEAM_INVITE
+  ACCOUNT
+  SYSTEM
+}
+
+enum BlogStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum BlogCategory {
+  TOURNAMENTS
+  GUIDES
+  TIPS
+  NEWS
+  STRATEGY
+  ANNOUNCEMENTS
+}
+
+enum AdPlacement {
+  HEADER
+  TOURNAMENT_PAGE
+  SIDEBAR
+  BLOG
+  FOOTER
+  MOBILE
+  INTERSTITIAL
+}
+
+enum DisputeType {
+  INCORRECT_RESULT
+  CHEATING
+  PAYMENT_PROBLEM
+  MISSING_PRIZE
+  TOURNAMENT_ISSUE
+  OTHER
+}
+
+enum DisputeStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  REJECTED
+}
+
+enum FraudSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum FraudAlertStatus {
+  OPEN
+  REVIEWED
+  DISMISSED
+}
+
+enum ReferralRewardStatus {
+  PENDING
+  QUALIFIED
+  CREDITED
+  REJECTED
+}
+
+// -----------------------------------------------------------------------------
+// IDENTITY & AUTH
+// -----------------------------------------------------------------------------
+
+model User {
+  id           String     @id @default(cuid())
+  username     String     @unique
+  email        String     @unique
+  phone        String?    @unique
+  passwordHash String
+  role         Role       @default(USER)
+  avatar       String?
+  status       UserStatus @default(PENDING_VERIFICATION)
+  isVerified   Boolean    @default(false)
+  verifiedAt   DateTime?
+
+  // Referrals — every user gets a unique code like "CLUTCH-AB123"
+  referralCode String  @unique @default(cuid())
+  referredById String?
+  referredBy   User?   @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals    User[]  @relation("UserReferrals")
+
+  lastLoginAt DateTime?
+  bannedAt    DateTime?
+  banReason   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  profile                 UserProfile?
+  wallet                  Wallet?
+  transactions            WalletTransaction[]
+  deposits                Deposit[]
+  withdrawals             Withdrawal[]
+  registrations           TournamentRegistration[]
+  ownedTeams              Team[]                   @relation("TeamCaptain")
+  teamMemberships         TeamMember[]
+  sentInvites             TeamInvite[]             @relation("InviteSender")
+  receivedInvites         TeamInvite[]             @relation("InviteRecipient")
+  matchResults            ResultSubmission[]       @relation("ResultSubmitter")
+  verifiedResults         ResultSubmission[]       @relation("ResultVerifier")
+  soloParticipations      MatchParticipant[]
+  winnings                Winner[]
+  referralRewards         ReferralReward[]         @relation("Referrer")
+  earnedReferrals         ReferralReward[]         @relation("ReferredUser")
+  couponRedemptions       CouponRedemption[]
+  tickets                 SupportTicket[]
+  disputes                Dispute[]
+  ticketMessages          SupportMessage[]
+  notifications           Notification[]
+  blogPosts               BlogPost[]
+  audits                  AuditLog[]
+  reviewedDeposits        Deposit[]                @relation("DepositReviewer")
+  reviewedWithdrawals     Withdrawal[]             @relation("WithdrawalReviewer")
+  handledDisputes         Dispute[]                @relation("DisputeHandler")
+  authTokens              AuthToken[]
+  stats                   PlayerStat?
+  adminBalanceAdjustments WalletTransaction[]      @relation("TxCreatedBy")
+
+  @@index([role])
+  @@index([status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model UserProfile {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName          String
+  country           String?
+  city              String?
+  freeFireUID       String?  @unique
+  freeFireIGN       String?
+  bio               String?
+  showPublicProfile Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([freeFireUID])
+  @@map("user_profiles")
+}
+
+/// Refresh tokens + email-verification + password-reset tokens (stored hashed).
+model AuthToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      TokenType
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  ip        String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, type])
+  @@map("auth_tokens")
+}
+
+// -----------------------------------------------------------------------------
+// WALLET LEDGER
+// -----------------------------------------------------------------------------
+
+model Wallet {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cashBalance    Decimal  @default(0) @db.Decimal(14, 2)
+  coinBalance    Decimal  @default(0) @db.Decimal(14, 2)
+  winningBalance Decimal  @default(0) @db.Decimal(14, 2)
+  bonusBalance   Decimal  @default(0) @db.Decimal(14, 2)
+  lockedBalance  Decimal  @default(0) @db.Decimal(14, 2) // reserved during in-flight operations
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
+  @@map("wallets")
+}
+
+/// Immutable ledger — rows are never updated or deleted; corrections are
+/// reversal transactions.
+model WalletTransaction {
+  id            String            @id @default(cuid())
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bucket        WalletBucket
+  type          WalletTxType
+  direction     WalletTxDirection
+  amount        Decimal           @db.Decimal(14, 2) // always positive; direction decides sign
+  currency      String            @default("PKR")
+  balanceBefore Decimal           @db.Decimal(14, 2)
+  balanceAfter  Decimal           @db.Decimal(14, 2)
+  entityType    String? // e.g. "Deposit", "TournamentRegistration", "Withdrawal", "Winner"
+  entityId      String?
+  reference     String? // external ref (payment TID, withdrawal payout ref…)
+  description   String?
+  status        WalletTxStatus    @default(COMPLETED)
+  createdById   String? // admin for manual adjustments
+  createdBy     User?             @relation("TxCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime          @default(now())
+
+  @@index([userId, createdAt])
+  @@index([bucket])
+  @@index([entityType, entityId])
+  @@index([reference])
+  @@map("wallet_transactions")
+}
+
+// -----------------------------------------------------------------------------
+// DEPOSITS & WITHDRAWALS (manual verification)
+// -----------------------------------------------------------------------------
+
+model Deposit {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount        Decimal       @db.Decimal(14, 2)
+  method        PaymentMethod
+  transactionId String        @unique // duplicate TIDs are rejected at the DB level
+  screenshot    String // uploaded file path
+  senderName    String
+  senderAccount String?
+  status        DepositStatus @default(PENDING)
+  adminNote     String?
+  reviewedById  String?
+  reviewedBy    User?         @relation("DepositReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt    DateTime?
+  walletTxId    String? // ledger entry created on approval
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([transactionId])
+  @@index([createdAt])
+  @@map("deposits")
+}
+
+model Withdrawal {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount         Decimal          @db.Decimal(14, 2)
+  method         PaymentMethod
+  accountName    String
+  accountNumber  String
+  accountDetails String? // bank name / branch etc.
+  status         WithdrawalStatus @default(PENDING)
+  adminNote      String?
+  paidReference  String? // payout TID once marked PAID
+  reviewedById   String?
+  reviewedBy     User?            @relation("WithdrawalReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt     DateTime?
+  paidAt         DateTime?
+  walletTxId     String? // ledger entry created when funds are debited
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("withdrawals")
+}
+
+// -----------------------------------------------------------------------------
+// TOURNAMENTS
+// -----------------------------------------------------------------------------
+
+model Tournament {
+  id          String           @id @default(cuid())
+  title       String
+  slug        String           @unique
+  description String?
+  type        TournamentType
+  game        String           @default("FREE_FIRE")
+  map         String?
+  status      TournamentStatus @default(DRAFT)
+  banner      String?
+  isVerified  Boolean          @default(true)
+  isFeatured  Boolean          @default(false)
+
+  // Economics — NEVER hard-coded; all admin-configurable per tournament.
+  entryFeePerPlayer Decimal @default(0) @db.Decimal(14, 2)
+  prizePool         Decimal @default(0) @db.Decimal(14, 2)
+  platformFee       Decimal @default(0) @db.Decimal(14, 2) // platform/service fee
+  bonusPercent      Decimal @default(0) @db.Decimal(10, 2) // bonus credited on join (from BONUS pool rules)
+
+  // Slots — counted in teams for DUO/SQUAD/CLASH_SQUAD, players for SOLO.
+  maxSlots        Int
+  registeredSlots Int     @default(0)
+  minSlotsToStart Int?
+  numWinners      Int     @default(3)
+  refundPercent   Decimal @default(100) @db.Decimal(5, 2) // refund share if cancelled
+  pointsPerKill   Int     @default(1)
+
+  startTime            DateTime
+  registrationDeadline DateTime
+  endTime              DateTime?
+  rules                String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  registrations TournamentRegistration[]
+  matches       Match[]
+  prizes        Prize[]
+  winners       Winner[]
+
+  @@index([slug])
+  @@index([status])
+  @@index([type])
+  @@index([startTime])
+  @@map("tournaments")
+}
+
+model TournamentRegistration {
+  id               String             @id @default(cuid())
+  tournamentId     String
+  tournament       Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId           String? // set for team-mode tournaments
+  team             Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  entryAmount      Decimal            @db.Decimal(14, 2) // actually charged (after coupon)
+  discount         Decimal            @default(0) @db.Decimal(14, 2)
+  couponId         String?
+  coupon           Coupon?            @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  status           RegistrationStatus @default(CONFIRMED)
+  walletTxId       String? // entry-fee ledger entry
+  couponRedemption CouponRedemption?
+  registeredAt     DateTime           @default(now())
+  cancelledAt      DateTime?
+
+  @@unique([tournamentId, userId]) // race-safe: one entry per user per tournament
+  @@index([userId])
+  @@index([teamId])
+  @@index([status])
+  @@map("tournament_registrations")
+}
+
+// -----------------------------------------------------------------------------
+// TEAMS
+// -----------------------------------------------------------------------------
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  tag       String   @unique
+  captainId String
+  captain   User     @relation("TeamCaptain", fields: [captainId], references: [id], onDelete: Cascade)
+  type      TeamType
+  logo      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members       TeamMember[]
+  invites       TeamInvite[]
+  registrations TournamentRegistration[]
+  participants  MatchParticipant[]
+  winnings      Winner[]
+
+  @@index([captainId])
+  @@map("teams")
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     TeamRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+
+  @@unique([teamId, userId])
+  @@index([userId]) // a player may hold one DUO and one SQUAD team (enforced in services)
+  @@map("team_members")
+}
+
+model TeamInvite {
+  id          String       @id @default(cuid())
+  teamId      String
+  team        Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  inviteeId   String
+  invitee     User         @relation("InviteRecipient", fields: [inviteeId], references: [id], onDelete: Cascade)
+  invitedById String
+  invitedBy   User         @relation("InviteSender", fields: [invitedById], references: [id], onDelete: Cascade)
+  status      InviteStatus @default(PENDING)
+  message     String?
+  createdAt   DateTime     @default(now())
+  respondedAt DateTime?
+
+  @@unique([teamId, inviteeId])
+  @@index([inviteeId, status])
+  @@map("team_invites")
+}
+
+// -----------------------------------------------------------------------------
+// MATCHES & RESULTS
+// -----------------------------------------------------------------------------
+
+model Match {
+  id           String      @id @default(cuid())
+  tournamentId String
+  tournament   Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  round        Int         @default(1)
+  matchNumber  Int
+  map          String?
+  scheduledAt  DateTime
+  status       MatchStatus @default(SCHEDULED)
+
+  // Room credentials — hidden until credentialsReleaseAt. Never exposed publicly.
+  roomId                String?
+  roomPassword          String?
+  credentialsReleaseAt  DateTime?
+  credentialsReleasedAt DateTime?
+
+  resultsFinalized Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  participants      MatchParticipant[]
+  resultSubmissions ResultSubmission[]
+
+  @@unique([tournamentId, matchNumber])
+  @@index([tournamentId, round])
+  @@index([scheduledAt])
+  @@index([status])
+  @@map("matches")
+}
+
+model MatchParticipant {
+  id        String            @id @default(cuid())
+  matchId   String
+  match     Match             @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  teamId    String?
+  team      Team?             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String? // SOLO tournaments
+  user      User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  placement Int?
+  kills     Int?
+  points    Int?
+  status    ParticipantStatus @default(REGISTERED)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@unique([matchId, teamId])
+  @@unique([matchId, userId])
+  @@index([matchId])
+  @@map("match_participants")
+}
+
+model ResultSubmission {
+  id            String       @id @default(cuid())
+  matchId       String
+  match         Match        @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  submittedById String
+  submittedBy   User         @relation("ResultSubmitter", fields: [submittedById], references: [id], onDelete: Cascade)
+  screenshot    String?
+  kills         Int?
+  placement     Int?
+  notes         String?
+  status        ResultStatus @default(PENDING)
+  verifiedById  String?
+  verifiedBy    User?        @relation("ResultVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verifiedAt    DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([matchId, status])
+  @@map("result_submissions")
+}
+
+// -----------------------------------------------------------------------------
+// PRIZES & WINNERS
+// -----------------------------------------------------------------------------
+
+model Prize {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  position     Int // 1-based (ordering only for non-placement kinds)
+  amount       Decimal    @db.Decimal(14, 2)
+  label        String? // e.g. "1st Place", "MVP", "Kill Pool"
+  kind         String? // PLACEMENT | KILL_POOL | MVP | BONUS (null = legacy placement)
+  perKill      Decimal?   @db.Decimal(14, 2) // for KILL_POOL: rate per kill
+  cap          Decimal?   @db.Decimal(14, 2) // for KILL_POOL: mandatory budget cap
+
+  @@unique([tournamentId, position])
+  @@map("prizes")
+}
+
+model Winner {
+  id           String       @id @default(cuid())
+  tournamentId String
+  tournament   Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  position     Int
+  userId       String? // solo winner
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId       String? // team-mode winner (credited to members per rules)
+  team         Team?        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  amount       Decimal      @db.Decimal(14, 2)
+  status       WinnerStatus @default(PENDING)
+  walletTxId   String?
+  creditedAt   DateTime?
+  createdAt    DateTime     @default(now())
+
+  @@unique([tournamentId, position])
+  @@index([userId])
+  @@index([teamId])
+  @@map("winners")
+}
+
+// -----------------------------------------------------------------------------
+// REFERRALS & COUPONS
+// -----------------------------------------------------------------------------
+
+model ReferralReward {
+  id               String               @id @default(cuid())
+  referrerId       String
+  referrer         User                 @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredUserId   String               @unique
+  referredUser     User                 @relation("ReferredUser", fields: [referredUserId], references: [id], onDelete: Cascade)
+  rewardAmount     Decimal              @db.Decimal(14, 2)
+  status           ReferralRewardStatus @default(PENDING)
+  qualifyingAction String? // e.g. "FIRST_DEPOSIT_APPROVED"
+  qualifiedAt      DateTime?
+  creditedAt       DateTime?
+  walletTxId       String?
+  createdAt        DateTime             @default(now())
+
+  @@index([referrerId, status])
+  @@map("referral_rewards")
+}
+
+model Coupon {
+  id           String           @id @default(cuid())
+  code         String           @unique
+  type         CouponType
+  value        Decimal          @db.Decimal(14, 2) // percent (0-100) or fixed amount
+  maxDiscount  Decimal?         @db.Decimal(14, 2) // cap for PERCENTAGE coupons
+  usageLimit   Int?
+  usedCount    Int              @default(0)
+  perUserLimit Int              @default(1)
+  appliesTo    TournamentType[] // empty = all types
+  status       CouponStatus     @default(ACTIVE)
+  startsAt     DateTime         @default(now())
+  expiresAt    DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  redemptions   CouponRedemption[]
+  registrations TournamentRegistration[]
+
+  @@index([status, expiresAt])
+  @@map("coupons")
+}
+
+model CouponRedemption {
+  id             String                  @id @default(cuid())
+  couponId       String
+  coupon         Coupon                  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  registrationId String?                 @unique
+  registration   TournamentRegistration? @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  discountAmount Decimal                 @db.Decimal(14, 2)
+  createdAt      DateTime                @default(now())
+
+  @@unique([couponId, userId])
+  @@map("coupon_redemptions")
+}
+
+// -----------------------------------------------------------------------------
+// SUPPORT
+// -----------------------------------------------------------------------------
+
+model SupportTicket {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  TicketCategory
+  subject   String
+  priority  TicketPriority @default(MEDIUM)
+  status    TicketStatus   @default(OPEN)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  messages SupportMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("support_tickets")
+}
+
+model SupportMessage {
+  id         String        @id @default(cuid())
+  ticketId   String
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderId   String?
+  sender     User?         @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  isStaff    Boolean       @default(false)
+  body       String
+  attachment String?
+  createdAt  DateTime      @default(now())
+
+  @@index([ticketId, createdAt])
+  @@map("support_messages")
+}
+
+model Dispute {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        DisputeType
+  entityType  String? // "Match", "Tournament", "Deposit"…
+  entityId    String?
+  subject     String
+  description String
+  evidence    Json? // array of file paths/URLs
+  status      DisputeStatus @default(OPEN)
+  resolution  String?
+  handledById String?
+  handledBy   User?         @relation("DisputeHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("disputes")
+}
+
+// -----------------------------------------------------------------------------
+// NOTIFICATIONS
+// -----------------------------------------------------------------------------
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  data      Json? // deep-link / entity references
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// -----------------------------------------------------------------------------
+// CONTENT (blog, pages, FAQ)
+// -----------------------------------------------------------------------------
+
+model BlogPost {
+  id             String       @id @default(cuid())
+  title          String
+  slug           String       @unique
+  excerpt        String?
+  content        String // markdown
+  coverImage     String?
+  category       BlogCategory @default(NEWS)
+  status         BlogStatus   @default(DRAFT)
+  authorId       String
+  author         User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  publishedAt    DateTime?
+  seoTitle       String?
+  seoDescription String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([status, publishedAt])
+  @@map("blog_posts")
+}
+
+model StaticPage {
+  id             String   @id @default(cuid())
+  slug           String   @unique // terms, privacy, refund-policy, fair-play…
+  title          String
+  content        String // markdown
+  seoTitle       String?
+  seoDescription String?
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+
+  @@map("static_pages")
+}
+
+model Faq {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String
+  category  String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([isActive, sortOrder])
+  @@map("faqs")
+}
+
+// -----------------------------------------------------------------------------
+// PLATFORM CONFIG / ADMIN
+// -----------------------------------------------------------------------------
+
+/// Dynamic admin settings (key/value JSON) — no source-code edits needed.
+model Setting {
+  id          String   @id @default(cuid())
+  key         String   @unique // e.g. "platform.whatsappNumber", "wallet.minDeposit"
+  value       Json
+  description String?
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@map("settings")
+}
+
+/// Admin-configured manual payment destinations shown on the Add Money page.
+model PaymentAccount {
+  id            String        @id @default(cuid())
+  method        PaymentMethod
+  label         String // e.g. "JazzCash — 0300…"
+  accountName   String
+  accountNumber String
+  extra         Json? // bank name / IBAN / branch
+  instructions  String?
+  isActive      Boolean       @default(true)
+  displayOrder  Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([method, isActive])
+  @@map("payment_accounts")
+}
+
+model Advertisement {
+  id          String      @id @default(cuid())
+  placement   AdPlacement
+  name        String
+  imageUrl    String?
+  targetUrl   String?
+  embedHtml   String? // raw embed (admin-provided)
+  isActive    Boolean     @default(true)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  impressions Int         @default(0)
+  clicks      Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([placement, isActive])
+  @@map("advertisements")
+}
+
+/// Per-page SEO overrides managed from the admin panel.
+model SeoConfig {
+  id           String   @id @default(cuid())
+  pageSlug     String   @unique // "home", "tournaments", "blog/[slug]"…
+  title        String?
+  description  String?
+  canonicalUrl String?
+  ogImageUrl   String?
+  keywords     String?
+  extra        Json? // structured data overrides
+  updatedAt    DateTime @updatedAt
+
+  @@map("seo_configs")
+}
+
+// -----------------------------------------------------------------------------
+// LEADERBOARD AGGREGATES
+// -----------------------------------------------------------------------------
+
+/// Denormalized per-player stats powering leaderboards (maintained by the
+/// results engine — never edited by users).
+model PlayerStat {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matchesPlayed Int       @default(0)
+  wins          Int       @default(0)
+  kills         Int       @default(0)
+  totalPoints   Int       @default(0)
+  earnings      Decimal   @default(0) @db.Decimal(14, 2)
+  lastPlayedAt  DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  @@index([totalPoints])
+  @@index([wins])
+  @@index([earnings])
+  @@map("player_stats")
+}
+
+// -----------------------------------------------------------------------------
+// AUDIT & FRAUD
+// -----------------------------------------------------------------------------
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action    String // e.g. "DEPOSIT_APPROVED", "BALANCE_ADJUSTED"
+  entity    String // e.g. "Deposit", "Wallet"
+  entityId  String?
+  before    Json?
+  after     Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([entity, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model FraudAlert {
+  id           String           @id @default(cuid())
+  userId       String?
+  kind         String // e.g. "DUPLICATE_DEVICE", "REPEATED_FAILED_JOINS"
+  severity     FraudSeverity    @default(MEDIUM)
+  details      Json?
+  status       FraudAlertStatus @default(OPEN)
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime         @default(now())
+
+  @@index([status, severity])
+  @@index([userId])
+  @@map("fraud_alerts")
+}
+
+// -----------------------------------------------------------------------------
+// PLATFORM EXPENSES (gross vs net accounting — spec §22)
+//
+// Net Platform Profit = Platform Gross − Payment Costs − Refunds − Promotions
+// − Referral Costs − Operational Costs − Taxes. Refunds/promotions/referral
+// costs are derived from the ledger; the buckets below are admin-recorded.
+// -----------------------------------------------------------------------------
+
+model Expense {
+  id          String   @id @default(cuid())
+  category    String // PAYMENT_COST | OPERATIONAL | TAX | PROMOTION | OTHER
+  amount      Decimal  @db.Decimal(14, 2)
+  note        String?
+  occurredAt  DateTime @default(now())
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([category, occurredAt])
+  @@map("expenses")
+}

@@ -1,26 +1,122 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* =============================================================================
+   CLUTCHNEX design system — v1.0 LOCKED (design/DESIGN_SYSTEM_DRAFT.md)
+   Dark premium esports: obsidian base, electric violet accent, glass panels.
+   ============================================================================= */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@theme {
+  /* Palette */
+  --color-base: #070a14;
+  --color-surface: #0d1220;
+  --color-elevated: #131a2e;
+  --color-accent: #8b5cf6;
+  --color-accent-strong: #7c3aed;
+  --color-success: #10b981;
+  --color-reward: #f5b942;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+  --color-warning: #f59e0b;
+  --color-fg: #f4f6fb;
+  --color-fg-2: #98a2b8;
+  --color-fg-3: #5d6b85;
+  --color-line: rgba(255, 255, 255, 0.08);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  /* Typography — Space Grotesk (display) + Inter (body) with graceful stacks */
+  --font-display: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Shape */
+  --radius-card: 16px;
+  --radius-input: 10px;
+  --radius-pill: 999px;
+
+  /* Motion */
+  --animate-fade-up: fade-up 0.5s ease both;
+  --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.8); }
   }
 }
 
+html {
+  color-scheme: dark;
+  scroll-behavior: smooth;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-base);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Glass panel — the signature CLUTCHNEX surface */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-line);
+  backdrop-filter: blur(12px);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Blog article prose */
+.prose-cn {
+  color: var(--color-fg-2);
+  line-height: 1.75;
+}
+.prose-cn h2 {
+  color: var(--color-fg);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  margin: 2rem 0 0.75rem;
+}
+.prose-cn h3 {
+  color: var(--color-fg);
+  font-weight: 600;
+  margin: 1.5rem 0 0.5rem;
+}
+.prose-cn p { margin: 0.75rem 0; }
+.prose-cn a { color: var(--color-accent); text-decoration: underline; }
+.prose-cn ul, .prose-cn ol { margin: 0.75rem 0 0.75rem 1.25rem; }
+.prose-cn ul { list-style: disc; }
+.prose-cn ol { list-style: decimal; }
+.prose-cn li { margin: 0.35rem 0; }
+.prose-cn blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding: 0.25rem 1rem;
+  margin: 1rem 0;
+  color: var(--color-fg);
+  background: rgba(139, 92, 246, 0.06);
+  border-radius: 0 8px 8px 0;
+}
+.prose-cn strong { color: var(--color-fg); }
+.prose-cn code {
+  background: var(--color-elevated);
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.9em;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--color-base); }
+::-webkit-scrollbar-thumb { background: #232c45; border-radius: 8px; }
+
+/* Reduced motion — respect user preference everywhere */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
