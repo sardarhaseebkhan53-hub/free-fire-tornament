@@ -80,6 +80,14 @@ environment UI — they are read once at boot by `src/lib/env.ts`).
 | `MAX_UPLOAD_MB` | | `5` | Payment-proof size cap |
 | `UPLOAD_DIR` | | `uploads` | **Must be on persistent storage** |
 | `RATE_LIMIT_PER_WINDOW` | | `600` | Global per-IP requests per 15 min |
+| `EMAIL_PROVIDER` | ✅ | `resend` | `log` \| `smtp` \| `resend` \| `postmark` — **`log` is refused in production** |
+| `EMAIL_FROM` | ✅ | `CLUTCHNEX <no-reply@clutchnex.gg>` | Must be a domain you can send from (SPF/DKIM) |
+| `EMAIL_REPLY_TO` | | `support@clutchnex.gg` | Where player replies land |
+| `EMAIL_TIMEOUT_MS` | | `10000` | Per-attempt budget |
+| `EMAIL_ATTEMPTS` | | `3` | Total attempts (transient faults only) |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` | with `smtp` | `email-smtp.…`, `587`, `false`, … | `SMTP_SECURE=true` means implicit TLS (465); `false` means STARTTLS (587) |
+| `RESEND_API_KEY` | with `resend` | `re_…` | |
+| `POSTMARK_SERVER_TOKEN` | with `postmark` | | |
 
 Generate the secrets:
 
@@ -96,7 +104,9 @@ In `NODE_ENV=production` the API **refuses to boot** if:
   shorter than 32 characters, or low-entropy;
 - the two JWT secrets are identical;
 - `DATABASE_URL` is not a PostgreSQL URL;
-- `PUBLIC_URL` or `CLIENT_ORIGIN` is not `https://`.
+- `PUBLIC_URL` or `CLIENT_ORIGIN` is not `https://`;
+- `EMAIL_PROVIDER` is still `log` (verification and reset mail would go nowhere);
+- `EMAIL_FROM` does not contain a real address.
 
 A server that starts with a placeholder secret is worse than one that does not
 start — every access token becomes forgeable. The error message says exactly
@@ -202,9 +212,13 @@ owner-or-staff routes.
 - **Logs:** both apps log to stdout/stderr. Notable prefixes: `[fraud]` (a
   detector raised an alert), `[audit]` (an audit row failed to write — alert on
   this), `[email:dev]` (development-only mail sink).
-- **Email:** `src/services/email.service.ts` currently logs messages in
-  development. Wire it to your provider (SES/Postmark/Resend) before launch;
-  email verification and password reset both depend on it.
+- **Email:** configured through `EMAIL_PROVIDER` — see §3. Delivery is retried
+  with exponential backoff on transient faults (network errors and 5xx) and
+  never retried on a 4xx, because a rejected address or bad API key will not fix
+  itself. A failed send is logged as `[email] delivery failed …` and **does not
+  fail the request**: the token stays valid server-side and the player can ask
+  for a resend. Alert on that log line — it is the only signal that
+  verification and password reset have quietly stopped working.
 - **Alerts worth paging on:** `INTERNAL_ERROR` spikes, `[audit] failed to write`,
   and a growing `fraud_alerts` queue with `severity = CRITICAL`.
 - **Admin review:** open `/admin/fraud` daily early on — detectors flag, humans

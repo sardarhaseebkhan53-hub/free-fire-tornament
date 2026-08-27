@@ -25,6 +25,20 @@ const schema = z.object({
   // shares this bucket. The routes that matter (auth, deposits, withdrawals,
   // joins, coupons) have their own much tighter budgets in middleware/rateLimit.
   RATE_LIMIT_PER_WINDOW: z.coerce.number().int().positive().default(600),
+
+  // --- Email (transactional: verification + password reset) -----------------
+  EMAIL_PROVIDER: z.enum(['log', 'smtp', 'resend', 'postmark']).default('log'),
+  EMAIL_FROM: z.string().default('CLUTCHNEX <no-reply@localhost>'),
+  EMAIL_REPLY_TO: z.string().optional(),
+  EMAIL_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  EMAIL_ATTEMPTS: z.coerce.number().int().positive().max(5).default(3),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: z.coerce.boolean().default(false),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  RESEND_API_KEY: z.string().optional(),
+  POSTMARK_SERVER_TOKEN: z.string().optional(),
 });
 
 export const env = schema.parse(process.env);
@@ -72,5 +86,23 @@ if (isProd) {
   }
   if (!/^https:\/\//.test(env.CLIENT_ORIGIN)) {
     throw new Error('CLIENT_ORIGIN must be an https:// URL in production (CORS is pinned to it).');
+  }
+
+  // Email: a live site whose verification and reset mails go nowhere is broken
+  // in a way nobody notices until players complain, so refuse to boot.
+  if (env.EMAIL_PROVIDER === 'log') {
+    throw new Error(
+      'EMAIL_PROVIDER=log only prints to stdout — verification and password-reset ' +
+        'emails would never reach players. Set EMAIL_PROVIDER to smtp, resend or ' +
+        'postmark (see DEPLOYMENT.md).',
+    );
+  }
+  // "CLUTCHNEX <no-reply@clutchnex.gg>" or a bare address — either way the
+  // address itself must look real, or every provider will reject the send.
+  const fromAddress = env.EMAIL_FROM.includes('<')
+    ? (env.EMAIL_FROM.match(/<([^>]+)>/)?.[1] ?? '')
+    : env.EMAIL_FROM;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fromAddress.trim())) {
+    throw new Error('EMAIL_FROM must contain a real address, e.g. "CLUTCHNEX <no-reply@clutchnex.gg>".');
   }
 }

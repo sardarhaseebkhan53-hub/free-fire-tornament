@@ -26,6 +26,7 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | Database | PostgreSQL via Prisma 7 (dev: embedded PGlite — `npm run db:dev`, no install) |
 | Auth | JWT access tokens + rotating HttpOnly refresh cookies, bcrypt, RBAC |
 | Validation | Zod everywhere — the server never trusts frontend financial values |
+| Email | Provider-swappable (`log` / SMTP / Resend / Postmark) — retries transient faults, never fails an auth flow |
 | Currency | PKR default, admin-configurable |
 
 ---
@@ -481,6 +482,16 @@ Full guide in **[`DEPLOYMENT.md`](DEPLOYMENT.md)** — still no Docker anywhere.
 - **`frontend/.env.example`**: `BACKEND_URL` (server-side only — the browser
   only ever sees the `/api/backend/*` proxy) and `PUBLIC_URL`. No
   `NEXT_PUBLIC_` secrets exist in this app by design.
+- **Real email delivery** (`src/lib/mailer.ts` + `email.service.ts`): the
+  provider was a stub that printed `mail skipped` in production, which would
+  have silently broken email verification and password reset. It now supports
+  `log` / `smtp` (nodemailer) / `resend` / `postmark`, with per-attempt
+  timeouts, exponential-backoff retries on transient faults only (a 4xx is
+  never retried — a bad key or address will not fix itself), and a hard
+  guarantee that a failed send never fails the auth request (the token stays
+  valid and the player can ask for a resend). `EMAIL_PROVIDER=log` is refused
+  at boot in production for exactly that reason. Covered by 15 unit tests with
+  `fetch` and `sleep` injected, so no test touches the network.
 - **Verified:** compiled server boots and serves in both dev and production
   mode; the placeholder-secret guard exits non-zero while a strong-secret
   production boot serves `/api/health` with HSTS and still returns 403 for
