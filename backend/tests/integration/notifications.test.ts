@@ -1,8 +1,8 @@
 // =============================================================================
 // Integration — notification system + referral rewards + match reminders:
-//   • referred player's FIRST login  → referrer +PKR 20 (bonus), exactly once
-//   • referred player's FIRST APPROVED deposit → referrer +PKR 30, exactly once
-//   • rejected first deposits never credit anything
+//   • referred player's FIRST APPROVED deposit ≥ PKR 100 → referrer +PKR 50
+//     (bonus balance), exactly once; logins, rejections and sub-100 deposits
+//     never credit
 //   • admins get an alert notification when a deposit is submitted
 //   • new tournaments announced to all active users
 //   • "match starts in ~5 min" reminder fires once per match (restart-safe)
@@ -64,61 +64,80 @@ async function pendingDeposit(userId: string, amount: number) {
   return dep;
 }
 
-describe('referral rewards — first login (PKR 20)', () => {
-  it('credits the referrer once, on the referred player’s first login only', async () => {
+describe('referral rewards — first approved deposit ≥ PKR 100 (PKR 50)', () => {
+  it('never credits on login — only a qualifying approved deposit pays', async () => {
     const referrer = await makeUser({ prefix: 'ref' });
     users.push(referrer.id);
     const referred = await registerReferred(referrer.referralCode, 'rlogin');
 
-    // Nothing before the first sign-in.
+    // Sign-ins (even the first) never pay anything under this ruleset.
+    expect((await walletOf(referrer.id)).bonus).toBe(0);
+    await auth.login(referred.username, referred.password, ctx);
+    await auth.login(referred.username, referred.password, ctx);
     expect((await walletOf(referrer.id)).bonus).toBe(0);
 
-    await auth.login(referred.username, referred.password, ctx);
-    expect((await walletOf(referrer.id)).bonus).toBe(20);
-
-    // Second login must NOT credit again.
-    await auth.login(referred.username, referred.password, ctx);
-    expect((await walletOf(referrer.id)).bonus).toBe(20);
-
-    // Reward row closed exactly once, with a ledger link.
-    const rows = await db.referralReward.findMany({
-      where: { referredUserId: referred.id, qualifyingAction: 'FIRST_LOGIN' },
-    });
+    // Exactly one PENDING reward row exists, for the deposit action.
+    const rows = await db.referralReward.findMany({ where: { referredUserId: referred.id } });
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.status).toBe('CREDITED');
-    expect(rows[0]?.walletTxId).toBeTruthy();
-
-    // The referrer was notified.
-    const inbox = await listNotifications(referrer.id, 1, 20);
-    expect(inbox.items.some((n) => n.type === 'REFERRAL_REWARD' && n.title.includes('Referral reward'))).toBe(true);
+    expect(rows[0]?.qualifyingAction).toBe('FIRST_DEPOSIT_APPROVED');
+    expect(rows[0]?.status).toBe('PENDING');
   });
-});
 
-describe('referral rewards — first approved deposit (PKR 30)', () => {
-  it('credits on the FIRST approved deposit only; rejection never credits', async () => {
+  it('credits PKR 50 on the first approved deposit ≥ 100 — smaller or rejected deposits never qualify', async () => {
     const admin = await makeUser({ role: 'ADMIN', prefix: 'adm' });
     users.push(admin.id);
     const referrer = await makeUser({ prefix: 'ref2' });
     users.push(referrer.id);
     const referred = await registerReferred(referrer.referralCode, 'rdep');
 
-    // First deposit is REJECTED → nothing.
+    // REJECTED deposit (300) → nothing.
     const d1 = await pendingDeposit(referred.id, 300);
     await payment.reviewDeposit(admin.id, d1.id, 'REJECT', 'not found', ctx);
     expect((await walletOf(referrer.id)).bonus).toBe(0);
 
-    // First APPROVED deposit → +30.
+    // Approved deposit BELOW the PKR-100 minimum (50) → still nothing; the
+    // reward stays PENDING for a later qualifying deposit.
+    const dSmall = await pendingDeposit(referred.id, 50);
+    await payment.reviewDeposit(admin.id, dSmall.id, 'APPROVE', 'small top-up', ctx);
+    expect((await walletOf(referrer.id)).bonus).toBe(0);
+    const pendingRow = await db.referralReward.findFirst({ where: { referredUserId: referred.id } });
+    expect(pendingRow?.status).toBe('PENDING');
+
+    // First QUALIFYING approved deposit (500 ≥ 100) → +50.
     const d2 = await pendingDeposit(referred.id, 500);
     await payment.reviewDeposit(admin.id, d2.id, 'APPROVE', 'verified', ctx);
-    expect((await walletOf(referrer.id)).bonus).toBe(30);
+    expect((await walletOf(referrer.id)).bonus).toBe(50);
 
-    // Second approved deposit → no further reward.
+    // Any later approved deposit → no further reward.
     const d3 = await pendingDeposit(referred.id, 700);
     await payment.reviewDeposit(admin.id, d3.id, 'APPROVE', 'verified again', ctx);
-    expect((await walletOf(referrer.id)).bonus).toBe(30);
+    expect((await walletOf(referrer.id)).bonus).toBe(50);
+
+    // Reward row closed exactly once, with a ledger link + notification.
+    const row = await db.referralReward.findFirstOrThrow({ where: { referredUserId: referred.id } });
+    expect(row.status).toBe('CREDITED');
+    expect(row.walletTxId).toBeTruthy();
+    const inbox = await listNotifications(referrer.id, 1, 20);
+    expect(inbox.items.some((n) => n.type === 'REFERRAL_REWARD' && n.title.includes('Referral reward'))).toBe(true);
 
     // Referred player got their cash exactly once per approval.
-    expect((await walletOf(referred.id)).cash).toBe(1200);
+    expect((await walletOf(referred.id)).cash).toBe(1250);
+  });
+
+  it('a first deposit below the minimum is made good by a later qualifying one', async () => {
+    const admin = await makeUser({ role: 'ADMIN', prefix: 'admq' });
+    users.push(admin.id);
+    const referrer = await makeUser({ prefix: 'ref3' });
+    users.push(referrer.id);
+    const referred = await registerReferred(referrer.referralCode, 'rlate');
+
+    const dSmall = await pendingDeposit(referred.id, 80);
+    await payment.reviewDeposit(admin.id, dSmall.id, 'APPROVE', 'small', ctx);
+    expect((await walletOf(referrer.id)).bonus).toBe(0);
+
+    const dBig = await pendingDeposit(referred.id, 150);
+    await payment.reviewDeposit(admin.id, dBig.id, 'APPROVE', 'qualifies', ctx);
+    expect((await walletOf(referrer.id)).bonus).toBe(50);
   });
 });
 

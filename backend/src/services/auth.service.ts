@@ -17,7 +17,6 @@ import {
 import { sendMail, verificationEmail, passwordResetEmail } from './email.service';
 import { getSetting } from './settings.service';
 import { applyWalletTx } from './wallet.service';
-import { creditReferralReward } from './referral.service';
 import { fireLoginAbuse, fireRefreshReuse, fireRegistrationFraud } from './fraud.service';
 import { audit } from '../lib/security';
 
@@ -154,26 +153,18 @@ export async function register(input: RegisterInput, ctx: RequestContext) {
   });
 
   if (referredById) {
-    // Two independent, admin-tunable referral rewards (defaults: PKR 20 / 30).
-    // Rows stay PENDING until the qualifying action happens — crediting is in
-    // referral.service (server-side, exactly-once).
-    const loginReward = await getSetting('referral.loginReward', 20);
-    const depositReward = await getSetting('referral.firstDepositReward', 30);
-    await prisma.referralReward.createMany({
-      data: [
-        {
-          referrerId: referredById,
-          referredUserId: user.id,
-          rewardAmount: loginReward,
-          qualifyingAction: 'FIRST_LOGIN',
-        },
-        {
-          referrerId: referredById,
-          referredUserId: user.id,
-          rewardAmount: depositReward,
-          qualifyingAction: 'FIRST_DEPOSIT_APPROVED',
-        },
-      ],
+    // ONE referral reward, admin-tunable: PKR 50 when the referred player's
+    // FIRST approved deposit is at least referral.minFirstDeposit (PKR 100).
+    // The row stays PENDING until payment.service approves that deposit —
+    // crediting is server-side and exactly-once (see referral.service).
+    const depositReward = await getSetting('referral.firstDepositReward', 50);
+    await prisma.referralReward.create({
+      data: {
+        referrerId: referredById,
+        referredUserId: user.id,
+        rewardAmount: depositReward,
+        qualifyingAction: 'FIRST_DEPOSIT_APPROVED',
+      },
     });
   }
 
@@ -274,19 +265,7 @@ export async function login(identifierRaw: string, password: string, ctx: Reques
   }
 
   attempts.delete(identifier);
-  // FIRST LOGIN of a referred player qualifies the referrer's login reward
-  // (PKR 20 by default). Detected before lastLoginAt is written; the credit
-  // itself is transactional + exactly-once (see referral.service).
-  const isFirstLogin = user.lastLoginAt === null;
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-  if (isFirstLogin && user.referredById) {
-    try {
-      await creditReferralReward(user.id, 'FIRST_LOGIN');
-    } catch (e) {
-      // A failed bonus never blocks sign-in; the PENDING row keeps it recoverable.
-      console.warn('[referral] login reward failed:', (e as Error)?.message);
-    }
-  }
   await audit({
     actorId: user.id,
     action: 'LOGIN_SUCCESS',

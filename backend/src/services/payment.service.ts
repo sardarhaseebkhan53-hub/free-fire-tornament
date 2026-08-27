@@ -362,6 +362,9 @@ export async function reviewDeposit(
 ) {
   // Settings reads stay OUTSIDE the transaction (Phase 5 deadlock fix).
   const currency = await getSetting('platform.currency', 'PKR');
+  // Referral reward gate: the referrer is paid when the referred player's
+  // FIRST approved deposit reaches this minimum (default PKR 100).
+  const referralMin = Number(await getSetting('referral.minFirstDeposit', 100));
   const out = await prisma.$transaction(async (tx) => {
     const dep = await tx.deposit.findUnique({ where: { id: depositId } });
     if (!dep) throw notFound('Deposit not found');
@@ -395,13 +398,22 @@ export async function reviewDeposit(
     });
 
     if (action === 'APPROVE') {
-      // Is this the player's FIRST approved deposit (row is APPROVED now, so
-      // the count includes it)? If they were referred, the referrer's reward
-      // (PKR 30 by default) credits in the SAME transaction, exactly once.
-      const approvedCount = await tx.deposit.count({
-        where: { userId: dep.userId, status: 'APPROVED' },
+      // Referral reward: is THIS approval the player's first approved deposit
+      // of at least referral.minFirstDeposit? (Row is APPROVED now, so the
+      // query includes it. Smaller earlier deposits never qualify — the reward
+      // stays PENDING until a qualifying deposit is approved.) If the player
+      // was referred, the referrer's PKR-50 reward credits in this SAME
+      // transaction, exactly once.
+      const firstQualifying = await tx.deposit.findFirst({
+        where: {
+          userId: dep.userId,
+          status: 'APPROVED',
+          amount: { gte: new Prisma.Decimal(referralMin) },
+        },
+        orderBy: { reviewedAt: 'asc' },
+        select: { id: true },
       });
-      if (approvedCount === 1) {
+      if (firstQualifying?.id === dep.id) {
         await creditReferralRewardTx(tx, dep.userId, 'FIRST_DEPOSIT_APPROVED', currency);
       }
     }

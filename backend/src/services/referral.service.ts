@@ -1,22 +1,22 @@
 // =============================================================================
-// Referral rewards — referrers earn when their referred players hit milestones:
-//   • FIRST_LOGIN              → PKR 20 (referral.loginReward, admin-tunable)
-//   • FIRST_DEPOSIT_APPROVED   → PKR 30 (referral.firstDepositReward)
+// Referral rewards — the referrer earns when a referred player makes their
+// FIRST APPROVED deposit of at least referral.minFirstDeposit (default PKR 100):
 //
-// Money is ALWAYS server-side: credits go through the wallet ledger inside a
-// transaction, are claimed exactly once (status guard on the reward row), are
-// audited, and land in the referrer's BONUS balance. This has nothing to do
-// with deposit/payment verification — a referral reward never credits cash the
-// referred user deposited.
+//   • FIRST_DEPOSIT_APPROVED (≥ PKR 100) → PKR 50 (referral.firstDepositReward)
+//
+// Money is ALWAYS server-side: the credit goes through the wallet ledger inside
+// the same transaction as the deposit approval, is claimed exactly once
+// (atomic PENDING → CREDITED on the reward row), is audited, and lands in the
+// referrer's BONUS balance. This is a referral bonus — it is NOT a payment and
+// never auto-approves the player's deposit.
 // =============================================================================
 import { prisma } from '../lib/prisma';
 import { moveBalance, TX_OPTS } from './wallet.service';
-import { getSetting } from './settings.service';
 
-export type ReferralAction = 'FIRST_LOGIN' | 'FIRST_DEPOSIT_APPROVED';
+export type ReferralAction = 'FIRST_DEPOSIT_APPROVED';
 
 /**
- * Claim + credit a referral reward inside an existing transaction.
+ * Claim + credit the referral reward inside an existing transaction.
  * Returns true only when this call performed the credit (exactly once).
  */
 export async function creditReferralRewardTx(
@@ -29,7 +29,7 @@ export async function creditReferralRewardTx(
     where: { referredUserId, qualifyingAction: action },
     select: { id: true, referrerId: true, rewardAmount: true, status: true },
   });
-  // No reward row (user wasn't referred / action not configured) or already handled.
+  // No reward row (player wasn't referred) or already handled.
   if (!row || row.status !== 'PENDING') return false;
 
   const amount = Number(row.rewardAmount);
@@ -53,7 +53,7 @@ export async function creditReferralRewardTx(
   const entry = await moveBalance(tx, row.referrerId, 'BONUS', 'CREDIT', amount, 'REFERRAL_REWARD', {
     entityType: 'ReferralReward',
     entityId: row.id,
-    description: `Referral reward — referred player ${action === 'FIRST_LOGIN' ? 'signed in' : 'made their first approved deposit'}`,
+    description: 'Referral reward — referred player\u2019s first approved deposit (min PKR 100)',
   }, currency);
   await tx.referralReward.update({
     where: { id: row.id },
@@ -65,9 +65,7 @@ export async function creditReferralRewardTx(
       userId: row.referrerId,
       type: 'REFERRAL_REWARD',
       title: 'Referral reward earned 🎁',
-      body: `PKR ${amount} was added to your bonus balance — your referred player ${
-        action === 'FIRST_LOGIN' ? 'signed in for the first time' : 'had their first deposit approved'
-      }.`,
+      body: `PKR ${amount} was added to your bonus balance — your referred player\u2019s first deposit was approved.`,
       data: { referralRewardId: row.id, action },
     },
   });
@@ -83,11 +81,5 @@ export async function creditReferralRewardTx(
   return true;
 }
 
-/** Standalone variant (own transaction) — e.g. from the login flow. */
-export async function creditReferralReward(referredUserId: string, action: ReferralAction): Promise<boolean> {
-  const currency = await getSetting('platform.currency', 'PKR');
-  return prisma.$transaction(
-    (tx) => creditReferralRewardTx(tx, referredUserId, action, currency),
-    TX_OPTS,
-  );
-}
+/** Exported for reuse; the deposit-approval path passes its own transaction. */
+export const REFERRAL_TX_OPTS = TX_OPTS;
