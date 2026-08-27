@@ -73,6 +73,9 @@
 html {
   color-scheme: dark;
   scroll-behavior: smooth;
+  /* Safety net against stray horizontal scroll on narrow phones (clip keeps
+     position:sticky working, unlike overflow-x:hidden). */
+  overflow-x: clip;
 }
 
 body {

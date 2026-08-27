@@ -79,9 +79,11 @@ export default async function HomePage() {
             className="absolute inset-0 h-full w-full object-cover object-[70%_30%]"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-base via-base/85 to-base/10" />
-          <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-pill bg-danger/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
-            <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-dot" /> Live
-          </span>
+          {stats && stats.liveTournaments > 0 && (
+            <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-pill bg-danger/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
+              <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-dot" /> Live
+            </span>
+          )}
           <div className="relative p-5">
             <h1 className="font-display text-[2rem] font-bold uppercase italic leading-[1.02] text-fg drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]">
               The Arena<br />

@@ -27,12 +27,14 @@ function Boxes({ targetMs }: { targetMs: number }) {
     ['MINS', Math.floor((t % 3600_000) / 60_000)],
     ['SECS', Math.floor((t % 60_000) / 1000)],
   ];
+  // Wrap-capable row: at ≤360px the four boxes + label still fit by flowing to
+  // a second line instead of overflowing the card.
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-2">
       <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-fg-3">Starts in</span>
       {parts.map(([label, v], i) => (
         <span key={label} className="flex items-center gap-1.5">
-          <span className="min-w-[2.4rem] rounded-input border border-line bg-white/[4%] px-1.5 py-1 text-center">
+          <span className="min-w-[2.25rem] rounded-input border border-line bg-white/[4%] px-1 py-1 text-center">
             <span className="tabular block font-display text-sm font-bold leading-none text-fg">{String(v).padStart(2, '0')}</span>
             <span className="mt-1 block text-[7px] font-bold tracking-wider text-fg-3">{label}</span>
           </span>

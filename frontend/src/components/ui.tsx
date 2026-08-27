@@ -57,11 +57,17 @@ export function SectionHeading({
 
 export function StatCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className="glass card-hover rounded-card px-5 py-4">
-      <p className={`tabular font-display text-2xl font-bold sm:text-3xl ${accent ? 'text-accent' : 'text-fg'}`}>
+    <div className="glass card-hover min-w-0 rounded-card px-4 py-4 sm:px-5">
+      {/* Responsive value: long amounts like "PKR 123,500" must never blow out
+          a 2-col mobile grid (~100px content at 320px) — scale down on phones
+          and allow wrapping between the currency and the number. */}
+      <p
+        className={`tabular font-display text-[1.35rem] font-bold leading-tight break-words sm:text-2xl md:text-3xl ${accent ? 'text-accent' : 'text-fg'}`}
+        style={{ overflowWrap: 'anywhere' }}
+      >
         {value}
       </p>
-      <p className="mt-1 text-xs font-medium tracking-wide uppercase text-fg-3">{label}</p>
+      <p className="mt-1 text-[10px] font-medium tracking-wide uppercase text-fg-3 sm:text-xs">{label}</p>
     </div>
   );
 }
