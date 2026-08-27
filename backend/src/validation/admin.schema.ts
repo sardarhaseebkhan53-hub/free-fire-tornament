@@ -1,5 +1,31 @@
 import { z } from 'zod';
 
+/**
+ * A URL that is safe to put in an href.
+ *
+ * Zod's .url() only checks that the string parses, and `javascript:alert(1)`,
+ * `data:text/html,…` and `vbscript:…` all parse fine — so .url() alone lets an
+ * admin-storeable link execute script the moment anything renders it. Ads are
+ * not rendered on a public page today, but the field exists to be rendered, so
+ * the check belongs here rather than at every future call site.
+ */
+export const safeUrl = (max = 300) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .refine((value) => {
+      if (value === '') return true;
+      let parsed: URL;
+      try {
+        parsed = new URL(value);
+      } catch {
+        return false;
+      }
+      // Relative paths are allowed; anything with a scheme must be http(s).
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    }, 'URL must start with http:// or https://');
+
 const pageSchema = { page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(5).max(100).default(20) };
 
 export const userListQuerySchema = z.object({ q: z.string().trim().max(64).optional(), status: z.enum(['ACTIVE', 'SUSPENDED', 'BANNED', 'PENDING_VERIFICATION']).optional(), ...pageSchema });
@@ -75,7 +101,7 @@ export const blogStatusSchema = z.object({ publish: z.boolean() });
 export const createAdSchema = z.object({
   placement: z.enum(['HEADER', 'TOURNAMENT_PAGE', 'SIDEBAR', 'BLOG', 'FOOTER', 'MOBILE', 'INTERSTITIAL']),
   name: z.string().trim().min(2).max(80),
-  targetUrl: z.string().trim().url().max(300).optional().or(z.literal('')),
+  targetUrl: safeUrl(300).optional(),
   embedHtml: z.string().trim().max(4000).optional().or(z.literal('')),
 });
 
