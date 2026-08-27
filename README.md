@@ -30,7 +30,7 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
 ---
 
-## Progress — 16 of 17 phases complete
+## Progress — 17 of 17 phases complete
 
 | # | Phase | Status |
 |---|---|---|
@@ -50,7 +50,7 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 13 | PWA | ✅ Done |
 | 14 | Security hardening | ✅ Done |
 | 15 | Testing | ✅ Done |
-| 16 | Deployment | ⬜ |
+| 16 | Deployment | ✅ Done |
 
 Completed work lives in the merged history (PR #1, PR #2, PR #3, PR #4) plus the
 open Phase 14 branch — one commit per phase, each independently verified.
@@ -454,9 +454,37 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
 - **Verified:** `npm test` → 127/127 green; all eight `verify:*` harnesses still
   green; `tsc --noEmit` now covers `tests/` and `vitest.config.ts`.
 
-### ⬜ Phase 16 — Deployment
-Environment docs, production builds for frontend + backend, managed PostgreSQL
-configuration, live preview run. No Docker anywhere.
+### ⬜ Phase 16 — Deployment → ✅ done
+
+Full guide in **[`DEPLOYMENT.md`](DEPLOYMENT.md)** — still no Docker anywhere.
+
+- **Production builds that actually run.** `npm run build` now compiles through
+  `tsconfig.build.json` (`rootDir: src`, `src/**` only), so the artifact is
+  `dist/index.js` — exactly what `npm start` executes. It previously emitted
+  `dist/src/index.js`, which meant `npm start` was broken; the build also no
+  longer ships tests or scripts. Verified by booting the compiled server and
+  serving `/api/health` + `/api/public/tournaments`.
+- **Fail-fast production guards** (`src/lib/env.ts`). In `NODE_ENV=production`
+  the API refuses to boot on: an empty/placeholder/short/low-entropy JWT secret
+  (`.env.example`'s `change-me-…` values are explicitly rejected — a server that
+  starts with a known secret is worse than one that won't start), identical
+  access and refresh secrets, a non-Postgres `DATABASE_URL`, and non-`https`
+  `PUBLIC_URL` / `CLIENT_ORIGIN`. Each error names the variable and the fix.
+  HSTS switches on only in production (verified in the response headers).
+- **Environment docs**: a full variable table for both apps, secret generation,
+  managed-PostgreSQL guidance (`sslmode`, `connection_limit` sizing, pooler
+  mode), `prisma migrate deploy` as the only forward path, TLS/reverse-proxy
+  configuration matched to `trust proxy = 1`, persistent-storage requirements
+  for private uploads, health checks, log prefixes worth paging on, and a
+  release checklist.
+- **`frontend/.env.example`**: `BACKEND_URL` (server-side only — the browser
+  only ever sees the `/api/backend/*` proxy) and `PUBLIC_URL`. No
+  `NEXT_PUBLIC_` secrets exist in this app by design.
+- **Verified:** compiled server boots and serves in both dev and production
+  mode; the placeholder-secret guard exits non-zero while a strong-secret
+  production boot serves `/api/health` with HSTS and still returns 403 for
+  `/uploads/deposits/*`; `npm test` 127/127; all eight `verify:*` harnesses
+  green; `next build` + `tsc --noEmit` clean.
 
 ---
 
@@ -501,6 +529,7 @@ npm run dev             # http://localhost:3000
 | backend | `npm run verify:pwa` | PWA manifest / SW / icons / offline checks |
 | backend | `npm run verify:security` | Security hardening suite (uploads, fraud, CSRF, limits) |
 | backend | `npm test` | Vitest suite (127 tests) — boots its own embedded PostgreSQL |
+| backend | `npm run build` | Production build → `dist/index.js` (server only) |
 | backend | `npm run db:seed` | Reset demo data |
 | backend | `npm run typecheck` | `tsc --noEmit` |
 | frontend | `npx next build` | Production build check |
@@ -550,6 +579,7 @@ npm run dev             # http://localhost:3000
 
 ```text
 free-fire-tornament/
+├── DEPLOYMENT.md      # production deployment guide (no Docker)
 ├── design/            # 42 approved screens + locked design system spec
 ├── backend/           # Express 5 + TypeScript + Prisma 7 API
 │   ├── prisma/        # schema, migrations, seed
