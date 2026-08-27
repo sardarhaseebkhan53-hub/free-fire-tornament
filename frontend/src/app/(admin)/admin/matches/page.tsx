@@ -66,7 +66,7 @@ export default function AdminMatchesPage() {
                 <Td><span className="text-sm font-semibold text-fg">{m.tournament.title}</span></Td>
                 <Td className="text-xs text-fg-2">#{m.matchNumber}{m.round > 1 ? ` · R${m.round}` : ''}</Td>
                 <Td className="text-xs text-fg-2">{m.map ?? '—'}</Td>
-                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(m.scheduledAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</Td>
+                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(m.scheduledAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</Td>
                 <Td className="tabular text-xs text-fg-2">{m.participants}</Td>
                 <Td className="tabular text-xs text-fg-2">{m.submissions}</Td>
                 <Td><Pill status={m.status} /></Td>

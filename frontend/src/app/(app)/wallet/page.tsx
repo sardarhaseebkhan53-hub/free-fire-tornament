@@ -4,10 +4,11 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Coins, Gift, Headset, Loader2, Plus, ShieldCheck, Trophy, Upload, Wallet as WalletIcon } from 'lucide-react';
-import { api, getToken } from '@/lib/client-api';
+import { api } from '@/lib/client-api';
 import { CopyChip, StatusPill, TypeChip } from '@/components/wallet/bits';
 import { EmptyState } from '@/components/ui';
 import { fmt, fmtDate } from '@/lib/format';
+import { useHasSession } from '@/lib/session';
 
 interface Tx {
   id: string; type: string; description: string | null; reference: string | null;
@@ -23,21 +24,23 @@ interface PubSettings { 'platform.whatsappNumber'?: string }
 export default function WalletPage() {
   const [data, setData] = useState<Overview | null>(null);
   const [pub, setPub] = useState<PubSettings | null>(null);
-  const [state, setState] = useState<'loading' | 'ready' | 'anon' | 'error'>('loading');
+  const [loaded, setLoaded] = useState<'loading' | 'ready' | 'error'>('loading');
+  const hasSession = useHasSession();
+  const state = hasSession === false ? 'anon' : hasSession === null ? 'loading' : loaded;
   const [convertTo, setConvertTo] = useState(false);
   const [convertAmount, setConvertAmount] = useState('');
   const [convertMsg, setConvertMsg] = useState<string | null>(null);
   const [converting, setConverting] = useState(false);
 
   useEffect(() => {
-    if (!getToken()) return setState('anon');
+    if (!hasSession) return;
     Promise.all([
       api<Overview>('/wallet'),
       fetch('/api/backend/public/settings/public').then((r) => r.json()).then((j) => j.data as PubSettings).catch(() => ({})),
     ])
-      .then(([o, p]) => { setData(o); setPub(p); setState('ready'); })
-      .catch(() => setState('error'));
-  }, []);
+      .then(([o, p]) => { setData(o); setPub(p); setLoaded('ready'); })
+      .catch(() => setLoaded('error'));
+  }, [hasSession]);
 
   if (state === 'loading') {
     return <div className="flex min-h-[50vh] items-center justify-center"><Loader2 className="animate-spin text-accent" /></div>;

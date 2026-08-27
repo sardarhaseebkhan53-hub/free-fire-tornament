@@ -36,8 +36,8 @@ export default function AdminAdsPage() {
               <Td className="font-semibold text-fg">{a.name}</Td>
               <Td><span className="text-xs text-fg-2">{a.placement.replaceAll('_', ' ')}</span></Td>
               <Td><span className="max-w-40 truncate text-xs text-fg-3">{a.targetUrl ?? '—'}</span></Td>
-              <Td className="tabular text-fg-2">{a.impressions.toLocaleString('en-IN')}</Td>
-              <Td className="tabular text-fg-2">{a.clicks.toLocaleString('en-IN')}</Td>
+              <Td className="tabular text-fg-2">{a.impressions.toLocaleString('en-PK')}</Td>
+              <Td className="tabular text-fg-2">{a.clicks.toLocaleString('en-PK')}</Td>
               <Td><span className={`text-xs font-bold ${a.isActive ? 'text-success' : 'text-fg-3'}`}>{a.isActive ? 'ACTIVE' : 'PAUSED'}</span></Td>
               <Td>
                 <button onClick={() => toggle(a.id, !a.isActive)} className={`rounded-input px-2.5 py-1 text-[11px] font-bold ${a.isActive ? 'border border-warning/40 text-warning' : 'bg-success/15 text-success'}`}>

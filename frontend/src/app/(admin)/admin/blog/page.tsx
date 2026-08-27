@@ -43,7 +43,7 @@ export default function AdminBlogPage() {
                 <Td><span className="text-xs text-fg-2">{b.category}</span></Td>
                 <Td><Pill status={b.status} /></Td>
                 <Td className="text-xs text-fg-2">{b.author}</Td>
-                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(b.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</Td>
+                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(b.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}</Td>
                 <Td>
                   <button onClick={() => toggle(b.id, b.status !== 'PUBLISHED')}
                     className={`rounded-input px-2.5 py-1 text-[11px] font-bold ${b.status === 'PUBLISHED' ? 'border border-warning/40 text-warning' : 'bg-success/15 text-success'}`}>

@@ -37,7 +37,7 @@ export default function AdminAuditLogsPage() {
           <Table head={['When', 'Actor', 'Action', 'Entity', 'Detail']}>
             {data?.items.map((a) => (
               <Tr key={a.id}>
-                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(a.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}</Td>
+                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(a.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}</Td>
                 <Td className="font-semibold text-fg">{a.actor}</Td>
                 <Td><span className={`text-xs font-bold ${(a.action.includes('REJECT') || a.action.includes('BAN')) ? 'text-danger' : a.action.includes('APPROVED') || a.action.includes('PAID') || a.action.includes('VERIFIED') ? 'text-success' : 'text-fg-2'}`}>{a.action.replaceAll('_', ' ')}</span></Td>
                 <Td className="text-xs text-fg-2">{a.entity}{a.entityId ? ` · ${a.entityId.slice(-6)}` : ''}</Td>
@@ -65,7 +65,7 @@ export default function AdminAuditLogsPage() {
           </div>
           <p className="mt-3 text-xs text-fg-3">
             {detail.entity} · id {detail.entityId ?? '—'} · ip {detail.ip ?? '—'} ·{' '}
-            {new Date(detail.createdAt).toLocaleString('en-IN')}
+            {new Date(detail.createdAt).toLocaleString('en-PK')}
           </p>
         </Modal>
       )}

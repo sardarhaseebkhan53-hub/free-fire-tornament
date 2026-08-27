@@ -7,6 +7,7 @@ import {
   Headphones, ImagePlus, Loader2, Lock, MessageSquare, Paperclip, Plus, Send, ShieldCheck, X,
 } from 'lucide-react';
 import { api, ApiClientError, getToken } from '@/lib/client-api';
+import { deferLoad } from '@/lib/session';
 
 // ---------------------------------------------------------------------------
 
@@ -118,7 +119,7 @@ export default function SupportTicketsPage() {
   }, [filter]);
 
   useEffect(() => {
-    loadTickets();
+    deferLoad(loadTickets);
   }, [loadTickets]);
 
   const openTicket = useCallback(async (id: string) => {

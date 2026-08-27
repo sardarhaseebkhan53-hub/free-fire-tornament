@@ -2,9 +2,9 @@
 // Mobile featured tournament card — design 41: art, ENTRY FEE (gem), PRIZE POOL,
 // mode chip + teams, fill progress, and the STARTS IN countdown boxes.
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
 import { Crown, Gem, Users } from 'lucide-react';
 import { MODE_LABEL } from '@/lib/format';
+import { useTimeLeft } from '@/lib/client-time';
 
 export interface FeaturedTournament {
   slug: string;
@@ -19,15 +19,8 @@ export interface FeaturedTournament {
 }
 
 function Boxes({ targetMs }: { targetMs: number }) {
-  const [left, setLeft] = useState(targetMs);
-  useEffect(() => {
-    setLeft(targetMs);
-    const started = Date.now();
-    const id = setInterval(() => setLeft(targetMs - (Date.now() - started)), 1000);
-    return () => clearInterval(id);
-  }, [targetMs]);
-
-  const t = Math.max(0, left);
+  const left = useTimeLeft(targetMs);
+  const t = Math.max(0, left ?? targetMs);
   const parts: Array<[string, number]> = [
     ['DAYS', Math.floor(t / 86_400_000)],
     ['HRS', Math.floor((t % 86_400_000) / 3600_000)],
@@ -76,11 +69,11 @@ export function FeaturedMobile({ t }: { t: FeaturedTournament }) {
                 <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-fg-3">
                   Entry Fee <Gem size={11} className="text-accent" />
                 </p>
-                <p className="tabular font-display text-lg font-bold text-accent">₹{t.entryFeePerPlayer.toLocaleString('en-IN')}</p>
+                <p className="tabular font-display text-lg font-bold text-accent">PKR {t.entryFeePerPlayer.toLocaleString('en-PK')}</p>
               </div>
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-fg-3">Prize Pool</p>
-                <p className="tabular font-display text-lg font-bold text-reward">₹{t.prizePool.toLocaleString('en-IN')}</p>
+                <p className="tabular font-display text-lg font-bold text-reward">PKR {t.prizePool.toLocaleString('en-PK')}</p>
               </div>
             </div>
           </div>

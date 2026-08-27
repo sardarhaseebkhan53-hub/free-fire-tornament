@@ -2,6 +2,7 @@
 // Admin UI kit — KPI cards, data table shell, status pills, charts (hand-rolled
 // SVG, no chart dependency), modal and small helpers. Design language of 26-40.
 import { useEffect, useMemo, useState } from 'react';
+import { deferLoad } from '@/lib/session';
 
 export function Kpi({
   label, value, sub, tone = 'accent', icon,
@@ -222,25 +223,27 @@ export function BarChart({ series, height = 180 }: { series: Array<{ day: string
   );
 }
 
-export function Donut({ parts, total, label }: { parts: Array<{ label: string; value: number; color: string }>; total: number; label: string }) {
+export function Donut({ parts, label }: { parts: Array<{ label: string; value: number; color: string }>; total: number; label: string }) {
   const sum = parts.reduce((t, p) => t + p.value, 0) || 1;
-  let offset = 0;
+  // Pre-compute each arc's start offset so nothing is mutated during render.
+  const arcs = parts.reduce<Array<{ label: string; color: string; frac: number; offset: number }>>(
+    (acc, p) => {
+      const prev = acc[acc.length - 1];
+      const offset = prev ? prev.offset + prev.frac : 0;
+      return [...acc, { label: p.label, color: p.color, frac: p.value / sum, offset }];
+    },
+    [],
+  );
   const r = 54;
   const c = 2 * Math.PI * r;
   return (
     <div className="flex items-center gap-5">
       <svg viewBox="0 0 140 140" className="h-36 w-36 shrink-0 -rotate-90" role="img" aria-label={`${label} donut chart`}>
         <circle cx="70" cy="70" r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="16" />
-        {parts.map((p) => {
-          const frac = p.value / sum;
-          const dash = `${frac * c} ${c}`;
-          const el = (
-            <circle key={p.label} cx="70" cy="70" r={r} fill="none" stroke={p.color} strokeWidth="16"
-              strokeDasharray={dash} strokeDashoffset={-offset * c} strokeLinecap="butt" />
-          );
-          offset += frac;
-          return el;
-        })}
+        {arcs.map((a) => (
+          <circle key={a.label} cx="70" cy="70" r={r} fill="none" stroke={a.color} strokeWidth="16"
+            strokeDasharray={`${a.frac * c} ${c}`} strokeDashoffset={-a.offset * c} strokeLinecap="butt" />
+        ))}
         <text x="70" y="70" textAnchor="middle" dominantBaseline="central" className="rotate-90" transform="rotate(90 70 70)" fill="#F4F6FB" fontSize="11" fontWeight="700">
           {label}
         </text>
@@ -250,7 +253,7 @@ export function Donut({ parts, total, label }: { parts: Array<{ label: string; v
           <div key={p.label} className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />
             <span className="text-fg-2">{p.label}</span>
-            <span className="tabular ml-auto pl-4 font-bold text-fg">₹{Math.round(p.value).toLocaleString('en-IN')}</span>
+            <span className="tabular ml-auto pl-4 font-bold text-fg">PKR {Math.round(p.value).toLocaleString('en-PK')}</span>
             <span className="w-10 text-right text-fg-3">{Math.round((p.value / sum) * 100)}%</span>
           </div>
         ))}
@@ -285,12 +288,14 @@ export function useAdminList<T>(path: string, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    setLoading(true);
-    fetch(`/api/backend${path}`, { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } })
-      .then((r) => r.json())
-      .then((j) => setData(j.success ? j.data : null))
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
+    deferLoad(() => {
+      setLoading(true);
+      return fetch(`/api/backend${path}`, { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } })
+        .then((r) => r.json())
+        .then((j) => setData(j.success ? j.data : null))
+        .catch(() => setData(null))
+        .finally(() => setLoading(false));
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
   return { data, loading, setData };

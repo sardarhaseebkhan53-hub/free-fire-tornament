@@ -7,7 +7,9 @@ import {
   ArrowRight, Coins, Copy, Check, Crown, Gamepad2, Gift, Headphones, Loader2,
   Lock, Plus, Target, Swords, Trophy, Upload, Users, Wallet as WalletIcon,
 } from 'lucide-react';
-import { api, getToken } from '@/lib/client-api';
+import { api } from '@/lib/client-api';
+import { useHasSession } from '@/lib/session';
+import { useNow, useTimeUntil } from '@/lib/client-time';
 import { msToCountdown } from '@/lib/format';
 import { TypeChip } from '@/components/wallet/bits';
 import { fmt } from '@/lib/format';
@@ -26,26 +28,20 @@ interface Reg {
 interface Tx { id: string; type: string; amount: number; direction: string; createdAt: string; description: string | null }
 interface LbRow { rank: number; user: { username: string; profile: { freeFireIGN: string | null } }; totalPoints: number }
 
-function useCountdown(targetMs: number) {
-  const [left, setLeft] = useState(targetMs - Date.now());
-  useEffect(() => {
-    setLeft(targetMs - Date.now());
-    const id = setInterval(() => setLeft(targetMs - Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [targetMs]);
-  return left;
-}
-
 export default function DashboardPage() {
   const [me, setMe] = useState<Me | null>(null);
   const [regs, setRegs] = useState<Reg[]>([]);
   const [txs, setTxs] = useState<Tx[]>([]);
   const [lb, setLb] = useState<LbRow[]>([]);
-  const [state, setState] = useState<'loading' | 'authed' | 'anon'>('loading');
+  const [loaded, setLoaded] = useState<'loading' | 'authed' | 'anon'>('loading');
   const [copied, setCopied] = useState(false);
+  const hasSession = useHasSession();
+  const now = useNow(30_000);
+  // No token → anonymous without waiting for a request.
+  const state = hasSession === false ? 'anon' : hasSession === null ? 'loading' : loaded;
 
   useEffect(() => {
-    if (!getToken()) return setState('anon');
+    if (!hasSession) return;
     Promise.all([
       api<Me>('/auth/me'),
       api<Reg[]>('/tournaments/my').catch(() => []),
@@ -57,16 +53,16 @@ export default function DashboardPage() {
         setRegs(r);
         setTxs((w as { items?: Tx[] }).items ?? []);
         setLb(l ?? []);
-        setState('authed');
+        setLoaded('authed');
       })
-      .catch(() => setState('anon'));
-  }, []);
+      .catch(() => setLoaded('anon'));
+  }, [hasSession]);
 
   const upcoming = useMemo(
     () => regs
-      .filter((r) => r.status === 'CONFIRMED' && new Date(r.tournament.startTime).getTime() > Date.now() - 3 * 3600_000)
+      .filter((r) => r.status === 'CONFIRMED' && new Date(r.tournament.startTime).getTime() > (now ?? 0) - 3 * 3600_000)
       .sort((a, b) => +new Date(a.tournament.startTime) - +new Date(b.tournament.startTime))[0],
-    [regs],
+    [regs, now],
   );
 
   if (state === 'loading') {
@@ -228,7 +224,7 @@ export default function DashboardPage() {
             <div>
               <p className="font-display text-xl font-bold text-fg">REFER &amp; EARN</p>
               <p className="mt-0.5 text-sm text-fg-2">
-                Earn up to <span className="font-bold text-reward">₹500</span> for every friend you invite!
+                Earn up to <span className="font-bold text-reward">PKR 500</span> for every friend you invite!
               </p>
               <p className="mt-1 text-[11px] text-fg-3">Your code: <span className="font-mono font-bold text-accent">{me.referralCode}</span></p>
             </div>
@@ -256,7 +252,7 @@ export default function DashboardPage() {
                   <div className="min-w-0">
                     <TypeChip type={t.type} />
                     <p className="mt-0.5 truncate pl-9 text-[11px] text-fg-3">
-                      {t.description ?? ''} · {new Date(t.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
+                      {t.description ?? ''} · {new Date(t.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
                     </p>
                   </div>
                   <span className={`tabular shrink-0 text-sm font-bold ${t.direction === 'CREDIT' ? 'text-success' : 'text-danger'}`}>
@@ -283,7 +279,7 @@ export default function DashboardPage() {
                   <Link href={`/players/${row.user.username}`} className="min-w-0 flex-1 truncate text-sm font-semibold text-fg hover:text-accent">
                     {row.user.profile?.freeFireIGN ?? row.user.username}
                   </Link>
-                  <span className="tabular text-sm font-bold text-fg">{row.totalPoints.toLocaleString('en-IN')}</span>
+                  <span className="tabular text-sm font-bold text-fg">{row.totalPoints.toLocaleString('en-PK')}</span>
                 </div>
               ))}
               {lb.length === 0 && <p className="py-4 text-sm text-fg-3">Leaderboard warming up.</p>}
@@ -296,8 +292,7 @@ export default function DashboardPage() {
 }
 
 function UpcomingMatch({ reg }: { reg: Reg }) {
-  const startMs = new Date(reg.tournament.startTime).getTime();
-  const left = useCountdown(startMs);
+  const left = useTimeUntil(reg.tournament.startTime) ?? 0;
   const days = Math.max(0, Math.floor(left / 86_400_000));
   const hrs = Math.max(0, Math.floor((left % 86_400_000) / 3600_000));
   const mins = Math.max(0, Math.floor((left % 3600_000) / 60_000));

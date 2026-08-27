@@ -2,8 +2,9 @@
 // Client island: auth-aware desktop actions + the design-41 mobile header
 // (logo stays in navbar.tsx; this renders search + bell — no drawer).
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import { Bell, LogOut, Search, Wallet } from 'lucide-react';
+import { notifySessionChange } from '@/lib/session';
 
 interface Session {
   sub: string;
@@ -24,22 +25,35 @@ function readSession(): Session | null {
   }
 }
 
-export function NavbarClient() {
-  const [session, setSession] = useState<Session | null>(null);
+let cachedToken: string | null = null;
+let cachedSession: Session | null = null;
 
-  useEffect(() => {
-    setSession(readSession());
-    const onStorage = () => setSession(readSession());
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+/** Stable snapshot — only re-derives when the stored token actually changes. */
+function sessionSnapshot(): Session | null {
+  const token = localStorage.getItem('cn_access');
+  if (token !== cachedToken) {
+    cachedToken = token;
+    cachedSession = readSession();
+  }
+  return cachedSession;
+}
+
+function subscribeSession(onChange: () => void): () => void {
+  window.addEventListener('storage', onChange);
+  return () => window.removeEventListener('storage', onChange);
+}
+
+export function NavbarClient() {
+  // localStorage is an external store: read it through useSyncExternalStore so
+  // the server render, hydration and later updates all stay consistent.
+  const session = useSyncExternalStore(subscribeSession, sessionSnapshot, () => null);
 
   async function logout() {
     try {
       await fetch('/api/backend/auth/logout', { method: 'POST', credentials: 'include' });
     } finally {
       localStorage.removeItem('cn_access');
-      setSession(null);
+      notifySessionChange();
     }
   }
 

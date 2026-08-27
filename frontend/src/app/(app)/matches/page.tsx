@@ -10,7 +10,8 @@ import {
 import { EmptyState } from '@/components/ui';
 import { Countdown } from '@/components/countdown';
 import { MODE_LABEL } from '@/lib/format';
-import { api, getToken } from '@/lib/client-api';
+import { api } from '@/lib/client-api';
+import { deferLoad, useHasSession } from '@/lib/session';
 
 interface MyMatch {
   id: string; matchNumber: number; round: number; map: string | null;
@@ -79,23 +80,24 @@ function Thumb({ seed }: { seed: string }) {
 
 export default function MyMatchesPage() {
   const [items, setItems] = useState<Item[] | null>(null);
-  const [anon, setAnon] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const hasSession = useHasSession();
+  const anon = hasSession === false || loadFailed;
   const [tab, setTab] = useState<Tab>('upcoming');
   const [pwVisible, setPwVisible] = useState<Record<string, boolean>>({});
   const [resultFor, setResultFor] = useState<{ item: Item; match: MyMatch } | null>(null);
   const [standingsFor, setStandingsFor] = useState<Item | null>(null);
 
   const load = useCallback(() => {
-    const token = localStorage.getItem('cn_access');
-    if (!token) return setAnon(true);
-    api<Item[]>('/matches/my').then(setItems).catch(() => setAnon(true));
+    api<Item[]>('/matches/my').then(setItems).catch(() => setLoadFailed(true));
   }, []);
 
   useEffect(() => {
-    load();
+    if (!hasSession) return;
+    deferLoad(load);
     const id = setInterval(load, 15_000);
     return () => clearInterval(id);
-  }, [load]);
+  }, [hasSession, load]);
 
   if (anon) {
     return (
@@ -175,15 +177,15 @@ export default function MyMatchesPage() {
                         <span className="rounded-pill border border-accent/30 bg-accent/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-accent">{mode}</span>
                       </div>
                       <p className="mt-1 flex items-center gap-2 text-xs text-fg-3">
-                        🗓 {new Date(it.tournament.startTime).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                        · ⏰ {new Date(it.tournament.startTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                        🗓 {new Date(it.tournament.startTime).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        · ⏰ {new Date(it.tournament.startTime).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true })}
                       </p>
 
                       <div className="mt-3 grid grid-cols-3 gap-3 sm:w-fit sm:gap-8">
                         {tab !== 'completed' ? (
                           <>
-                            <Metric label="ENTRY FEE" value={`₹${it.tournament.entryFeePerPlayer.toLocaleString('en-IN')}`} />
-                            <Metric label="PRIZE POOL" value={`₹${it.tournament.prizePool.toLocaleString('en-IN')}`} gold />
+                            <Metric label="ENTRY FEE" value={`PKR ${it.tournament.entryFeePerPlayer.toLocaleString('en-PK')}`} />
+                            <Metric label="PRIZE POOL" value={`PKR ${it.tournament.prizePool.toLocaleString('en-PK')}`} gold />
                             <Metric label="YOUR SLOT" value={`#${it.slotNumber}`} />
                           </>
                         ) : (
@@ -191,14 +193,14 @@ export default function MyMatchesPage() {
                             <Metric label="PLACEMENT" value={m?.result?.placement ? `#${m.result.placement}` : '—'} gold />
                             <Metric label="KILLS" value={String(m?.result?.kills ?? 0)} />
                             <Metric label="POINTS" value={String(m?.result?.points ?? 0)} />
-                            <Metric label="EARNINGS" value={`${it.myEarnings > 0 ? '+' : ''}₹${it.myEarnings.toLocaleString('en-IN')}`} green={it.myEarnings > 0} />
+                            <Metric label="EARNINGS" value={`${it.myEarnings > 0 ? '+' : ''}PKR ${it.myEarnings.toLocaleString('en-PK')}`} green={it.myEarnings > 0} />
                           </>
                         )}
                       </div>
                     </div>
 
                     <div className="flex flex-col items-start gap-2 lg:items-end">
-                      <StatusPill tab={tab} tournamentStatus={it.tournament.status} />
+                      <StatusPill tab={tab} />
                       {tab === 'completed' && (
                         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                           <button
@@ -291,7 +293,7 @@ function Metric({ label, value, gold, green }: { label: string; value: string; g
   );
 }
 
-function StatusPill({ tab, tournamentStatus }: { tab: Tab; tournamentStatus: string }) {
+function StatusPill({ tab }: { tab: Tab }) {
   if (tab === 'completed') {
     return <span className="rounded-pill border border-success/30 bg-success/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-success">Completed</span>;
   }
@@ -503,7 +505,7 @@ function StandingsModal({ item, onClose }: { item: Item; onClose: () => void }) 
                     <div key={`${w.position}-${i}`} className="flex items-center justify-between rounded-input border border-line bg-white/[2%] px-3.5 py-2 text-xs">
                       <span className="font-semibold text-fg-2">{w.label}</span>
                       <span className="text-fg-3">{w.recipient}</span>
-                      <span className="tabular font-bold text-success">+₹{w.amount.toLocaleString('en-IN')}</span>
+                      <span className="tabular font-bold text-success">+PKR {w.amount.toLocaleString('en-PK')}</span>
                     </div>
                   ))}
                 </div>

@@ -2,12 +2,17 @@
 import Link from 'next/link';
 import { NavbarClient } from './navbar-client';
 
+// Design v2 §Desktop header — the full nine-item primary navigation. Items
+// marked `secondary` fold away below 1280px so the bar never wraps or overflows.
 const LINKS = [
   { href: '/', label: 'Home' },
   { href: '/tournaments', label: 'Tournaments' },
   { href: '/leaderboard', label: 'Leaderboard' },
+  { href: '/matches', label: 'Matches' },
+  { href: '/teams', label: 'Teams', secondary: true },
   { href: '/winners', label: 'Winners' },
-  { href: '/blog', label: 'Blog' },
+  { href: '/blog', label: 'Blog', secondary: true },
+  { href: '/legal/how-it-works', label: 'How It Works', secondary: true },
   { href: '/support', label: 'Support' },
 ];
 
@@ -24,12 +29,14 @@ export function Navbar() {
           </span>
         </Link>
 
-        <nav className="hidden items-center gap-1 lg:flex" aria-label="Primary">
+        <nav className="hidden items-center gap-0.5 lg:flex" aria-label="Primary">
           {LINKS.map((l) => (
             <Link
               key={l.href}
               href={l.href}
-              className="rounded-input px-3 py-2 text-sm font-medium text-fg-2 transition hover:bg-white/5 hover:text-fg"
+              className={`rounded-input px-2.5 py-2 text-[13px] font-medium text-fg-2 transition hover:bg-white/5 hover:text-fg xl:px-3 xl:text-sm ${
+                l.secondary ? 'hidden xl:inline-flex' : ''
+              }`}
             >
               {l.label}
             </Link>

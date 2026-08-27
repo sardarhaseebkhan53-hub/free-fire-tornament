@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 // Join tournament flow — talks to the race-safe join engine.
 // Solo: direct join (+ optional coupon). Team modes: captain picks their team.
 import { useRouter } from 'next/navigation';
@@ -125,7 +126,7 @@ export function JoinTournament({
           ) : teams.length === 0 ? (
             <div className="mt-3 rounded-input border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
               You need a full {teamSize}-player {type === 'DUO' ? 'duo' : 'squad'} where you are captain.{' '}
-              <a href="/teams" className="font-semibold underline">Manage teams</a>
+              <Link href="/teams" className="font-semibold underline">Manage teams</Link>
             </div>
           ) : (
             <label className="mt-3 block">

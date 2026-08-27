@@ -147,7 +147,7 @@ export default function AdminFraudPage() {
                 </Td>
                 <Td className="max-w-[42ch] text-xs text-fg-2">{String(a.details?.title ?? '—')}</Td>
                 <Td className="whitespace-nowrap text-xs text-fg-3">
-                  {new Date(a.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
+                  {new Date(a.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
                 </Td>
                 <Td><Pill status={a.status} /></Td>
                 <Td>

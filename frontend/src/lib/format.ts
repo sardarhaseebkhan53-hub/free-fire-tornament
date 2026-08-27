@@ -2,7 +2,7 @@
 
 export function money(value: number | string | { toString(): string } | null | undefined): string {
   const n = Number(value ?? 0);
-  return `Rs ${n.toLocaleString('en-PK', { maximumFractionDigits: 0 })}`;
+  return `PKR ${n.toLocaleString('en-PK', { maximumFractionDigits: 0 })}`;
 }
 
 export function compact(n: number): string {
@@ -41,13 +41,13 @@ export const MODE_LABEL: Record<string, string> = {
   CLASH_SQUAD: 'Clash Squad',
 };
 
-/** Rupee formatter for the user app (design shows ₹ with Indian grouping). */
+/** PKR formatter for the user app (design v2: `PKR 1,800`, en-PK grouping). */
 export function fmt(n: number | string | null | undefined, decimals = 0): string {
-  return `₹${Number(n ?? 0).toLocaleString('en-IN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+  return `PKR ${Number(n ?? 0).toLocaleString('en-PK', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
 }
 
 export function fmtDate(d: string | Date): string {
-  return new Date(d).toLocaleString('en-IN', {
+  return new Date(d).toLocaleString('en-PK', {
     day: 'numeric', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit', hour12: true,
   });

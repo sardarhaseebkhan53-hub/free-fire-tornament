@@ -64,7 +64,10 @@ export function UserShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  // The drawer is bound to the route it was opened on, so any navigation
+  // closes it without needing a synchronous setState inside an effect.
+  const [drawerRoute, setDrawerRoute] = useState<string | null>(null);
+  const drawerOpen = drawerRoute === pathname;
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -79,11 +82,6 @@ export function UserShell({ children }: { children: React.ReactNode }) {
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, []);
-
-  // Close the mobile drawer whenever the route changes.
-  useEffect(() => {
-    setDrawerOpen(false);
-  }, [pathname]);
 
   async function logout() {
     await fetch('/api/backend/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
@@ -167,7 +165,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
         {/* Mobile header — design 42: hamburger + wordmark + bell */}
         <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-base/90 px-4 backdrop-blur-xl lg:hidden">
           <button
-            onClick={() => setDrawerOpen(true)}
+            onClick={() => setDrawerRoute(pathname)}
             aria-label="Open menu"
             aria-expanded={drawerOpen}
             className="flex h-9 w-9 items-center justify-center rounded-input text-fg-2 transition hover:text-fg"
@@ -194,12 +192,12 @@ export function UserShell({ children }: { children: React.ReactNode }) {
         {/* Mobile drawer — design 42 */}
         {drawerOpen && (
           <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerOpen(false)} />
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerRoute(null)} />
             <div className="absolute inset-y-0 left-0 flex w-72 flex-col overflow-y-auto border-r border-line bg-surface pt-6">
               <div className="mb-6 flex items-center justify-between px-4">
                 <Logo />
                 <button
-                  onClick={() => setDrawerOpen(false)}
+                  onClick={() => setDrawerRoute(null)}
                   aria-label="Close menu"
                   className="flex h-8 w-8 items-center justify-center rounded-input border border-line text-fg-3"
                 >
@@ -220,7 +218,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
               className="flex items-center gap-2 rounded-pill border border-line bg-white/[3%] py-1.5 pl-3.5 pr-1.5 text-sm font-bold text-fg transition hover:border-accent/40"
             >
               <WalletIcon size={15} className="text-accent" />
-              <span className="tabular">₹{total.toLocaleString('en-IN')}</span>
+              <span className="tabular">PKR {total.toLocaleString('en-PK')}</span>
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-white">
                 <Plus size={13} />
               </span>

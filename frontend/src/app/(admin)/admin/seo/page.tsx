@@ -1,6 +1,6 @@
 'use client';
 // SEO management — design 38: per-page overrides for titles, descriptions, canonicals.
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Table, Td, Tr, useAdminList } from '@/components/admin/kit';

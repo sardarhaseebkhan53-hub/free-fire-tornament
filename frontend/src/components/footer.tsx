@@ -1,6 +1,6 @@
 // Footer — spec §49: brand, links, legal, WhatsApp support.
 import Link from 'next/link';
-import { MessageCircle } from 'lucide-react';
+import { Camera, MessageCircle, Music2, PlayCircle, ThumbsUp } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 
 export async function Footer() {
@@ -30,6 +30,28 @@ export async function Footer() {
           >
             <MessageCircle size={15} /> WhatsApp Support
           </a>
+
+          {/* Social — design v2 §Footer */}
+          <div className="mt-5 flex items-center gap-2">
+            {[
+              { href: waHref, label: 'WhatsApp', Icon: MessageCircle },
+              { href: 'https://instagram.com/clutchnex', label: 'Instagram', Icon: Camera },
+              { href: 'https://facebook.com/clutchnex', label: 'Facebook', Icon: ThumbsUp },
+              { href: 'https://youtube.com/@clutchnex', label: 'YouTube', Icon: PlayCircle },
+              { href: 'https://tiktok.com/@clutchnex', label: 'TikTok', Icon: Music2 },
+            ].map(({ href, label, Icon }) => (
+              <a
+                key={label}
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={label}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-3 transition hover:border-accent/40 hover:text-accent"
+              >
+                <Icon size={15} />
+              </a>
+            ))}
+          </div>
         </div>
 
         <div>
@@ -40,6 +62,8 @@ export async function Footer() {
             <li><Link className="hover:text-fg" href="/winners">Winners</Link></li>
             <li><Link className="hover:text-fg" href="/blog">Blog</Link></li>
             <li><Link className="hover:text-fg" href="/legal/how-it-works">How It Works</Link></li>
+            <li><Link className="hover:text-fg" href="/matches">Matches</Link></li>
+            <li><Link className="hover:text-fg" href="/teams">Teams</Link></li>
           </ul>
         </div>
 
@@ -63,9 +87,17 @@ export async function Footer() {
           </ul>
         </div>
       </div>
-      <div className="border-t border-line py-5 text-center text-xs text-fg-3">
-        © {new Date().getFullYear()} CLUTCHNEX. Tournaments are skill-based competitive events —
-        no guaranteed earnings. Please participate responsibly.
+      <div className="border-t border-line px-4 py-5 text-center text-xs text-fg-3">
+        <p className="mx-auto max-w-3xl">
+          <span className="font-semibold text-fg-2">
+            CLUTCHNEX is currently available as a web application / PWA.
+          </span>{' '}
+          Install it from your browser — it is not distributed on Google Play or the Apple App Store.
+        </p>
+        <p className="mt-2">
+          © {new Date().getFullYear()} CLUTCHNEX. Tournaments are skill-based competitive events —
+          no guaranteed earnings. Please participate responsibly.
+        </p>
       </div>
     </footer>
   );
