@@ -5,7 +5,7 @@ Status: **ALL 42 CONCEPTS DELIVERED — AWAITING FINAL APPROVAL (UI GATE)**
 Implemented so far (Phases 7–8): screens **12, 13, 14, 15, 16, 17, 22** are live in the
 Next.js app — user shell, dashboard, my matches (with result submission), wallet,
 add money, payment proof, transactions, withdraw. Remaining screens ship with their
-phases (admin screens 31/32/33 with the Phase 9 panel).
+phases (admin screens 26–40 — the full admin panel — implemented in Phase 9).
 Mobile/PWA chrome implemented (Phase 7–8 polish): **41** — public mobile header
 (search + bell), hero banner card, featured-tournament card with countdown boxes,
 bottom nav, WhatsApp bubble · **42** — user-app hamburger drawer, wallet balance

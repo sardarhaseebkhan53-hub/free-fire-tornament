@@ -43,8 +43,8 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 6 | Teams & matches | ✅ Done |
 | 7 | Wallet & manual payments | ✅ Done |
 | 8 | Results & prize distribution | ✅ Done |
-| 9 | Admin panel | ⬜ Next |
-| 10 | Financial dashboard | ⬜ |
+| 9 | Admin panel | ✅ Done |
+| 10 | Financial dashboard | ⬜ Next |
 | 11 | Support + WhatsApp + NEXA chatbot | ⬜ |
 | 12 | SEO + Blog CMS | ⬜ |
 | 13 | PWA | ⬜ |
@@ -207,13 +207,41 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
   idempotency, notifications, audits, ledger integrity) + wallet and join suites
   still green; live e2e through the Next proxy; `next build` clean.
 
-### ⬜ Phase 9 — Admin panel *(next)*
-15+ screens: dashboard, users, tournament builder wizard (15 steps incl. profit
-calculator + economic safety), matches, result verification, deposits, withdrawals,
-wallets/balance adjustments (audited), teams, referrals, coupons, notifications,
-settings, audit logs.
+### ✅ Phase 9 — Admin panel
+- **Admin shell** (design 26): gated sidebar (Dashboard → Audit Logs), global user
+  search, profile chip; client RBAC gate + `ADMIN+` enforcement on every API route.
+- **Dashboard**: live KPIs (users, active today, live tournaments, pending
+  deposits/withdrawals with totals, open tickets), 30-day revenue chart,
+  registrations chart, deposits-vs-withdrawals-vs-prizes donut, recent activity
+  feed and open fraud alerts — all from a real aggregate endpoint.
+- **Users** (27): search by username/email/FF UID, status filters, ban/suspend/
+  restore (super-admin protected) and **audited wallet adjustments** across all
+  four buckets with mandatory notes and player notifications.
+- **Tournaments + builder** (28/29): list with status flow (publish → live →
+  completed/cancel-with-guard) and a 5-step wizard (basics, schedule, pricing,
+  prizes, review) with the **live profit calculator** and the economic-safety
+  gate — loss-projecting configurations require explicit confirmation.
+- **Matches** (30): per-tournament list, scheduling with room credentials +
+  participant sync, live/complete transitions.
+- **Result verification** (31): the full design-31 workspace — status tabs,
+  submission queue, kill/placement override with auto points, screenshot viewer,
+  verify / disqualify / reject-for-resubmission, live standings draft, points
+  legend and the **idempotent prize distribution** trigger.
+- **Deposits (32) / Withdrawals (33)**: filtered queues, proof viewer, one-click
+  approval (credits once) and the full payout chain with mandatory reference.
+- **Revenue** (34): entry collection vs prizes vs net (deposits never conflated
+  with revenue), daily ledger with 30/60/90-day windows.
+- **Support (35), Blog CMS (36), Ads (37), SEO (38), Settings (39), Audit Logs
+  (40)**: ticket threads with replies/resolve + player notifications, markdown
+  blog publishing, ad placements with pause/activate, per-page SEO overrides,
+  the full settings table with audited inline edits, and a filterable audit
+  trail with before/after inspectors.
+- **Verified:** all 15 screens render; live e2e through the proxy — deposit
+  approved & credited, withdrawal chain to PAID, result verified with override,
+  settings round-trip — every action in the audit trail; wallet/results/join
+  suites still green; `next build` + `tsc` clean.
 
-### ⬜ Phase 10 — Financial dashboard
+### ⬜ Phase 10 — Financial dashboard *(next)*
 Gross entry collection, prize distributed, platform gross, payment costs, refunds,
 referral/bonus costs, withdrawals, net revenue — never conflating deposits with
 profit; daily/weekly/monthly/tournament charts; CSV export.
@@ -330,4 +358,4 @@ free-fire-tornament/
 └── README.md          # this file
 ```
 
-**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · Phases 7–8 in review on this branch.
+**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · Phases 7–9 in review on this branch.
