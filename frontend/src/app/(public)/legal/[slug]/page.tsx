@@ -1,9 +1,9 @@
 // Legal / trust pages + How It Works — content served from the API (static_pages).
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { marked } from 'marked';
 import { ArrowLeft } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
+import { renderMarkdownSafe } from '@/lib/markdown';
 
 interface Page { slug: string; title: string; content: string; }
 
@@ -17,7 +17,7 @@ export default async function LegalPage({ params }: { params: Promise<{ slug: st
   const { slug } = await params;
   const page = await apiServerSafe<Page>(`/public/pages/${slug}`);
   if (!page) notFound();
-  const html = await marked.parse(page.content, { async: true });
+  const html = await renderMarkdownSafe(page.content);
 
   return (
     <article className="mx-auto max-w-3xl px-4 py-10 sm:px-6">

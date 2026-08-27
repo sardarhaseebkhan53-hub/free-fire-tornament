@@ -6,9 +6,12 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "postinstall": "node scripts/offline-prisma-patch.mjs",
     "db:dev": "node scripts/dev-db.mjs",
     "db:generate": "node scripts/db-generate.mjs",
     "db:push": "prisma db push",
@@ -21,9 +24,9 @@
     "verify:results": "tsx scripts/verify-results.mts",
     "verify:finance": "tsx scripts/verify-finance.mts",
     "verify:support": "tsx scripts/verify-support.mts",
-    "postinstall": "node scripts/offline-prisma-patch.mjs",
     "verify:seo": "tsx scripts/verify-seo.mts",
-    "verify:pwa": "tsx scripts/verify-pwa.mts"
+    "verify:pwa": "tsx scripts/verify-pwa.mts",
+    "verify:security": "tsx scripts/verify-security.mts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
@@ -37,6 +40,7 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
+    "nodemailer": "^9.0.5",
     "zod": "^4.1.13"
   },
   "devDependencies": {
@@ -51,8 +55,10 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.0.0",
     "@types/node": "^24.10.1",
+    "@types/nodemailer": "^8.0.1",
     "prisma": "^7.10.0",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
   }
 }

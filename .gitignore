@@ -17,6 +17,10 @@ backend/.env
 pgdata/
 uploads/
 
+# Test database + test upload scratch (Vitest boots its own PGlite on :55432)
+.test-pgdata/
+.test-uploads/
+
 # Prisma generated client (regenerated via `npm run db:generate`)
 backend/generated/
 

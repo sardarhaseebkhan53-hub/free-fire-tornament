@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { moveBalance, TX_OPTS } from './wallet.service';
+import { fireDepositFraud, fireRejectedDepositTid, fireWithdrawalFraud } from './fraud.service';
 
 const num = (d: unknown) => Math.round(Number(d ?? 0) * 100) / 100;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -48,6 +49,7 @@ export async function createDeposit(
   input: { amount: number; method: 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER'; transactionId: string; senderName: string; senderAccount?: string },
   screenshotPath: string,
   ctx: Ctx,
+  screenshotHash?: string,
 ) {
   const min = Number(await getSetting('wallet.minDeposit', 100));
   const max = Number(await getSetting('wallet.maxDeposit', 25000));
@@ -56,6 +58,11 @@ export async function createDeposit(
 
   const existing = await prisma.deposit.findUnique({ where: { transactionId: input.transactionId } });
   if (existing) {
+    // Phase 14 — a TID another account already claimed is a fraud signal, not
+    // just a validation error (the insert never happens, so nothing else sees it).
+    if (existing.userId !== userId) {
+      fireRejectedDepositTid(userId, input.transactionId, existing.id, input.amount, ctx);
+    }
     throw conflict('DUPLICATE_TRANSACTION', 'This transaction ID has already been submitted — each payment can be claimed only once.');
   }
 
@@ -72,6 +79,7 @@ export async function createDeposit(
         senderName: input.senderName,
         senderAccount: input.senderAccount || null,
         screenshot: screenshotPath,
+        screenshotHash: screenshotHash || null,
         status: 'PENDING',
       },
     });
@@ -98,6 +106,9 @@ export async function createDeposit(
       ip: ctx.ip, userAgent: ctx.userAgent,
     },
   });
+
+  // Phase 14 — detection runs AFTER the row commits, off the request path.
+  fireDepositFraud(dep.id, ctx);
 
   return {
     deposit: serializeDeposit(dep),
@@ -217,6 +228,9 @@ export async function requestWithdrawal(
     });
     return wd;
   }, TX_OPTS);
+
+  // Phase 14 — churn / burst / new-account / shared-payout checks.
+  fireWithdrawalFraud(out.id, ctx);
 
   return { withdrawal: serializeWithdrawal(out), fee, net: round2(input.amount - fee) };
 }

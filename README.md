@@ -26,11 +26,12 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | Database | PostgreSQL via Prisma 7 (dev: embedded PGlite — `npm run db:dev`, no install) |
 | Auth | JWT access tokens + rotating HttpOnly refresh cookies, bcrypt, RBAC |
 | Validation | Zod everywhere — the server never trusts frontend financial values |
+| Email | Provider-swappable (`log` / SMTP / Resend / Postmark) — retries transient faults, never fails an auth flow |
 | Currency | PKR default, admin-configurable |
 
 ---
 
-## Progress — 14 of 17 phases complete
+## Progress — 17 of 17 phases complete
 
 | # | Phase | Status |
 |---|---|---|
@@ -48,12 +49,13 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 11 | Support + WhatsApp + NEXA chatbot | ✅ Done |
 | 12 | SEO + Blog CMS | ✅ Done |
 | 13 | PWA | ✅ Done |
-| 14 | Security hardening | ⬜ |
-| 15 | Testing | ⬜ |
-| 16 | Deployment | ⬜ |
+| 14 | Security hardening | ✅ Done |
+| 15 | Testing | ✅ Done |
+| 16 | Deployment | ✅ Done |
 
-All completed work lives in **[PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4)**
-(and the merged history: PR #1, PR #2, PR #3) — one commit per phase, each independently verified.
+Completed work lives in the merged history (PR #1, PR #2, PR #3, PR #4) plus
+[PR #5](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/5)
+(Phases 14–16) — one commit per phase, each independently verified.
 
 ---
 
@@ -350,18 +352,151 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
   production build; all six previous suites still green; `next build` clean.
   The live preview now runs the production server — install it for real.
 
-### ⬜ Phase 14 — Security hardening
-Upload validation (MIME/size/dimensions), fraud/duplicate detection alerts, audit
-logging on every financial action, CSRF review, stricter rate budgets.
+### ⬜ Phase 14 — Security hardening → ✅ done
 
-### ⬜ Phase 15 — Testing
-Vitest suites: auth, wallet, deposits/withdrawals, tournament join
-(double-click/concurrency), idempotent prize distribution, admin permissions,
-withdrawal-exceeding-balance.
+- **Uploads are validated by their bytes, not their claims.** A browser-supplied
+  `Content-Type` is a lie an attacker controls, so every upload is sniffed
+  (JPEG/PNG/WebP magic bytes), the declared type must match the real one, the
+  pixel dimensions are parsed straight out of the container header (32px–4096px),
+  and rejected files are deleted from disk before the caller sees them. HTML
+  renamed to `.png`, GIF/BMP, mislabelled PNGs, 1×1 "screenshots" and 9000px
+  bombs are all refused; extensions on disk come from the sniffed type.
+- **Private uploads are no longer statically served.** `/uploads` now blocks the
+  `deposits/`, `tickets/` and `results/` folders outright (403) — payment proofs
+  are reachable only through their owner-or-staff routes, which resolve paths
+  traversal-safely and serve files as inert data (`nosniff`, sandboxed CSP,
+  `Content-Disposition`, type from the sniffed extension).
+- **Fraud & abuse detection (`FraudAlert`)** — 15 detectors wired into live
+  traffic: duplicate/reused transaction IDs, **reused payment screenshots**
+  (SHA-256 content hash, per-account and cross-account), deposit bursts,
+  outlier amounts vs the player's own history, withdrawal bursts,
+  deposit→withdraw churn, brand-new accounts cashing out, one payout account
+  shared by several players, multi-account signups from one IP/device,
+  credential stuffing, **refresh-token replay** (also revokes every live
+  session), repeated rejected joins, coupon-code guessing and identical match
+  result claims. Detection is **fire-and-forget, deduplicated, admin-tunable
+  via `security.*` settings, and never blocks or alters the request it
+  observes** — a flagged withdrawal still debits exactly once.
+- **Review queue**: `GET /api/admin/fraud` + `POST /api/admin/fraud/:id/review`
+  (ADMIN+, audited, idempotent) and a new **Fraud & Abuse** admin screen with
+  severity ordering, evidence inspector, review note and status tabs.
+- **Audit coverage extended to failures**: `LOGIN_FAILED`, `LOGIN_LOCKOUT`,
+  `LOGIN_SUCCESS`, `USER_REGISTERED`, `PASSWORD_CHANGED/RESET`,
+  `REFRESH_TOKEN_REUSED`, `COUPON_REJECTED`, `TOURNAMENT_JOIN_REJECTED` and
+  `FRAUD_ALERT_*` — with source IP and user-agent on every row. Rejections are
+  written outside the rolled-back transaction, so abuse stays visible.
+- **CSRF**: the only cookie-authenticated endpoints (`/auth/refresh`,
+  `/auth/logout`) now require a first-party marker header and refuse
+  cross-site requests — on top of SameSite=Lax, a path-scoped HttpOnly cookie
+  and CORS pinned to one origin. The Next.js proxy forwards the marker,
+  `Sec-Fetch-Site` and the real client IP.
+- **Stricter budgets, three tiers**: global (env-tunable `RATE_LIMIT_PER_WINDOW`,
+  default 600/15min), identity (login 10/15min, register 5/h, reset & resend
+  5/15min) and financial (deposits 10/h, withdrawals 6/h, joins 30/15min,
+  coupons 15/15min, conversions 20/h, admin writes 240/15min) — financial
+  limiters key **per user**, so one player cannot lock out a whole NAT.
+- **Transport & payload hardening**: helmet with an explicit
+  `default-src 'none'` CSP + `frame-ancestors 'none'`, HSTS in production,
+  COOP/CORP, no-referrer; JSON bodies capped at 256kb (413 on overflow, clean
+  400 on malformed JSON); bcrypt cost raised 10 → **12**; upload quota per
+  player per day.
+- **Verified:** `npm run verify:security` — **76/76** live checks (byte-level
+  upload rejection, upload privacy + traversal, every detector from real
+  traffic, dedupe, the detection-never-changes-money proof, audit coverage,
+  CSRF, headers, limits, RBAC, review idempotency, bcrypt cost) and all seven
+  previous suites still green; `next build` + `tsc` clean.
 
-### ⬜ Phase 16 — Deployment
-Environment docs, production builds for frontend + backend, managed PostgreSQL
-configuration, live preview run. No Docker anywhere.
+### ⬜ Phase 15 — Testing → ✅ done
+
+- **`npm test` (Vitest) — 127 tests, no Docker, no live dev server.** A private
+  PostgreSQL is booted per run: Vitest's `globalSetup` starts the same embedded
+  PGlite the dev workflow uses on its own port (`:55432`) and data directory
+  (`.test-pgdata`, wiped each run), applies every migration in order, seeds the
+  baseline settings + payment destinations, and tears it all down afterwards.
+  `pgdata/` and the dev database are never touched.
+- **Suites** (`backend/tests/`):
+  - `unit/image.test.ts` — the Phase 14 byte validator: magic-byte sniffing,
+    container dimension parsing, MIME-mismatch, 1×1 and oversized rejections,
+    byte caps, truncated headers.
+  - `unit/economics.test.ts` — the master pricing tier reproduced to the rupee,
+    team-size math, kill pools budgeted at their **cap**, uncapped pools
+    refused, loss detection and the admin-tunable loss threshold.
+  - `integration/auth.test.ts` — registration uniqueness, bcrypt cost 12,
+    login by email/username, per-identifier lockout (the correct password is
+    refused while locked), banned accounts, **refresh rotation with replay
+    detection that revokes every live session**, tokens stored only as hashes.
+  - `integration/wallet.test.ts` — credit/debit with before/after on every row,
+    **overdraw refused and nothing written**, bucket isolation, whole
+    transaction rollback when one leg fails, coin conversion, and a
+    `ledgerIsConsistent` invariant (chain continuity + wallet mirror) re-derived
+    from the immutable ledger after each scenario.
+  - `integration/payments.test.ts` — deposits never auto-credit, duplicate TIDs
+    across players, **approval credits exactly once** (second approval refused),
+    rejection moves no money, the full PENDING→APPROVED→PROCESSING→PAID chain
+    with skipped steps refused, mandatory payout reference, **withdrawals that
+    exceed the winning balance refused** (and not fundable from cash/bonus),
+    reversals on reject/cancel.
+  - `integration/join.test.ts` — **double-click → one registration**, ten racers
+    for three slots → exactly three in and the slot counter truthful, full and
+    deadline refusals, coupon percentage/fixed/cap/usage-limit math under
+    concurrency, refunds per `refundPercent`.
+  - `integration/prizes.test.ts` — submission guards, verification writing
+    `placement + kills × pointsPerKill`, admin overrides, disqualification
+    reverting stats, standings tie-breaks, and **idempotent distribution**:
+    a second run is refused and credits not one extra rupee.
+  - `integration/permissions.test.ts` — the RBAC ladder, and the real Express
+    app over HTTP: every admin route is 401 anonymous / 403 for players,
+    moderators are refused ADMIN-only routes, forged and wrong-secret tokens
+    are rejected, public listings carry no room credentials, and no error body
+    leaks a stack.
+  - `integration/fraud.test.ts` — every Phase 14 detector from real traffic,
+    dedupe into one OPEN alert, the master switch, and the two properties that
+    matter: a flagged withdrawal still debits **exactly once** with a clean
+    ledger, and a detector that throws cannot break the request it watches.
+- **Verified:** `npm test` → 127/127 green; all eight `verify:*` harnesses still
+  green; `tsc --noEmit` now covers `tests/` and `vitest.config.ts`.
+
+### ⬜ Phase 16 — Deployment → ✅ done
+
+Full guide in **[`DEPLOYMENT.md`](DEPLOYMENT.md)** — still no Docker anywhere.
+
+- **Production builds that actually run.** `npm run build` now compiles through
+  `tsconfig.build.json` (`rootDir: src`, `src/**` only), so the artifact is
+  `dist/index.js` — exactly what `npm start` executes. It previously emitted
+  `dist/src/index.js`, which meant `npm start` was broken; the build also no
+  longer ships tests or scripts. Verified by booting the compiled server and
+  serving `/api/health` + `/api/public/tournaments`.
+- **Fail-fast production guards** (`src/lib/env.ts`). In `NODE_ENV=production`
+  the API refuses to boot on: an empty/placeholder/short/low-entropy JWT secret
+  (`.env.example`'s `change-me-…` values are explicitly rejected — a server that
+  starts with a known secret is worse than one that won't start), identical
+  access and refresh secrets, a non-Postgres `DATABASE_URL`, and non-`https`
+  `PUBLIC_URL` / `CLIENT_ORIGIN`. Each error names the variable and the fix.
+  HSTS switches on only in production (verified in the response headers).
+- **Environment docs**: a full variable table for both apps, secret generation,
+  managed-PostgreSQL guidance (`sslmode`, `connection_limit` sizing, pooler
+  mode), `prisma migrate deploy` as the only forward path, TLS/reverse-proxy
+  configuration matched to `trust proxy = 1`, persistent-storage requirements
+  for private uploads, health checks, log prefixes worth paging on, and a
+  release checklist.
+- **`frontend/.env.example`**: `BACKEND_URL` (server-side only — the browser
+  only ever sees the `/api/backend/*` proxy) and `PUBLIC_URL`. No
+  `NEXT_PUBLIC_` secrets exist in this app by design.
+- **Real email delivery** (`src/lib/mailer.ts` + `email.service.ts`): the
+  provider was a stub that printed `mail skipped` in production, which would
+  have silently broken email verification and password reset. It now supports
+  `log` / `smtp` (nodemailer) / `resend` / `postmark`, with per-attempt
+  timeouts, exponential-backoff retries on transient faults only (a 4xx is
+  never retried — a bad key or address will not fix itself), and a hard
+  guarantee that a failed send never fails the auth request (the token stays
+  valid and the player can ask for a resend). `EMAIL_PROVIDER=log` is refused
+  at boot in production for exactly that reason. Covered by 15 unit tests with
+  `fetch` and `sleep` injected, so no test touches the network.
+- **Verified:** compiled server boots and serves in both dev and production
+  mode; the placeholder-secret guard exits non-zero while a strong-secret
+  production boot serves `/api/health` with HSTS and still returns 403 for
+  `/uploads/deposits/*`; `npm test` 127/127; all eight `verify:*` harnesses
+  green; `next build` + `tsc --noEmit` clean.
 
 ---
 
@@ -400,6 +535,13 @@ npm run dev             # http://localhost:3000
 | backend | `npm run verify:join` | Concurrency/financial test suite for the join engine |
 | backend | `npm run verify:wallet` | Wallet ledger + manual payments test suite |
 | backend | `npm run verify:results` | Results, verification & prize distribution test suite |
+| backend | `npm run verify:finance` | Financial dashboard suite (P&L truth, CSV, RBAC) |
+| backend | `npm run verify:support` | Support tickets + NEXA guardrails suite |
+| backend | `npm run verify:seo` | SEO + Blog CMS live checks against the web app |
+| backend | `npm run verify:pwa` | PWA manifest / SW / icons / offline checks |
+| backend | `npm run verify:security` | Security hardening suite (uploads, fraud, CSRF, limits) |
+| backend | `npm test` | Vitest suite (127 tests) — boots its own embedded PostgreSQL |
+| backend | `npm run build` | Production build → `dist/index.js` (server only) |
 | backend | `npm run db:seed` | Reset demo data |
 | backend | `npm run typecheck` | `tsc --noEmit` |
 | frontend | `npx next build` | Production build check |
@@ -424,11 +566,23 @@ npm run dev             # http://localhost:3000
 
 ## Security principles
 
-- Passwords hashed with bcrypt; refresh tokens stored only as SHA-256 hashes.
+- Passwords hashed with bcrypt (cost 12); refresh tokens stored only as SHA-256
+  hashes, rotated single-use, and a replayed token kills every live session.
+- Uploads are validated by their **bytes** (magic signature, declared-type match,
+  pixel dimensions) — never by the client's `Content-Type` or filename.
+- Private uploads (payment proofs, ticket attachments, result screenshots) are
+  served only through owner-or-staff routes, as inert data, from
+  traversal-safe paths.
 - Room credentials are served exclusively to registered players after the release
   instant — never in public responses.
-- RBAC on every privileged route; admin actions audited.
-- Rate limiting on auth routes + per-email lockout.
+- RBAC on every privileged route; admin actions **and failed security events**
+  are audited with source IP.
+- Fraud detection observes and reports; it never moves money, changes a status
+  or blocks a player — a human reviews every alert.
+- Rate limiting in three tiers (global / identity / financial) + per-email
+  lockout; financial limits key per user so shared NATs stay usable.
+- CSRF defence in depth on the cookie-authenticated endpoints (SameSite +
+  path-scoped HttpOnly cookie + pinned CORS + first-party marker header).
 - No secrets in code — everything via `.env` (see `.env.example`).
 
 ---
@@ -437,6 +591,7 @@ npm run dev             # http://localhost:3000
 
 ```text
 free-fire-tornament/
+├── DEPLOYMENT.md      # production deployment guide (no Docker)
 ├── design/            # 42 approved screens + locked design system spec
 ├── backend/           # Express 5 + TypeScript + Prisma 7 API
 │   ├── prisma/        # schema, migrations, seed
@@ -446,4 +601,4 @@ free-fire-tornament/
 └── README.md          # this file
 ```
 
-**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · PR #3 (Phases 7–9, merged) · [PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4) (Phases 10–11).
+**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · PR #3 (Phases 7–9, merged) · [PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4) (Phases 10–13, merged) · [PR #5](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/5) (Phases 14–16: security, testing, deployment).

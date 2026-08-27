@@ -27,11 +27,16 @@ export class ApiClientError extends Error {
   }
 }
 
+/** Marks the request as first-party. The API refuses cookie-authenticated
+ * calls (session refresh / logout) without it — a cross-site form cannot set
+ * custom headers, so this is the CSRF layer on top of SameSite + CORS. */
+const CLIENT_HEADER = 'x-clutchnex-client';
+
 type ApiInit = Omit<RequestInit, 'body'> & { body?: unknown; form?: FormData };
 
 async function rawFetch<T>(path: string, init: ApiInit): Promise<ApiEnvelope<T>> {
   const token = getToken();
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { [CLIENT_HEADER]: 'web' };
   if (token) headers.authorization = `Bearer ${token}`;
   let body: BodyInit | undefined;
   if (init.form) body = init.form;
@@ -52,7 +57,11 @@ export async function api<T>(
 
   // Access token expired → rotate via refresh cookie and retry once.
   if (!json.success && json.code === 'UNAUTHORIZED' && getToken()) {
-    const refreshed = await fetch('/api/backend/auth/refresh', { method: 'POST', credentials: 'include' });
+    const refreshed = await fetch('/api/backend/auth/refresh', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { [CLIENT_HEADER]: 'web' },
+    });
     if (refreshed.ok) {
       const rjson = (await refreshed.json()) as ApiEnvelope<{ accessToken: string }>;
       if (rjson.success && rjson.data?.accessToken) {

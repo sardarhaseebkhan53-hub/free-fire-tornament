@@ -6,11 +6,14 @@ import { requireAuth, requireRole } from '../middleware/auth';
 import { ok } from '../lib/respond';
 import {
   adjustBalanceSchema, adToggleSchema, auditLogQuerySchema, blogListQuerySchema,
-  createAdSchema, createBlogSchema, createTournamentSchema, matchListQuerySchema,
+  createAdSchema, createBlogSchema, createTournamentSchema, fraudListQuerySchema,
+  fraudReviewSchema, matchListQuerySchema,
   matchStatusSchema, revenueQuerySchema, financeQuerySchema, settingUpdateSchema, ticketListQuerySchema,
   ticketReplySchema, tournamentStatusSchema, upsertSeoSchema, userListQuerySchema,
   userStatusSchema, blogStatusSchema,
 } from '../validation/admin.schema';
+import { listFraudAlerts, reviewFraudAlert } from '../services/fraud.service';
+import { adminWriteLimiter } from '../middleware/rateLimit';
 import {
   adjustBalance, adminStats, createAd, createBlog, createTournament, listAds,
   listAuditLogs, listBlog, listMatchesAdmin, listSeo, listSettings, listTickets,
@@ -116,6 +119,17 @@ adminRouter.get('/tournaments/:id/results', async (req, res) => ok(res, await to
 adminRouter.post('/tournaments/:id/distribute-prizes', async (req, res) => {
   const out = await distributePrizes(req.auth!.id, String(req.params.id), ctxOf(req));
   return ok(res, out, `Distributed ${out.totalPaid} PKR across ${out.awards.length} awards.`, 201);
+});
+
+// Phase 14 — fraud & abuse review queue
+adminRouter.get('/fraud', async (req, res) => {
+  const q = fraudListQuerySchema.parse(req.query);
+  return ok(res, await listFraudAlerts(q));
+});
+adminRouter.post('/fraud/:id/review', adminWriteLimiter, async (req, res) => {
+  const { action, note } = fraudReviewSchema.parse(req.body);
+  const out = await reviewFraudAlert(req.auth!.id, String(req.params.id), action, note, ctxOf(req));
+  return ok(res, out, action === 'REVIEWED' ? 'Alert marked reviewed.' : 'Alert dismissed.');
 });
 
 // Support

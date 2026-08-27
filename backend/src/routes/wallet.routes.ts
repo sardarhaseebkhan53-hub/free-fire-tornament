@@ -1,13 +1,14 @@
 // /api/wallet — balances, ledger history, manual deposits and withdrawals.
 // Screenshots come in as multipart uploads; everything else is JSON.
-import { Router, type NextFunction, type Request } from 'express';
-import path from 'node:path';
+import { Router, type NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import { ok } from '../lib/respond';
 import { badRequest } from '../lib/errors';
 import { env } from '../lib/env';
-import { requireScreenshot, UPLOAD_ROOT } from '../lib/upload';
+import { requireScreenshot, resolveUploadPath } from '../lib/upload';
+import { coinConvertLimiter, depositLimiter, withdrawalLimiter } from '../middleware/rateLimit';
+import { reqContext, uploadResponseHeaders } from '../lib/security';
 import {
   convertCoinsSchema, depositSchema, transactionsQuerySchema, withdrawalSchema,
 } from '../validation/wallet.schema';
@@ -21,7 +22,7 @@ import {
 
 export const walletRouter = Router();
 
-const ctxOf = (req: Request) => ({ ip: req.ip, userAgent: req.headers['user-agent']?.slice(0, 200) });
+const ctxOf = reqContext;
 
 function parseTypes(raw?: string) {
   if (!raw) return undefined;
@@ -66,18 +67,21 @@ walletRouter.get('/deposits', requireAuth, async (req, res) => {
   return ok(res, await listMyDeposits(req.auth!.id, page, pageSize));
 });
 
-walletRouter.post('/deposits', requireAuth, requireScreenshot, async (req, res) => {
+walletRouter.post('/deposits', requireAuth, depositLimiter, requireScreenshot, async (req, res) => {
   const input = depositSchema.parse(req.body);
   const rel = `deposits/${req.file!.filename}`;
-  const out = await createDeposit(req.auth!.id, input, `/uploads/${rel}`, ctxOf(req));
+  const out = await createDeposit(
+    req.auth!.id, input, `/uploads/${rel}`, ctxOf(req), req.uploadMeta?.hash,
+  );
   return ok(res, out, out.note, 201);
 });
 
 walletRouter.get('/deposits/:id/screenshot', requireAuth, async (req, res, next: NextFunction) => {
   try {
     const rel = await getDepositScreenshotPath(req.auth!.id, req.auth!.role, String(req.params.id));
-    const abs = path.resolve(UPLOAD_ROOT, rel);
-    if (!abs.startsWith(UPLOAD_ROOT)) throw badRequest('VALIDATION_ERROR', 'Invalid file path.');
+    // Traversal-safe resolve + inert-response headers (Phase 14).
+    const abs = resolveUploadPath(rel);
+    uploadResponseHeaders(res, rel.split('/').pop() ?? 'screenshot');
     return res.sendFile(abs);
   } catch (e) {
     return next(e);
@@ -92,7 +96,7 @@ walletRouter.get('/withdrawals', requireAuth, async (req, res) => {
   return ok(res, await listMyWithdrawals(req.auth!.id, page, pageSize));
 });
 
-walletRouter.post('/withdrawals', requireAuth, async (req, res) => {
+walletRouter.post('/withdrawals', requireAuth, withdrawalLimiter, async (req, res) => {
   const input = withdrawalSchema.parse(req.body);
   const out = await requestWithdrawal(req.auth!.id, input, ctxOf(req));
   return ok(res, out, 'Withdrawal request submitted — admin approval required.', 201);
@@ -105,7 +109,7 @@ walletRouter.post('/withdrawals/:id/cancel', requireAuth, async (req, res) => {
 
 // --- Coin conversion ----------------------------------------------------------
 
-walletRouter.post('/coins/convert', requireAuth, async (req, res) => {
+walletRouter.post('/coins/convert', requireAuth, coinConvertLimiter, async (req, res) => {
   const { amount } = convertCoinsSchema.parse(req.body);
   const out = await convertCashToCoins(req.auth!.id, amount);
   return ok(res, out, `${out.coinsCredited} coins credited.`);

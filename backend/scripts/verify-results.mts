@@ -20,6 +20,7 @@ import 'dotenv/config';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { png } from './lib/fixtures.js';
 
 const API = process.env.API_URL ?? 'http://127.0.0.1:4000/api';
 const DB = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/postgres?connection_limit=5';
@@ -50,10 +51,9 @@ function signToken(sub: string, username: string, role = 'USER'): string {
   return jwt.sign({ sub, role, username }, ACCESS_SECRET, { expiresIn: '15m' });
 }
 
-const PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-  'base64',
-);
+// Phase 14: uploads are validated by their real bytes + dimensions, so the
+// fixture is a genuine 64×64 PNG (the old 1×1 blob is now correctly refused).
+const PNG = png(64);
 
 function form(fields: Record<string, string>, withShot: boolean): FormData {
   const fd = new FormData();

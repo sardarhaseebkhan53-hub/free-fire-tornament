@@ -9,8 +9,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BACKEND_URL } from '@/lib/api';
 
-const COOKIE_OUT = 'path=/api/backend/auth';
-
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   const { path } = await ctx.params;
   const search = req.nextUrl.searchParams.toString();
@@ -23,6 +21,16 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
   if (auth) headers.authorization = auth;
   const cookie = req.headers.get('cookie');
   if (cookie) headers.cookie = cookie;
+  // Security headers the API relies on: the CSRF marker, the browser's own
+  // fetch metadata, and the real client IP (the API is one hop behind us).
+  const client = req.headers.get('x-clutchnex-client');
+  if (client) headers['x-clutchnex-client'] = client;
+  const site = req.headers.get('sec-fetch-site');
+  if (site) headers['sec-fetch-site'] = site;
+  const ua = req.headers.get('user-agent');
+  if (ua) headers['user-agent'] = ua;
+  const fwd = req.headers.get('x-forwarded-for');
+  headers['x-forwarded-for'] = fwd ? `${fwd}, ${req.headers.get('x-real-ip') ?? ''}`.replace(/, $/, '') : '127.0.0.1';
 
   const body = ['GET', 'HEAD'].includes(req.method) ? undefined : await req.arrayBuffer();
 

@@ -1,9 +1,11 @@
-// Blog article — markdown rendered server-side (trusted admin content).
+// Blog article — markdown rendered server-side and sanitised before it reaches
+// the DOM. Admin-authored is NOT a trust boundary: a stolen staff session must
+// not become stored XSS on a public page.
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { marked } from 'marked';
 import { ArrowLeft } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
+import { renderMarkdownSafe } from '@/lib/markdown';
 import { dateOnly } from '@/lib/format';
 import { Badge } from '@/components/ui';
 import { JsonLd, articleJsonLd, breadcrumbJsonLd, pageMetadata } from '@/lib/seo';
@@ -40,7 +42,7 @@ export default async function BlogArticlePage({ params }: { params: Promise<{ sl
   const post = await apiServerSafe<Post>(`/public/blog/${slug}`);
   if (!post) notFound();
 
-  const html = await marked.parse(post.content, { async: true });
+  const html = await renderMarkdownSafe(post.content);
 
   return (
     <article className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
@@ -69,7 +71,8 @@ export default async function BlogArticlePage({ params }: { params: Promise<{ sl
       <p className="mt-3 text-sm text-fg-3">By {post.author.username}</p>
       <div
         className="prose-cn mt-8"
-        // Admin-authored markdown (trusted source); served read-only.
+        // Sanitised: only allow-listed tags/attributes and http(s)/mailto/tel
+        // URLs survive renderMarkdownSafe.
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </article>

@@ -1,44 +1,120 @@
 // =============================================================================
-// Email provider abstraction.
+// Email — verification and password-reset messages.
 //
-// DEV: messages are logged to the console (the verification/reset links are
-// usable directly). Production: plug a transactional provider (SMTP/SES/
-// Resend/…) behind sendMail() without touching call sites. The auth flows
-// never depend on delivery succeeding — tokens remain valid server-side.
+// Delivery is delegated to src/lib/mailer.ts (log / smtp / resend / postmark),
+// configured entirely through env. Two invariants hold here:
+//
+//   1. Auth flows never fail because mail did. A token is valid server-side
+//      whether or not the message lands, and the player can request a resend.
+//   2. Nothing is thrown to the caller — the outcome is returned and logged, so
+//      a misconfigured provider shows up in the logs instead of as a 500 on
+//      the registration endpoint.
 // =============================================================================
 import { env, isProd } from '../lib/env';
+import { buildMailer, deliver, type Mailer, type MailerConfig, type MailerResult } from '../lib/mailer';
 
 export interface Mail {
   to: string;
   subject: string;
   html: string;
+  text?: string;
 }
 
-export async function sendMail(mail: Mail): Promise<void> {
-  if (!isProd) {
-    console.log(
-      `[email:dev] to=${mail.to} subject="${mail.subject}"\n${mail.html}\n`,
-    );
-    return;
+function mailerConfig(): MailerConfig {
+  return {
+    provider: env.EMAIL_PROVIDER,
+    from: env.EMAIL_FROM,
+    replyTo: env.EMAIL_REPLY_TO,
+    timeoutMs: env.EMAIL_TIMEOUT_MS,
+    attempts: env.EMAIL_ATTEMPTS,
+    smtp: env.SMTP_HOST
+      ? {
+          host: env.SMTP_HOST,
+          port: env.SMTP_PORT,
+          secure: env.SMTP_SECURE,
+          user: env.SMTP_USER,
+          pass: env.SMTP_PASS,
+        }
+      : undefined,
+    resendApiKey: env.RESEND_API_KEY,
+    postmarkServerToken: env.POSTMARK_SERVER_TOKEN,
+  };
+}
+
+// Built once; a bad configuration throws at first use rather than per request.
+let cached: Mailer | null = null;
+
+export function getMailer(): Mailer {
+  if (!cached) cached = buildMailer(mailerConfig());
+  return cached;
+}
+
+/** Test seam: swap the transport without touching the network. */
+export function setMailerForTests(mailer: Mailer | null): void {
+  cached = mailer;
+}
+
+/**
+ * Send a message. Resolves with the delivery outcome; never rejects.
+ */
+export async function sendMail(mail: Mail): Promise<MailerResult> {
+  let mailer: Mailer;
+  try {
+    mailer = getMailer();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[email] provider not usable (${msg}); message to ${mail.to} not sent`);
+    return { delivered: false, provider: env.EMAIL_PROVIDER, attempts: 0, error: msg };
   }
-  // TODO(phase-15): wire the configured transactional provider here.
-  console.warn('[email] provider not configured in production; mail skipped', mail.to);
+  return deliver(mailer, mail, { attempts: mailerConfig().attempts });
 }
 
-export function verificationEmail(to: string, token: string) {
+/** Where the mail went, for the development response payload. */
+export function mailProviderName(): string {
+  return isProd ? env.EMAIL_PROVIDER : 'log';
+}
+
+// --- templates ---------------------------------------------------------------
+
+const shell = (body: string) => `
+<div style="font-family:Inter,system-ui,sans-serif;background:#0b0d17;padding:24px;color:#e6e8f2">
+  <div style="max-width:520px;margin:0 auto;background:#12152a;border:1px solid #262b45;border-radius:16px;padding:28px">
+    <p style="margin:0 0 18px;font-weight:700;letter-spacing:.08em;color:#a78bfa">CLUTCHNEX</p>
+    ${body}
+    <p style="margin:22px 0 0;font-size:12px;color:#8a90b4">
+      COMPETE. CLUTCH. CONQUER. — If you did not request this, you can ignore it.
+    </p>
+  </div>
+</div>`.trim();
+
+export function verificationEmail(to: string, token: string): Mail {
   const link = `${env.PUBLIC_URL}/verify-email?token=${encodeURIComponent(token)}`;
   return {
     to,
     subject: 'Verify your CLUTCHNEX account',
-    html: `<p>Welcome to CLUTCHNEX — the arena is calling.</p><p><a href="${link}">Click here to verify your email</a> (valid 24 hours).</p>`,
+    html: shell(
+      `<p style="margin:0 0 14px;font-size:15px;line-height:1.6">Welcome to CLUTCHNEX — the arena is calling.</p>
+       <p style="margin:0 0 20px">
+         <a href="${link}" style="display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:700">Verify your email</a>
+       </p>
+       <p style="margin:0;font-size:12px;color:#8a90b4">Link valid for 24 hours. Or paste: ${link}</p>`,
+    ),
+    text: `Welcome to CLUTCHNEX. Verify your email: ${link} (valid 24 hours).`,
   };
 }
 
-export function passwordResetEmail(to: string, token: string) {
+export function passwordResetEmail(to: string, token: string): Mail {
   const link = `${env.PUBLIC_URL}/reset-password?token=${encodeURIComponent(token)}`;
   return {
     to,
     subject: 'Reset your CLUTCHNEX password',
-    html: `<p>We received a password reset request for your account.</p><p><a href="${link}">Reset your password</a> (valid 1 hour). If this was not you, ignore this email.</p>`,
+    html: shell(
+      `<p style="margin:0 0 14px;font-size:15px;line-height:1.6">We received a password reset request for your account.</p>
+       <p style="margin:0 0 20px">
+         <a href="${link}" style="display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:700">Reset your password</a>
+       </p>
+       <p style="margin:0;font-size:12px;color:#8a90b4">Link valid for 1 hour. If this was not you, ignore this email. Or paste: ${link}</p>`,
+    ),
+    text: `Reset your CLUTCHNEX password: ${link} (valid 1 hour). If this was not you, ignore this email.`,
   };
 }

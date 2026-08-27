@@ -1,0 +1,15 @@
+{
+  // Production build: ONLY the server. rootDir=src so the output lands at
+  // dist/index.js (what `npm start` runs) instead of dist/src/index.js.
+  // Tests, scripts and the Vitest config stay out of the artifact — they are
+  // still type-checked by `npm run typecheck` via tsconfig.json.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "generated", "tests", "scripts"]
+}

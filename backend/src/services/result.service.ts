@@ -15,6 +15,7 @@ import { prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { moveBalance, TX_OPTS } from './wallet.service';
+import { fireIdenticalResultClaims } from './fraud.service';
 
 const num = (d: unknown) => Math.round(Number(d ?? 0) * 100) / 100;
 
@@ -87,9 +88,13 @@ export async function submitResult(
   await prisma.auditLog.create({
     data: {
       actorId: userId, action: 'RESULT_SUBMITTED', entity: 'ResultSubmission', entityId: submission.id,
-      after: { matchId, placement: input.placement, kills: input.kills }, ip: ctx.ip,
+      after: { matchId, placement: input.placement, kills: input.kills }, ip: ctx.ip, userAgent: ctx.userAgent,
     },
   });
+
+  // Phase 14 — two players filing the same claim for one match is worth a look.
+  fireIdenticalResultClaims(matchId, submission.id);
+
   return submission;
 }
 

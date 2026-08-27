@@ -3,13 +3,12 @@
 // Authenticated; attachments are optional multipart images; every read/write
 // is ownership-checked in the service.
 // =============================================================================
-import { Router, type Request } from 'express';
-import path from 'node:path';
+import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
+import { uploadResponseHeaders } from '../lib/security';
 import { ticketCreateLimiter } from '../middleware/rateLimit';
 import { ok } from '../lib/respond';
-import { optionalTicketAttachment, UPLOAD_ROOT } from '../lib/upload';
-import { badRequest } from '../lib/errors';
+import { optionalTicketAttachment, resolveUploadPath } from '../lib/upload';
 import { createTicketSchema, ticketListQuerySchema, ticketReplySchema } from '../validation/support.schema';
 import {
   closeMyTicket, createTicket, listMyTickets, myTicketThread, replyMyTicket, ticketAttachmentPath,
@@ -55,8 +54,8 @@ supportRouter.post('/:id/close', async (req, res) => {
 supportRouter.get('/attachments/:messageId', async (req, res, next) => {
   try {
     const rel = await ticketAttachmentPath(req.auth!.id, req.auth!.role, String(req.params.messageId));
-    const abs = path.resolve(UPLOAD_ROOT, rel);
-    if (!abs.startsWith(UPLOAD_ROOT)) throw badRequest('VALIDATION_ERROR', 'Invalid file path.');
+    const abs = resolveUploadPath(rel);
+    uploadResponseHeaders(res, rel.split('/').pop() ?? 'attachment');
     return res.sendFile(abs);
   } catch (e) {
     return next(e);
