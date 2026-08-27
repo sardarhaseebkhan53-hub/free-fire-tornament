@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { api, ApiClientError, getToken } from '@/lib/client-api';
+import { WhatsAppHelp } from '@/components/whatsapp-help';
 import { MethodBrand, type Method } from '@/components/wallet/bits';
 import { CopyChip } from '@/components/wallet/bits';
 import { fmt } from '@/lib/format';
@@ -295,6 +296,8 @@ function PaymentInner() {
               <span className="font-bold text-danger">Important:</span> Deposits are verified manually, never auto-approved.
             </p>
           </div>
+
+          <WhatsAppHelp />
         </>
       )}
     </div>

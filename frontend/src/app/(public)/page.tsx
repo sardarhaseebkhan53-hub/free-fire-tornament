@@ -12,6 +12,19 @@ import { SectionHeading, StatCard, Badge, Avatar } from '@/components/ui';
 import { TournamentCard } from '@/components/tournament-card';
 import { FaqList } from '@/components/faq-list';
 import { FeaturedMobile } from '@/components/featured-mobile';
+import { JsonLd, faqJsonLd, organizationJsonLd, pageMetadata, websiteJsonLd } from '@/lib/seo';
+import type { Metadata } from 'next';
+
+export async function generateMetadata(): Promise<Metadata> {
+  return pageMetadata({
+    slug: 'home',
+    title: 'CLUTCHNEX — Free Fire Tournaments in Pakistan',
+    description:
+      'Join competitive Free Fire tournaments — Solo, Duo, Squad and Clash Squad. Verified prize pools, manual payment verification, fast withdrawals. Compete. Clutch. Conquer.',
+    path: '/',
+    keywords: 'free fire tournament pakistan, FF tournament, free fire pkr prizes, esports pakistan',
+  });
+}
 
 const MODES = [
   { type: 'SOLO', label: 'Solo', desc: 'One player. Pure skill — every kill counts.', icon: Gamepad2 },
@@ -52,6 +65,9 @@ export default async function HomePage() {
 
   return (
     <>
+      {/* Structured data — Organization, WebSite, FAQ (Phase 12) */}
+      <JsonLd data={[organizationJsonLd(String(settings?.['platform.whatsappNumber'] ?? '')), websiteJsonLd()]} />
+      {(faqs ?? []).length > 0 && <JsonLd data={faqJsonLd((faqs ?? []).slice(0, 8))} />}
       {/* MOBILE HERO — design 41: compact banner card with art */}
       <section className="px-4 pt-4 lg:hidden">
         <div className="relative overflow-hidden rounded-card border border-line">

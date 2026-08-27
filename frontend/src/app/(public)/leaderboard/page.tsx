@@ -4,11 +4,18 @@ import { apiServerSafe } from '@/lib/api';
 import type { LeaderboardEntry } from '@/lib/types';
 import { money } from '@/lib/format';
 import { SectionHeading, Avatar, EmptyState } from '@/components/ui';
+import { pageMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 
-export const metadata = {
-  title: 'Leaderboard — Top Free Fire Players',
-  description: 'CLUTCHNEX rankings by points, wins, kills and earnings — global, weekly and monthly.',
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return pageMetadata({
+    slug: 'leaderboard',
+    title: 'Free Fire Leaderboard — Top Players in Pakistan | CLUTCHNEX',
+    description: 'CLUTCHNEX rankings by points, wins, kills and earnings — global, weekly and monthly.',
+    path: '/leaderboard',
+    keywords: 'free fire leaderboard, FF top players pakistan, free fire rankings',
+  });
+}
 
 const PERIODS = [
   { value: 'all', label: 'All Time' },

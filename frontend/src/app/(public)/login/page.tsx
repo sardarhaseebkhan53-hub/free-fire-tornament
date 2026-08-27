@@ -3,8 +3,9 @@
 import { AuthForm } from '@/components/auth-form';
 
 export const metadata = {
-  title: 'Login',
+  title: 'Login | CLUTCHNEX',
   description: 'Sign in to CLUTCHNEX — join tournaments, track results and withdraw winnings.',
+  robots: { index: false, follow: true },
 };
 
 export default function LoginPage() {

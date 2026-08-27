@@ -6,6 +6,8 @@ import { apiServerSafe } from '@/lib/api';
 import type { TournamentSummary } from '@/lib/types';
 import { TournamentCard } from '@/components/tournament-card';
 import { SectionHeading, EmptyState } from '@/components/ui';
+import { pageMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 
 const TYPE_TABS = [
   { value: '', label: 'All' },
@@ -21,11 +23,16 @@ const STATUS_TABS = [
   { value: 'COMPLETED', label: 'Completed' },
 ];
 
-export const metadata = {
-  title: 'Free Fire Tournaments — Solo, Duo, Squad & Clash Squad',
-  description:
-    'Browse open Free Fire tournaments in Pakistan with transparent entry fees, verified prize pools and live start countdowns.',
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return pageMetadata({
+    slug: 'tournaments',
+    title: 'Free Fire Tournaments — Solo, Duo, Squad & Clash Squad | CLUTCHNEX',
+    description:
+      'Browse open Free Fire tournaments in Pakistan with transparent entry fees, verified prize pools and live start countdowns.',
+    path: '/tournaments',
+    keywords: 'free fire tournaments, FF tournament list, join free fire tournament pakistan',
+  });
+}
 
 export default async function TournamentsPage({
   searchParams,

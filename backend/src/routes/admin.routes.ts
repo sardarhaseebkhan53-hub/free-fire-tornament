@@ -7,7 +7,7 @@ import { ok } from '../lib/respond';
 import {
   adjustBalanceSchema, adToggleSchema, auditLogQuerySchema, blogListQuerySchema,
   createAdSchema, createBlogSchema, createTournamentSchema, matchListQuerySchema,
-  matchStatusSchema, revenueQuerySchema, settingUpdateSchema, ticketListQuerySchema,
+  matchStatusSchema, revenueQuerySchema, financeQuerySchema, settingUpdateSchema, ticketListQuerySchema,
   ticketReplySchema, tournamentStatusSchema, upsertSeoSchema, userListQuerySchema,
   userStatusSchema, blogStatusSchema,
 } from '../validation/admin.schema';
@@ -18,6 +18,7 @@ import {
   setMatchStatus, setTournamentStatus, setUserStatus, toggleAd, updateSetting,
   upsertSeo,
 } from '../services/admin.service';
+import { financeCsv, financeDashboard } from '../services/finance.service';
 
 export const adminRouter = Router();
 
@@ -30,6 +31,16 @@ adminRouter.get('/stats', async (_req, res) => ok(res, await adminStats()));
 adminRouter.get('/revenue', async (req, res) => {
   const { days } = revenueQuerySchema.parse(req.query);
   return ok(res, await revenueAnalytics(days));
+});
+// Phase 10 — financial dashboard (full P&L; deposits never conflated with revenue)
+adminRouter.get('/finance', async (req, res) => {
+  const q = financeQuerySchema.parse(req.query);
+  if (q.format === 'csv') {
+    res.setHeader('content-type', 'text/csv; charset=utf-8');
+    res.setHeader('content-disposition', 'attachment; filename="clutchnex-financials.csv"');
+    return res.send(await financeCsv(q));
+  }
+  return ok(res, await financeDashboard(q));
 });
 
 // Users

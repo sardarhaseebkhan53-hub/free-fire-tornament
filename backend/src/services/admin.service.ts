@@ -465,6 +465,7 @@ export async function listTickets(filter: { status?: string; page: number; pageS
       user: t.user,
       messages: t.messages.map((m) => ({
         id: m.id, body: m.body, fromStaff: (m.sender?.role ?? 'USER') !== 'USER', sender: m.sender?.username ?? 'staff', createdAt: m.createdAt,
+        attachment: m.attachment ? `/api/support/attachments/${m.id}` : null,
       })),
     })),
     page: filter.page, pageSize: filter.pageSize, total,
@@ -475,7 +476,7 @@ export async function replyTicket(adminId: string, id: string, body: string, clo
   const ticket = await prisma.supportTicket.findUnique({ where: { id }, include: { user: { select: { username: true } } } });
   if (!ticket) throw badRequest('NOT_FOUND', 'Ticket not found');
   const message = await prisma.supportMessage.create({
-    data: { ticketId: id, senderId: adminId, body },
+    data: { ticketId: id, senderId: adminId, isStaff: true, body },
   });
   await prisma.supportTicket.update({
     where: { id },
@@ -518,7 +519,7 @@ export async function listBlog(filter: { page: number; pageSize: number }) {
   };
 }
 
-export async function createBlog(adminId: string, input: { title: string; category: string; excerpt?: string; content: string; publish?: boolean }) {
+export async function createBlog(adminId: string, input: { title: string; category: string; excerpt?: string; content: string; publish?: boolean; seoTitle?: string; seoDescription?: string }) {
   const slug = `${slugify(input.title)}-${Math.random().toString(36).slice(2, 5)}`;
   const post = await prisma.blogPost.create({
     data: {
@@ -530,6 +531,8 @@ export async function createBlog(adminId: string, input: { title: string; catego
       status: input.publish ? 'PUBLISHED' : 'DRAFT',
       authorId: adminId,
       publishedAt: input.publish ? new Date() : null,
+      seoTitle: input.seoTitle || null,
+      seoDescription: input.seoDescription || null,
     },
   });
   await prisma.auditLog.create({

@@ -66,13 +66,15 @@ function CreatePost({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('NEWS');
   const [content, setContent] = useState('');
+  const [seoTitle, setSeoTitle] = useState('');
+  const [seoDescription, setSeoDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function submit(publish: boolean) {
     setBusy(true); setError(null);
     try {
-      await api('/admin/blog', { method: 'POST', body: { title, category, content, publish } });
+      await api('/admin/blog', { method: 'POST', body: { title, category, content, publish, seoTitle, seoDescription } });
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Creation failed.');
@@ -89,6 +91,11 @@ function CreatePost({ onClose, onDone }: { onClose: () => void; onDone: () => vo
           {['TOURNAMENTS','GUIDES','TIPS','NEWS','STRATEGY','ANNOUNCEMENTS'].map((c) => <option key={c}>{c}</option>)}
         </select>
         <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={10} placeholder="Markdown content… (min 20 chars)" className={inputCls} />
+        <div className="rounded-card border border-line bg-white/[2%] p-3">
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-fg-3">SEO (optional — falls back to title/excerpt)</p>
+          <input value={seoTitle} onChange={(e) => setSeoTitle(e.target.value)} maxLength={140} placeholder="SEO title — search-result headline" className={inputCls} />
+          <textarea value={seoDescription} onChange={(e) => setSeoDescription(e.target.value)} rows={2} maxLength={320} placeholder="SEO description — the snippet under the headline in Google" className={`${inputCls} mt-2`} />
+        </div>
       </div>
       {error && <p className="mt-3 rounded-input border border-danger/30 bg-danger/10 px-4 py-2.5 text-sm text-danger">{error}</p>}
       <div className="mt-4 flex gap-2">

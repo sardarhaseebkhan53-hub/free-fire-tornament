@@ -8,7 +8,7 @@ room-credential release, an immutable wallet ledger, manual payment
 verification (JazzCash / EasyPaisa / bank transfer), prize distribution,
 referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
-- 🎨 **UI design: APPROVED & LOCKED** — 42 concept screens in [`design/`](design/)
+- 🎨 **UI design: APPROVED & LOCKED** — 46 concept screens in [`design/`](design/)
   plus the design system spec [`design/DESIGN_SYSTEM_DRAFT.md`](design/DESIGN_SYSTEM_DRAFT.md).
   All UI implements this design; no redesigns without explicit approval.
 - 🔧 **API-first backend** — the same REST API will serve the web app today and a
@@ -30,11 +30,11 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
 ---
 
-## Progress — 7 of 17 phases complete
+## Progress — 14 of 17 phases complete
 
 | # | Phase | Status |
 |---|---|---|
-| 0 | UI design gate (42 screens + design system) | ✅ Approved & locked |
+| 0 | UI design gate (46 screens + design system) | ✅ Approved & locked |
 | 1 | Project setup & scaffolding | ✅ Done (merged, PR #1) |
 | 2 | Database | ✅ Done |
 | 3 | Authentication | ✅ Done |
@@ -44,16 +44,16 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 7 | Wallet & manual payments | ✅ Done |
 | 8 | Results & prize distribution | ✅ Done |
 | 9 | Admin panel | ✅ Done |
-| 10 | Financial dashboard | ⬜ Next |
-| 11 | Support + WhatsApp + NEXA chatbot | ⬜ |
-| 12 | SEO + Blog CMS | ⬜ |
-| 13 | PWA | ⬜ |
+| 10 | Financial dashboard | ✅ Done |
+| 11 | Support + WhatsApp + NEXA chatbot | ✅ Done |
+| 12 | SEO + Blog CMS | ✅ Done |
+| 13 | PWA | ✅ Done |
 | 14 | Security hardening | ⬜ |
 | 15 | Testing | ⬜ |
 | 16 | Deployment | ⬜ |
 
-All completed work lives in **[PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2)**
-(one commit per phase, each independently verified).
+All completed work lives in **[PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4)**
+(and the merged history: PR #1, PR #2, PR #3) — one commit per phase, each independently verified.
 
 ---
 
@@ -241,26 +241,114 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
   settings round-trip — every action in the audit trail; wallet/results/join
   suites still green; `next build` + `tsc` clean.
 
-### ⬜ Phase 10 — Financial dashboard *(next)*
-Gross entry collection, prize distributed, platform gross, payment costs, refunds,
-referral/bonus costs, withdrawals, net revenue — never conflating deposits with
-profit; daily/weekly/monthly/tournament charts; CSV export.
+### ⬜ Phase 10 — Financial dashboard → ✅ done
 
-### ⬜ Phase 11 — Support + WhatsApp + NEXA
-Ticket system (categories, priorities, statuses, attachments), configurable WhatsApp
-number across header/footer/payment pages, NEXA rule-based chatbot (replaceable by a
-real AI later) with hard limits — it can never approve payments, change balances or
-reveal room credentials.
+- **One rule above all: deposits are player funds, never revenue.** The only
+  revenue line is entry fees actually charged (confirmed registrations);
+  everything the platform pays out or gives away is a cost.
+- **`GET /api/admin/finance`** (ADMIN+): window totals — gross entry collection,
+  coupon discounts (foregone), refunds, prizes distributed, payment costs,
+  referral & bonus costs, platform gross, net revenue + margin — plus
+  deposits/withdrawals reported strictly as player-fund context;
+  **daily/weekly/monthly bucket series over 30/60/90-day windows** that
+  reconcile with the totals to the rupee; **all-time per-tournament P&L**
+  (collected − refunded − prizes). `format=csv` exports an audit-friendly
+  Summary + Series + Per-tournament spreadsheet.
+- **UI (design 43, user-approved)**: "Financials" in the admin sidebar — dual
+  KPI rows, entry-collection-vs-prizes-vs-net multi-line chart with
+  Daily/Weekly/Monthly pills, "where entry fees went" donut, per-tournament P&L
+  (table on desktop, stacked cards on mobile), daily ledger with player-fund
+  columns marked reconciliation-only, Export CSV. Same design on mobile & PC.
+- **Offline Prisma fix**: `npm install` now auto-patches `@prisma/engines`
+  (`scripts/offline-prisma-patch.mjs`) so `npm run db:generate` works with the
+  WASM engines even where `binaries.prisma.sh` is unreachable.
+- **Verified:** `npm run verify:finance` — 36/36 checks (every P&L line
+  recomputed straight from SQL, end-to-end payment-cost flow, a deposit approval
+  provably changes zero profit lines, bucket reconciliation across all nine
+  window/granularity combos, tournament P&L truth, CSV type/content, RBAC) +
+  wallet/join/results suites still green; live e2e through the Next proxy
+  (login → dashboard JSON → CSV → page); `next build` + `tsc` clean.
 
-### ⬜ Phase 12 — SEO + Blog CMS
-Dynamic metadata, sitemap, robots, canonicals, Open Graph, structured data
-(Organization, FAQ, Breadcrumb, Event), SEO routes
-(`/free-fire-tournaments`, `/tournaments/solo|duo|squad|clash-squad`, …),
-admin-managed blog with SEO fields.
+### ⬜ Phase 11 — Support + WhatsApp + NEXA → ✅ done
 
-### ⬜ Phase 13 — PWA
-Manifest, service worker, app icons, offline fallback, install prompt
-("Install CLUTCHNEX"), standalone mode.
+- **Player support tickets** (`/api/support`): create with category / priority /
+  subject / message + **screenshot attachment** (MIME/size-gated), paginated
+  *My Tickets* with last-message previews and status counts, full thread,
+  owner-checked everywhere, player reply reopens (`WAITING_USER → OPEN`),
+  player close, `CLOSED` tickets immutable (open a new one). Attachments are
+  served through an **owner-or-staff gated** download route. Staff get in-app
+  nudges on new tickets/replies; the Phase 9 admin reply flow (now correctly
+  marking `isStaff`) notifies the player.
+- **UI (design 44, user-approved)**: Support Center at `/support/tickets` —
+  status filter pills, ticket cards with category/status/priority, thread with
+  staff/player bubbles + attachment previews, reply bar with attach, New Ticket
+  modal with dropzone. Table-grade desktop layout collapses to stacked cards on
+  mobile — one design for both. Admin support panel now previews player
+  attachments inline.
+- **NEXA rule-based chatbot** (`POST /api/nexa`, public, 20 req/5 min):
+  14 intents incl. deposit status, withdrawals, entries, refunds, prizes,
+  referrals, account, human escalation — with **hard limits by construction**:
+  it is a pure read-only function, never approves payments, never changes
+  balances, never reveals room credentials (guarded refusals always carry the
+  limits notice; every response includes it). Unknown input → WhatsApp/ticket
+  escalation. `NexaEngine` interface is the swap point for a real AI later.
+  Floating NEXA widget + configurable WhatsApp bubble across the user app;
+  WhatsApp help strip on the payment-proof page (add-money already had it).
+- **Verified:** `npm run verify:support` — 42/42 (lifecycle, cross-player
+  isolation, attachment gating incl. staff access, reopen/close/immutability,
+  validation, all NEXA guardrails incl. tricky room-credential phrasings, rate
+  limit, zero auditable actions from NEXA) + finance/wallet/join/results suites
+  still green; live e2e through the Next proxy; `next build` + `tsc` clean.
+
+### ⬜ Phase 12 — SEO + Blog CMS → ✅ done
+
+- **SEO routes (design 45, user-approved)**: `/free-fire-tournaments` hub
+  (hero, four mode cards, featured tournaments, FAQ) and
+  `/tournaments/solo | duo | squad | clash-squad` mode landings — live data,
+  per-mode copy, prize notes, mode FAQs, server-driven status filters.
+- **Metadata everywhere**: one `pageMetadata()` builder (canonical URL, Open
+  Graph, Twitter cards, keywords) on home, tournaments + details, leaderboard,
+  winners, blog + articles, support, player profiles, register — login is
+  noindex; admin `SeoConfig` overrides are **finally served to the site**
+  through the new `GET /api/public/seo/:pageSlug` and win over built-ins.
+- **Structured data**: Organization + WebSite + FAQPage (home, support, hub,
+  mode pages), BreadcrumbList (hub, modes, tournament details, articles),
+  Event with entry-fee Offer (tournament details), Article (blog).
+- **sitemap.xml + robots.txt**: hourly-revalidating sitemap with all static
+  routes + live tournament slugs + published blog slugs; robots disallow
+  /admin, app pages and /api.
+- **Blog CMS SEO fields**: `seoTitle`/`seoDescription` flow from the admin
+  composer through the API to the public article page (title, OG, Article
+  JSON-LD) with graceful fallback to title/excerpt.
+- **Verified:** `npm run verify:seo` — 47/47 live checks against the running
+  site (robots, sitemap contents, every JSON-LD type, canonicals/OG, the full
+  admin-override → live-page loop, blog SEO round-trip, noindex) + all five
+  previous suites still green; `next build` + `tsc` clean.
+
+### ⬜ Phase 13 — PWA → ✅ done
+
+- **Installable standalone app**: `manifest.webmanifest` (standalone display,
+  obsidian theme, start_url/scope `/`, app shortcuts to Tournaments / My
+  Matches / Wallet) + iOS standalone metas and apple-touch-icon.
+- **Real app icons, deterministic**: `frontend/scripts/gen-icons.sh` draws the
+  brand tile with ImageMagick (violet gradient rounded square + white "C" arc)
+  and exports 192 / 512 / **maskable 512** / apple 180 — verified pixel-exact.
+- **Hand-rolled service worker** (zero dependencies, version-busted cache):
+  navigations network-first → cached page → **/offline shell**; hashed static
+  assets cache-first; **`/api/**` never intercepted** (auth, wallets, live
+  tournament state and room credentials always hit the server). Registration
+  is production-gated so dev hot-reload stays intact.
+- **Offline fallback page** (design 46): wifi-off hero, "your wallet and
+  tickets are safe", Try Again / Home — noindex and precached.
+- **Install prompt** (design 46): glass "Install CLUTCHNEX" card via
+  `beforeinstallprompt` (Chrome/Android/desktop) with iOS Safari Add-to-Home-
+  Screen instructions; 14-day dismissal memory; auto-hide when running
+  standalone.
+- **Verified:** `npm run verify:pwa` — 28/28 (manifest fields, exact PNG
+  dimensions parsed from IHDR bytes, SW handlers + `/api/` non-interception +
+  offline precache, head metas, crawl rules, source wiring) against the
+  production build; all six previous suites still green; `next build` clean.
+  The live preview now runs the production server — install it for real.
 
 ### ⬜ Phase 14 — Security hardening
 Upload validation (MIME/size/dimensions), fraud/duplicate detection alerts, audit
@@ -358,4 +446,4 @@ free-fire-tornament/
 └── README.md          # this file
 ```
 
-**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · Phases 7–9 in review on this branch.
+**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · PR #3 (Phases 7–9, merged) · [PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4) (Phases 10–11).

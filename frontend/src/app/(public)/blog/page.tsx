@@ -5,11 +5,18 @@ import { apiServerSafe } from '@/lib/api';
 import type { BlogSummary } from '@/lib/types';
 import { dateOnly } from '@/lib/format';
 import { SectionHeading, Badge, EmptyState } from '@/components/ui';
+import { pageMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 
-export const metadata = {
-  title: 'Blog — Guides, Meta & Tournament News',
-  description: 'Free Fire tournament guides, Clash Squad meta, and CLUTCHNEX announcements.',
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return pageMetadata({
+    slug: 'blog',
+    title: 'Free Fire Blog — Guides, Meta & Tournament News | CLUTCHNEX',
+    description: 'Free Fire tournament guides, Clash Squad meta, and CLUTCHNEX announcements.',
+    path: '/blog',
+    keywords: 'free fire blog, FF guides, clash squad meta, free fire tips pakistan',
+  });
+}
 
 export default async function BlogPage() {
   const data = await apiServerSafe<{ items: BlogSummary[]; total: number }>('/public/blog?limit=12');

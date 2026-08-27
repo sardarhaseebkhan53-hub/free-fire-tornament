@@ -94,3 +94,9 @@ publicRouter.get('/faqs', async (_req, res) => {
 publicRouter.get('/settings/public', async (_req, res) => {
   return ok(res, await svc.publicSettings());
 });
+
+// Phase 12 — per-page SEO overrides (title/description/canonical/OG/keywords)
+publicRouter.get('/seo/:pageSlug', async (req, res) => {
+  const slug = String(req.params.pageSlug).slice(0, 120);
+  return ok(res, await svc.getSeoConfig(slug));
+});

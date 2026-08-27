@@ -65,6 +65,8 @@ export const createBlogSchema = z.object({
   category: z.enum(['TOURNAMENTS', 'GUIDES', 'TIPS', 'NEWS', 'STRATEGY', 'ANNOUNCEMENTS']).default('NEWS'),
   excerpt: z.string().trim().max(300).optional().default(''),
   content: z.string().trim().min(20).max(50000),
+  seoTitle: z.string().trim().max(140).optional().default(''),
+  seoDescription: z.string().trim().max(320).optional().default(''),
   publish: z.boolean().default(false),
 });
 
@@ -100,4 +102,11 @@ export const auditLogQuerySchema = z.object({
 
 export const revenueQuerySchema = z.object({
   days: z.coerce.number().int().min(7).max(90).default(30),
+});
+
+/** Phase 10 — financial dashboard query. */
+export const financeQuerySchema = z.object({
+  days: z.coerce.number().int().refine((d) => [30, 60, 90].includes(d), 'Window must be 30, 60 or 90 days').default(30),
+  granularity: z.enum(['day', 'week', 'month']).default('day'),
+  format: z.enum(['json', 'csv']).optional(),
 });

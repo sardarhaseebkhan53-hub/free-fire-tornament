@@ -14,6 +14,8 @@ import { teamRouter } from './routes/team.routes';
 import { matchRouter } from './routes/match.routes';
 import { walletRouter } from './routes/wallet.routes';
 import { adminRouter } from './routes/admin.routes';
+import { supportRouter } from './routes/support.routes';
+import { nexaRouter } from './routes/nexa.routes';
 
 export function createApp() {
   const app = express();
@@ -42,6 +44,8 @@ export function createApp() {
   app.use('/api/teams', teamRouter);
   app.use('/api/matches', matchRouter);
   app.use('/api/wallet', walletRouter);
+  app.use('/api/support', supportRouter);
+  app.use('/api/nexa', nexaRouter);
   app.use('/api/admin', adminRouter);
 
   // Uploaded payment proofs (served by the API; direct access is gated by the

@@ -156,6 +156,59 @@ export function AreaChart({ series, height = 180 }: { series: Array<{ day: strin
   );
 }
 
+/** Multi-series line chart (e.g. collection vs prizes vs net) with legend. */
+export function MultiLineChart({
+  series, labels, height = 210,
+}: {
+  series: Array<Array<{ x: string | Date; value: number }>>;
+  labels: Array<{ label: string; color: string }>;
+  height?: number;
+}) {
+  const ready = series.every((s) => s.length >= 2) && series.length === labels.length;
+  const paths = useMemo(() => {
+    if (!ready) return null;
+    const w = 600;
+    const max = Math.max(1, ...series.flat().map((p) => p.value));
+    const zeroY = height - 24;
+    return series.map((line) => {
+      const pts = line.map((p, i) => [
+        (i / (line.length - 1)) * w,
+        zeroY - (p.value / max) * (height - 40),
+      ] as const);
+      const d = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+      return { d, pts };
+    });
+  }, [series, height, ready]);
+
+  if (!paths) return <p className="py-10 text-center text-xs text-fg-3">Not enough data yet.</p>;
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1.5">
+        {labels.map((l) => (
+          <span key={l.label} className="flex items-center gap-2 text-xs font-medium text-fg-2">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: l.color }} />
+            {l.label}
+          </span>
+        ))}
+      </div>
+      <svg viewBox={`0 0 600 ${height}`} className="w-full" role="img" aria-label="Financial trend chart">
+        {[0.25, 0.5, 0.75].map((f) => (
+          <line key={f} x1="0" x2="600" y1={height * f} y2={height * f} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+        ))}
+        <line x1="0" x2="600" y1={height - 24} y2={height - 24} stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+        {paths.map((p, i) => (
+          <g key={labels[i].label}>
+            <path d={p.d} fill="none" stroke={labels[i].color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+            {p.pts.filter((_, j) => series[i].length < 16 || j % Math.ceil(series[i].length / 12) === 0).map(([x, y], j) => (
+              <circle key={j} cx={x} cy={y} r="2.2" fill={labels[i].color} />
+            ))}
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 export function BarChart({ series, height = 180 }: { series: Array<{ day: string | Date; value: number }>; height?: number }) {
   const max = Math.max(...series.map((s) => s.value), 1);
   return (

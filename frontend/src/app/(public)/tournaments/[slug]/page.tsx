@@ -10,14 +10,22 @@ import { money, MODE_LABEL, STATUS_LABEL, dateTime } from '@/lib/format';
 import { Badge, Avatar, SectionHeading } from '@/components/ui';
 import { Countdown } from '@/components/countdown';
 import { JoinTournament } from '@/components/join-tournament';
+import { JsonLd, breadcrumbJsonLd, eventJsonLd, pageMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const t = await apiServerSafe<TournamentDetails>(`/public/tournaments/${slug}`);
-  return {
-    title: t ? `${t.title} — Prize Pool ${money(t.prizePool)}` : 'Tournament',
-    description: t?.description ?? 'Free Fire tournament on CLUTCHNEX.',
-  };
+  if (!t) return { title: 'Tournament not found | CLUTCHNEX' };
+  return pageMetadata({
+    slug: `tournament-${slug}`,
+    title: `${t.title} — Prize Pool ${money(t.prizePool)} | Free Fire ${MODE_LABEL[t.type]} | CLUTCHNEX`,
+    description:
+      t.description?.slice(0, 300) ||
+      `Free Fire ${MODE_LABEL[t.type]} tournament: entry ${money(t.entryFeePerPlayer)}, prize pool ${money(t.prizePool)}, ${t.numWinners} winners. Join on CLUTCHNEX — verified prizes, secure room credentials.`,
+    path: `/tournaments/${slug}`,
+    keywords: `free fire ${MODE_LABEL[t.type].toLowerCase()} tournament, ${t.title}, FF tournament pkr`,
+  });
 }
 
 export default async function TournamentDetailPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -31,6 +39,20 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+      {/* Structured data — Event + Breadcrumb (Phase 12) */}
+      <JsonLd
+        data={[
+          eventJsonLd({
+            title: t.title, slug: t.slug, description: t.description, startTime: t.startTime,
+            type: t.type, entryFee: Number(t.entryFeePerPlayer), prizePool: Number(t.prizePool),
+          }),
+          breadcrumbJsonLd([
+            { name: 'Home', path: '/' },
+            { name: 'Tournaments', path: '/tournaments' },
+            { name: t.title, path: `/tournaments/${t.slug}` },
+          ]),
+        ]}
+      />
       {/* Header */}
       <div className="relative overflow-hidden rounded-card border border-line bg-gradient-to-br from-accent/25 via-elevated to-surface p-6 sm:p-10">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_75%_15%,rgba(139,92,246,0.35),transparent_55%)]" />

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { InstallBanner, SwRegister } from '@/components/pwa';
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
 import '@fontsource/inter/600.css';
@@ -24,6 +25,22 @@ export const metadata: Metadata = {
     description: 'The arena is calling. Join Free Fire tournaments and win verified prizes.',
     type: 'website',
   },
+  // PWA (Phase 13) — installable standalone app.
+  manifest: '/manifest.webmanifest',
+  applicationName: 'CLUTCHNEX',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'CLUTCHNEX',
+  },
+  icons: {
+    icon: [{ url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180' }],
+  },
+  other: {
+    'apple-mobile-web-app-capable': 'yes',
+    'mobile-web-app-capable': 'yes',
+  },
 };
 
 export const viewport: Viewport = {
@@ -39,6 +56,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         <BottomNav />
         <WhatsAppFab />
+        <SwRegister />
+        <InstallBanner />
       </body>
     </html>
   );
