@@ -31,22 +31,29 @@ function chunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([len, body, crc]);
 }
 
-/** A valid RGBA PNG of exactly `size × size` pixels. */
-export function png(size = 64, rgba: [number, number, number, number] = [124, 58, 237, 255]): Buffer {
+/** A valid RGBA PNG. `png(64)` is square; `png(320, 240)` is not. */
+export function png(
+  size = 64,
+  heightOrRgba: number | [number, number, number, number] = size,
+  rgba: [number, number, number, number] = [124, 58, 237, 255],
+): Buffer {
+  const height = typeof heightOrRgba === 'number' ? heightOrRgba : size;
+  const colour = typeof heightOrRgba === 'number' ? rgba : heightOrRgba;
+  const width = size;
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);
-  ihdr.writeUInt32BE(size, 4);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 6; // colour type: RGBA
-  const row = Buffer.alloc(1 + size * 4);
+  const row = Buffer.alloc(1 + width * 4);
   row[0] = 0; // filter: none
-  for (let x = 0; x < size; x++) {
-    row[1 + x * 4] = rgba[0];
-    row[2 + x * 4] = rgba[1];
-    row[3 + x * 4] = rgba[2];
-    row[4 + x * 4] = rgba[3];
+  for (let x = 0; x < width; x++) {
+    row[1 + x * 4] = colour[0];
+    row[2 + x * 4] = colour[1];
+    row[3 + x * 4] = colour[2];
+    row[4 + x * 4] = colour[3];
   }
-  const raw = Buffer.concat(Array.from({ length: size }, () => row));
+  const raw = Buffer.concat(Array.from({ length: height }, () => row));
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', ihdr),

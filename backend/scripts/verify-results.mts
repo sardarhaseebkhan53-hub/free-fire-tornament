@@ -20,7 +20,7 @@ import 'dotenv/config';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { png } from './lib/fixtures.mts';
+import { png } from './lib/fixtures.js';
 
 const API = process.env.API_URL ?? 'http://127.0.0.1:4000/api';
 const DB = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/postgres?connection_limit=5';

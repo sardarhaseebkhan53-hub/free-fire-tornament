@@ -14,7 +14,6 @@ import {
 } from '../validation/admin.schema';
 import { listFraudAlerts, reviewFraudAlert } from '../services/fraud.service';
 import { adminWriteLimiter } from '../middleware/rateLimit';
-import { notFound, conflict } from '../lib/errors';
 import {
   adjustBalance, adminStats, createAd, createBlog, createTournament, listAds,
   listAuditLogs, listBlog, listMatchesAdmin, listSeo, listSettings, listTickets,
@@ -129,14 +128,8 @@ adminRouter.get('/fraud', async (req, res) => {
 });
 adminRouter.post('/fraud/:id/review', adminWriteLimiter, async (req, res) => {
   const { action, note } = fraudReviewSchema.parse(req.body);
-  try {
-    const out = await reviewFraudAlert(req.auth!.id, String(req.params.id), action, note, ctxOf(req));
-    return ok(res, out, action === 'REVIEWED' ? 'Alert marked reviewed.' : 'Alert dismissed.');
-  } catch (e) {
-    if ((e as Error).message === 'NOT_FOUND') throw notFound('Fraud alert not found');
-    if ((e as Error).message === 'ALREADY_REVIEWED') throw conflict('CONFLICT', 'This alert was already reviewed.');
-    throw e;
-  }
+  const out = await reviewFraudAlert(req.auth!.id, String(req.params.id), action, note, ctxOf(req));
+  return ok(res, out, action === 'REVIEWED' ? 'Alert marked reviewed.' : 'Alert dismissed.');
 });
 
 // Support

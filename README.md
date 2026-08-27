@@ -30,7 +30,7 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
 ---
 
-## Progress — 15 of 17 phases complete
+## Progress — 16 of 17 phases complete
 
 | # | Phase | Status |
 |---|---|---|
@@ -49,7 +49,7 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 12 | SEO + Blog CMS | ✅ Done |
 | 13 | PWA | ✅ Done |
 | 14 | Security hardening | ✅ Done |
-| 15 | Testing | ⬜ |
+| 15 | Testing | ✅ Done |
 | 16 | Deployment | ⬜ |
 
 Completed work lives in the merged history (PR #1, PR #2, PR #3, PR #4) plus the
@@ -404,10 +404,55 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
   CSRF, headers, limits, RBAC, review idempotency, bcrypt cost) and all seven
   previous suites still green; `next build` + `tsc` clean.
 
-### ⬜ Phase 15 — Testing
-Vitest suites: auth, wallet, deposits/withdrawals, tournament join
-(double-click/concurrency), idempotent prize distribution, admin permissions,
-withdrawal-exceeding-balance.
+### ⬜ Phase 15 — Testing → ✅ done
+
+- **`npm test` (Vitest) — 127 tests, no Docker, no live dev server.** A private
+  PostgreSQL is booted per run: Vitest's `globalSetup` starts the same embedded
+  PGlite the dev workflow uses on its own port (`:55432`) and data directory
+  (`.test-pgdata`, wiped each run), applies every migration in order, seeds the
+  baseline settings + payment destinations, and tears it all down afterwards.
+  `pgdata/` and the dev database are never touched.
+- **Suites** (`backend/tests/`):
+  - `unit/image.test.ts` — the Phase 14 byte validator: magic-byte sniffing,
+    container dimension parsing, MIME-mismatch, 1×1 and oversized rejections,
+    byte caps, truncated headers.
+  - `unit/economics.test.ts` — the master pricing tier reproduced to the rupee,
+    team-size math, kill pools budgeted at their **cap**, uncapped pools
+    refused, loss detection and the admin-tunable loss threshold.
+  - `integration/auth.test.ts` — registration uniqueness, bcrypt cost 12,
+    login by email/username, per-identifier lockout (the correct password is
+    refused while locked), banned accounts, **refresh rotation with replay
+    detection that revokes every live session**, tokens stored only as hashes.
+  - `integration/wallet.test.ts` — credit/debit with before/after on every row,
+    **overdraw refused and nothing written**, bucket isolation, whole
+    transaction rollback when one leg fails, coin conversion, and a
+    `ledgerIsConsistent` invariant (chain continuity + wallet mirror) re-derived
+    from the immutable ledger after each scenario.
+  - `integration/payments.test.ts` — deposits never auto-credit, duplicate TIDs
+    across players, **approval credits exactly once** (second approval refused),
+    rejection moves no money, the full PENDING→APPROVED→PROCESSING→PAID chain
+    with skipped steps refused, mandatory payout reference, **withdrawals that
+    exceed the winning balance refused** (and not fundable from cash/bonus),
+    reversals on reject/cancel.
+  - `integration/join.test.ts` — **double-click → one registration**, ten racers
+    for three slots → exactly three in and the slot counter truthful, full and
+    deadline refusals, coupon percentage/fixed/cap/usage-limit math under
+    concurrency, refunds per `refundPercent`.
+  - `integration/prizes.test.ts` — submission guards, verification writing
+    `placement + kills × pointsPerKill`, admin overrides, disqualification
+    reverting stats, standings tie-breaks, and **idempotent distribution**:
+    a second run is refused and credits not one extra rupee.
+  - `integration/permissions.test.ts` — the RBAC ladder, and the real Express
+    app over HTTP: every admin route is 401 anonymous / 403 for players,
+    moderators are refused ADMIN-only routes, forged and wrong-secret tokens
+    are rejected, public listings carry no room credentials, and no error body
+    leaks a stack.
+  - `integration/fraud.test.ts` — every Phase 14 detector from real traffic,
+    dedupe into one OPEN alert, the master switch, and the two properties that
+    matter: a flagged withdrawal still debits **exactly once** with a clean
+    ledger, and a detector that throws cannot break the request it watches.
+- **Verified:** `npm test` → 127/127 green; all eight `verify:*` harnesses still
+  green; `tsc --noEmit` now covers `tests/` and `vitest.config.ts`.
 
 ### ⬜ Phase 16 — Deployment
 Environment docs, production builds for frontend + backend, managed PostgreSQL
@@ -455,6 +500,7 @@ npm run dev             # http://localhost:3000
 | backend | `npm run verify:seo` | SEO + Blog CMS live checks against the web app |
 | backend | `npm run verify:pwa` | PWA manifest / SW / icons / offline checks |
 | backend | `npm run verify:security` | Security hardening suite (uploads, fraud, CSRF, limits) |
+| backend | `npm test` | Vitest suite (127 tests) — boots its own embedded PostgreSQL |
 | backend | `npm run db:seed` | Reset demo data |
 | backend | `npm run typecheck` | `tsc --noEmit` |
 | frontend | `npx next build` | Production build check |

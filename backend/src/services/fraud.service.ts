@@ -16,6 +16,7 @@
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
 import { prisma } from '../lib/prisma';
+import { conflict, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 
 export type FraudSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -709,8 +710,10 @@ export async function reviewFraudAlert(
   ctx: Ctx = {},
 ) {
   const alert = await prisma.fraudAlert.findUnique({ where: { id } });
-  if (!alert) throw new Error('NOT_FOUND');
-  if (alert.status !== 'OPEN') throw new Error('ALREADY_REVIEWED');
+  if (!alert) throw notFound('Fraud alert not found');
+  if (alert.status !== 'OPEN') {
+    throw conflict('CONFLICT', `This alert was already ${alert.status.toLowerCase()}.`);
+  }
 
   const updated = await prisma.fraudAlert.update({
     where: { id },
