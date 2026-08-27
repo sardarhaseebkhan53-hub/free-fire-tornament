@@ -50,6 +50,7 @@ Copy `.env.example` to `.env` first if you want to override defaults.
 | `npm run verify:support` | Support tickets + NEXA guardrails suite (Phase 11)  |
 | `npm run verify:seo`     | SEO + Blog CMS live checks against the web app (Phase 12) |
 | `npm run verify:pwa`     | PWA manifest / SW / icons / offline checks (Phase 13)  |
+| `npm run verify:security` | Upload validation, fraud detection, CSRF, limits (Phase 14) |
 
 ## Architecture notes
 

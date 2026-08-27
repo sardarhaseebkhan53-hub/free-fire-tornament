@@ -2,13 +2,14 @@
   "name": "clutchnex-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "CLUTCHNEX Free Fire esports tournament platform — API-first backend (Express + Prisma + PostgreSQL)",
+  "description": "CLUTCHNEX Free Fire esports tournament platform \u2014 API-first backend (Express + Prisma + PostgreSQL)",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/offline-prisma-patch.mjs",
     "db:dev": "node scripts/dev-db.mjs",
     "db:generate": "node scripts/db-generate.mjs",
     "db:push": "prisma db push",
@@ -21,9 +22,9 @@
     "verify:results": "tsx scripts/verify-results.mts",
     "verify:finance": "tsx scripts/verify-finance.mts",
     "verify:support": "tsx scripts/verify-support.mts",
-    "postinstall": "node scripts/offline-prisma-patch.mjs",
     "verify:seo": "tsx scripts/verify-seo.mts",
-    "verify:pwa": "tsx scripts/verify-pwa.mts"
+    "verify:pwa": "tsx scripts/verify-pwa.mts",
+    "verify:security": "tsx scripts/verify-security.mts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

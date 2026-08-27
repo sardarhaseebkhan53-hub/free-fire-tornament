@@ -16,6 +16,10 @@ const schema = z.object({
   JWT_REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(7),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(5),
   UPLOAD_DIR: z.string().default('uploads'),
+  // Global per-IP ceiling. Deliberately generous: a whole hostel behind one NAT
+  // shares this bucket. The routes that matter (auth, deposits, withdrawals,
+  // joins, coupons) have their own much tighter budgets in middleware/rateLimit.
+  RATE_LIMIT_PER_WINDOW: z.coerce.number().int().positive().default(600),
 });
 
 export const env = schema.parse(process.env);

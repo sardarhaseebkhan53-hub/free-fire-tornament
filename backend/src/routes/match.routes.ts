@@ -1,16 +1,14 @@
 // /api/matches — My Matches (timed credential release), player result
 // submissions, and admin match creation.
 import { Router, type NextFunction } from 'express';
-import path from 'node:path';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { ok } from '../lib/respond';
-import { badRequest } from '../lib/errors';
-import { UPLOAD_ROOT } from '../lib/upload';
+import { reqContext, uploadResponseHeaders } from '../lib/security';
 import { createMatch, myMatches } from '../services/match.service';
 import { resultScreenshotPath, submitResult } from '../services/result.service';
 import { createMatchSchema } from '../validation/team.schema';
 import { submitResultSchema } from '../validation/result.schema';
-import { optionalScreenshot } from '../lib/upload';
+import { optionalScreenshot, resolveUploadPath } from '../lib/upload';
 
 export const matchRouter = Router();
 
@@ -28,7 +26,7 @@ matchRouter.post('/:matchId/result', requireAuth, optionalScreenshot, async (req
     String(req.params.matchId),
     input,
     screenshot,
-    { ip: req.ip, userAgent: req.headers['user-agent']?.slice(0, 200) },
+    reqContext(req),
   );
   return ok(res, { id: sub.id, status: sub.status }, 'Result submitted — pending staff verification.', 201);
 });
@@ -37,8 +35,8 @@ matchRouter.post('/:matchId/result', requireAuth, optionalScreenshot, async (req
 matchRouter.get('/results/:id/screenshot', requireAuth, async (req, res, next: NextFunction) => {
   try {
     const rel = await resultScreenshotPath(req.auth!.id, req.auth!.role, String(req.params.id));
-    const abs = path.resolve(UPLOAD_ROOT, rel);
-    if (!abs.startsWith(UPLOAD_ROOT)) throw badRequest('VALIDATION_ERROR', 'Invalid file path.');
+    const abs = resolveUploadPath(rel);
+    uploadResponseHeaders(res, rel.split('/').pop() ?? 'screenshot');
     return res.sendFile(abs);
   } catch (e) {
     return next(e);

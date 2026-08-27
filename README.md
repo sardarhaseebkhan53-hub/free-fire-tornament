@@ -30,7 +30,7 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
 ---
 
-## Progress — 14 of 17 phases complete
+## Progress — 15 of 17 phases complete
 
 | # | Phase | Status |
 |---|---|---|
@@ -48,12 +48,12 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 11 | Support + WhatsApp + NEXA chatbot | ✅ Done |
 | 12 | SEO + Blog CMS | ✅ Done |
 | 13 | PWA | ✅ Done |
-| 14 | Security hardening | ⬜ |
+| 14 | Security hardening | ✅ Done |
 | 15 | Testing | ⬜ |
 | 16 | Deployment | ⬜ |
 
-All completed work lives in **[PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4)**
-(and the merged history: PR #1, PR #2, PR #3) — one commit per phase, each independently verified.
+Completed work lives in the merged history (PR #1, PR #2, PR #3, PR #4) plus the
+open Phase 14 branch — one commit per phase, each independently verified.
 
 ---
 
@@ -350,9 +350,59 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
   production build; all six previous suites still green; `next build` clean.
   The live preview now runs the production server — install it for real.
 
-### ⬜ Phase 14 — Security hardening
-Upload validation (MIME/size/dimensions), fraud/duplicate detection alerts, audit
-logging on every financial action, CSRF review, stricter rate budgets.
+### ⬜ Phase 14 — Security hardening → ✅ done
+
+- **Uploads are validated by their bytes, not their claims.** A browser-supplied
+  `Content-Type` is a lie an attacker controls, so every upload is sniffed
+  (JPEG/PNG/WebP magic bytes), the declared type must match the real one, the
+  pixel dimensions are parsed straight out of the container header (32px–4096px),
+  and rejected files are deleted from disk before the caller sees them. HTML
+  renamed to `.png`, GIF/BMP, mislabelled PNGs, 1×1 "screenshots" and 9000px
+  bombs are all refused; extensions on disk come from the sniffed type.
+- **Private uploads are no longer statically served.** `/uploads` now blocks the
+  `deposits/`, `tickets/` and `results/` folders outright (403) — payment proofs
+  are reachable only through their owner-or-staff routes, which resolve paths
+  traversal-safely and serve files as inert data (`nosniff`, sandboxed CSP,
+  `Content-Disposition`, type from the sniffed extension).
+- **Fraud & abuse detection (`FraudAlert`)** — 15 detectors wired into live
+  traffic: duplicate/reused transaction IDs, **reused payment screenshots**
+  (SHA-256 content hash, per-account and cross-account), deposit bursts,
+  outlier amounts vs the player's own history, withdrawal bursts,
+  deposit→withdraw churn, brand-new accounts cashing out, one payout account
+  shared by several players, multi-account signups from one IP/device,
+  credential stuffing, **refresh-token replay** (also revokes every live
+  session), repeated rejected joins, coupon-code guessing and identical match
+  result claims. Detection is **fire-and-forget, deduplicated, admin-tunable
+  via `security.*` settings, and never blocks or alters the request it
+  observes** — a flagged withdrawal still debits exactly once.
+- **Review queue**: `GET /api/admin/fraud` + `POST /api/admin/fraud/:id/review`
+  (ADMIN+, audited, idempotent) and a new **Fraud & Abuse** admin screen with
+  severity ordering, evidence inspector, review note and status tabs.
+- **Audit coverage extended to failures**: `LOGIN_FAILED`, `LOGIN_LOCKOUT`,
+  `LOGIN_SUCCESS`, `USER_REGISTERED`, `PASSWORD_CHANGED/RESET`,
+  `REFRESH_TOKEN_REUSED`, `COUPON_REJECTED`, `TOURNAMENT_JOIN_REJECTED` and
+  `FRAUD_ALERT_*` — with source IP and user-agent on every row. Rejections are
+  written outside the rolled-back transaction, so abuse stays visible.
+- **CSRF**: the only cookie-authenticated endpoints (`/auth/refresh`,
+  `/auth/logout`) now require a first-party marker header and refuse
+  cross-site requests — on top of SameSite=Lax, a path-scoped HttpOnly cookie
+  and CORS pinned to one origin. The Next.js proxy forwards the marker,
+  `Sec-Fetch-Site` and the real client IP.
+- **Stricter budgets, three tiers**: global (env-tunable `RATE_LIMIT_PER_WINDOW`,
+  default 600/15min), identity (login 10/15min, register 5/h, reset & resend
+  5/15min) and financial (deposits 10/h, withdrawals 6/h, joins 30/15min,
+  coupons 15/15min, conversions 20/h, admin writes 240/15min) — financial
+  limiters key **per user**, so one player cannot lock out a whole NAT.
+- **Transport & payload hardening**: helmet with an explicit
+  `default-src 'none'` CSP + `frame-ancestors 'none'`, HSTS in production,
+  COOP/CORP, no-referrer; JSON bodies capped at 256kb (413 on overflow, clean
+  400 on malformed JSON); bcrypt cost raised 10 → **12**; upload quota per
+  player per day.
+- **Verified:** `npm run verify:security` — **76/76** live checks (byte-level
+  upload rejection, upload privacy + traversal, every detector from real
+  traffic, dedupe, the detection-never-changes-money proof, audit coverage,
+  CSRF, headers, limits, RBAC, review idempotency, bcrypt cost) and all seven
+  previous suites still green; `next build` + `tsc` clean.
 
 ### ⬜ Phase 15 — Testing
 Vitest suites: auth, wallet, deposits/withdrawals, tournament join
@@ -400,6 +450,11 @@ npm run dev             # http://localhost:3000
 | backend | `npm run verify:join` | Concurrency/financial test suite for the join engine |
 | backend | `npm run verify:wallet` | Wallet ledger + manual payments test suite |
 | backend | `npm run verify:results` | Results, verification & prize distribution test suite |
+| backend | `npm run verify:finance` | Financial dashboard suite (P&L truth, CSV, RBAC) |
+| backend | `npm run verify:support` | Support tickets + NEXA guardrails suite |
+| backend | `npm run verify:seo` | SEO + Blog CMS live checks against the web app |
+| backend | `npm run verify:pwa` | PWA manifest / SW / icons / offline checks |
+| backend | `npm run verify:security` | Security hardening suite (uploads, fraud, CSRF, limits) |
 | backend | `npm run db:seed` | Reset demo data |
 | backend | `npm run typecheck` | `tsc --noEmit` |
 | frontend | `npx next build` | Production build check |
@@ -424,11 +479,23 @@ npm run dev             # http://localhost:3000
 
 ## Security principles
 
-- Passwords hashed with bcrypt; refresh tokens stored only as SHA-256 hashes.
+- Passwords hashed with bcrypt (cost 12); refresh tokens stored only as SHA-256
+  hashes, rotated single-use, and a replayed token kills every live session.
+- Uploads are validated by their **bytes** (magic signature, declared-type match,
+  pixel dimensions) — never by the client's `Content-Type` or filename.
+- Private uploads (payment proofs, ticket attachments, result screenshots) are
+  served only through owner-or-staff routes, as inert data, from
+  traversal-safe paths.
 - Room credentials are served exclusively to registered players after the release
   instant — never in public responses.
-- RBAC on every privileged route; admin actions audited.
-- Rate limiting on auth routes + per-email lockout.
+- RBAC on every privileged route; admin actions **and failed security events**
+  are audited with source IP.
+- Fraud detection observes and reports; it never moves money, changes a status
+  or blocks a player — a human reviews every alert.
+- Rate limiting in three tiers (global / identity / financial) + per-email
+  lockout; financial limits key per user so shared NATs stay usable.
+- CSRF defence in depth on the cookie-authenticated endpoints (SameSite +
+  path-scoped HttpOnly cookie + pinned CORS + first-party marker header).
 - No secrets in code — everything via `.env` (see `.env.example`).
 
 ---
@@ -446,4 +513,4 @@ free-fire-tornament/
 └── README.md          # this file
 ```
 
-**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · PR #3 (Phases 7–9, merged) · [PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4) (Phases 10–11).
+**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · PR #3 (Phases 7–9, merged) · [PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4) (Phases 10–13, merged) · Phase 14 (security hardening) on this branch.

@@ -100,6 +100,19 @@ export const auditLogQuerySchema = z.object({
   ...pageSchema,
 });
 
+/** Phase 14 — fraud review queue. */
+export const fraudListQuerySchema = z.object({
+  status: z.enum(['OPEN', 'REVIEWED', 'DISMISSED']).optional(),
+  severity: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional(),
+  kind: z.string().trim().max(40).optional(),
+  ...pageSchema,
+});
+
+export const fraudReviewSchema = z.object({
+  action: z.enum(['REVIEWED', 'DISMISSED']),
+  note: z.string().trim().max(500).optional().default(''),
+});
+
 export const revenueQuerySchema = z.object({
   days: z.coerce.number().int().min(7).max(90).default(30),
 });

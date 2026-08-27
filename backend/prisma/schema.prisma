@@ -442,6 +442,7 @@ model Deposit {
   method        PaymentMethod
   transactionId String        @unique // duplicate TIDs are rejected at the DB level
   screenshot    String // uploaded file path
+  screenshotHash String? // SHA-256 of the uploaded proof — reused-proof fraud detection
   senderName    String
   senderAccount String?
   status        DepositStatus @default(PENDING)
@@ -456,6 +457,7 @@ model Deposit {
   @@index([userId])
   @@index([status])
   @@index([transactionId])
+  @@index([screenshotHash])
   @@index([createdAt])
   @@map("deposits")
 }

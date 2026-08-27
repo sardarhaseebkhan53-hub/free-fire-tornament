@@ -14,6 +14,8 @@ import { Prisma } from '../../generated/prisma';
 import { prisma } from '../lib/prisma';
 import { ApiError, badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
+import { fireCouponAbuse, fireJoinFailure } from './fraud.service';
+import { audit } from '../lib/security';
 
 const TEAM_SIZE: Record<'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD', number> = {
   SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4,
@@ -26,10 +28,24 @@ const TX_OPTS = { timeout: 30_000, maxWait: 15_000 } as const;
 // ---------------------------------------------------------------------------
 // Coupon validation (shared by preview + join)
 // ---------------------------------------------------------------------------
-export async function previewCoupon(codeRaw: string, tournamentId: string, userId: string, entryFee: number) {
+export async function previewCoupon(
+  codeRaw: string,
+  tournamentId: string,
+  userId: string,
+  entryFee: number,
+  actor: ActorCtx = {},
+) {
   const code = codeRaw.trim().toUpperCase();
   const coupon = await prisma.coupon.findUnique({ where: { code } });
-  if (!coupon || coupon.status !== 'ACTIVE') throw badRequest('VALIDATION_ERROR', 'Coupon not found or inactive');
+  if (!coupon || coupon.status !== 'ACTIVE') {
+    // Code guessing is cheap to try and expensive to ignore — record it.
+    await audit({
+      actorId: userId, action: 'COUPON_REJECTED', entity: 'Coupon', entityId: null,
+      after: { code, reason: 'not found or inactive' }, ip: actor.ip, userAgent: actor.userAgent,
+    });
+    fireCouponAbuse(userId, code, actor);
+    throw badRequest('VALIDATION_ERROR', 'Coupon not found or inactive');
+  }
   if (coupon.expiresAt && coupon.expiresAt < new Date()) throw badRequest('VALIDATION_ERROR', 'Coupon has expired');
   if (coupon.startsAt > new Date()) throw badRequest('VALIDATION_ERROR', 'Coupon is not active yet');
   if (coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit) {
@@ -61,7 +77,10 @@ export interface JoinInput {
   couponCode?: string;
 }
 
-export async function joinTournament(userId: string, input: JoinInput, actorIp?: string) {
+export interface ActorCtx { ip?: string; userAgent?: string }
+
+export async function joinTournament(userId: string, input: JoinInput, actorIp?: string, actorUa?: string) {
+  const actor: ActorCtx = { ip: actorIp, userAgent: actorUa };
   const t = await prisma.tournament.findUnique({ where: { slug: input.tournamentSlug } });
   if (!t || t.status === 'DRAFT') throw notFound('Tournament not found');
 
@@ -101,6 +120,41 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
     payerIds = team.members.map((m) => m.userId);
   }
 
+  try {
+    return await runJoin(userId, input, t, feePerPlayer, currency, payerIds, teamSize, actor);
+  } catch (e) {
+    // Rejections roll their transaction back, so the trail has to be written
+    // outside it — this is what makes abuse patterns visible afterwards.
+    const code = e instanceof ApiError ? e.code : 'INTERNAL_ERROR';
+    if (['TOURNAMENT_FULL', 'TOURNAMENT_CLOSED', 'INSUFFICIENT_BALANCE'].includes(code)) {
+      await audit({
+        actorId: userId,
+        action: 'TOURNAMENT_JOIN_REJECTED',
+        entity: 'Tournament',
+        entityId: t.id,
+        after: { code, slug: t.slug },
+        ip: actor.ip,
+        userAgent: actor.userAgent,
+      });
+      if (code !== 'INSUFFICIENT_BALANCE') {
+        fireJoinFailure(userId, code as 'TOURNAMENT_FULL' | 'TOURNAMENT_CLOSED', t.slug, actor);
+      }
+    }
+    throw e;
+  }
+}
+
+async function runJoin(
+  userId: string,
+  input: JoinInput,
+  t: { id: string; title: string; slug: string; type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD'; status: string; registrationDeadline: Date; startTime: Date; maxSlots: number; refundPercent: unknown },
+  feePerPlayer: number,
+  currency: string,
+  payerIds: string[],
+  teamSize: number,
+  actor: ActorCtx,
+) {
+  const actorIp = actor.ip;
   return prisma.$transaction(async (tx) => {
     // 1. Double-join guard (fast path — unique index is the hard guarantee)
     for (const pid of payerIds) {

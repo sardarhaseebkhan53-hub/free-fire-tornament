@@ -17,6 +17,11 @@ import {
 import { sendMail, verificationEmail, passwordResetEmail } from './email.service';
 import { getSetting } from './settings.service';
 import { applyWalletTx } from './wallet.service';
+import { fireLoginAbuse, fireRefreshReuse, fireRegistrationFraud } from './fraud.service';
+import { audit } from '../lib/security';
+
+/** bcrypt cost — 12 is the current OWASP floor for bcryptjs (≈250ms/hash). */
+const BCRYPT_ROUNDS = 12;
 
 const REFRESH_TTL_MS = () => env.JWT_REFRESH_TTL_DAYS * 24 * 3_600_000;
 const VERIFY_TTL_MS = 24 * 3_600_000;
@@ -27,8 +32,18 @@ export interface RequestContext {
   userAgent?: string;
 }
 
-// In-memory login lockout (hardened further in the security phase).
-const attempts = new Map<string, { count: number; lockedUntil: number }>();
+// In-memory login lockout. Bounded on purpose: an attacker cannot grow this
+// map without bound (old, cold keys are evicted on every write) and the
+// per-email budget comes from settings, so it is admin-tunable at runtime.
+const attempts = new Map<string, { count: number; lockedUntil: number; at: number }>();
+const ATTEMPT_TTL_MS = 60 * 60_000;
+
+function evictStaleAttempts() {
+  const cutoff = Date.now() - ATTEMPT_TTL_MS;
+  for (const [key, a] of attempts) {
+    if (a.at < cutoff) attempts.delete(key);
+  }
+}
 
 async function checkLockout(key: string) {
   const max = await getSetting('security.maxLoginAttempts', 5);
@@ -41,14 +56,20 @@ async function checkLockout(key: string) {
   return { max, lockMin };
 }
 
-function recordFailure(key: string, max: number, lockMin: number) {
-  const a = attempts.get(key) ?? { count: 0, lockedUntil: 0 };
+/** Returns the running failure count (and whether a lockout just started). */
+function recordFailure(key: string, max: number, lockMin: number): { count: number; locked: boolean } {
+  evictStaleAttempts();
+  const a = attempts.get(key) ?? { count: 0, lockedUntil: 0, at: Date.now() };
   a.count += 1;
+  a.at = Date.now();
+  let locked = false;
   if (a.count >= max) {
     a.lockedUntil = Date.now() + lockMin * 60000;
     a.count = 0;
+    locked = true;
   }
   attempts.set(key, a);
+  return { count: a.count || max, locked };
 }
 
 function makeReferralCode(): string {
@@ -109,7 +130,7 @@ export async function register(input: RegisterInput, ctx: RequestContext) {
       username,
       email,
       phone: input.phone,
-      passwordHash: bcrypt.hashSync(input.password, 10),
+      passwordHash: bcrypt.hashSync(input.password, BCRYPT_ROUNDS),
       status: 'PENDING_VERIFICATION',
       referralCode,
       referredById,
@@ -139,6 +160,18 @@ export async function register(input: RegisterInput, ctx: RequestContext) {
 
   const token = await issueToken(user.id, 'EMAIL_VERIFICATION', VERIFY_TTL_MS, ctx);
   await sendMail(verificationEmail(email, token));
+
+  await audit({
+    actorId: user.id,
+    action: 'USER_REGISTERED',
+    entity: 'User',
+    entityId: user.id,
+    after: { username: user.username, email: user.email, referredBy: referredById ?? null },
+    ip: ctx.ip,
+    userAgent: ctx.userAgent,
+  });
+  // Same IP/device registering many accounts is the classic bonus-farming play.
+  fireRegistrationFraud(user.id, ctx);
 
   return { user, verificationTokenDevOnly: env.NODE_ENV === 'development' ? token : undefined };
 }
@@ -194,7 +227,19 @@ export async function login(identifierRaw: string, password: string, ctx: Reques
     where: identifier.includes('@') ? { email: identifier } : { username: identifier },
   });
   if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
-    recordFailure(identifier, max, lockMin);
+    const { count, locked } = recordFailure(identifier, max, lockMin);
+    // Security events are audited even when they fail: this is the trail that
+    // shows a brute-force attempt happened, from where, and against whom.
+    await audit({
+      actorId: user?.id ?? null,
+      action: locked ? 'LOGIN_LOCKOUT' : 'LOGIN_FAILED',
+      entity: 'User',
+      entityId: user?.id ?? null,
+      after: { identifier, failures: count, locked, lockoutMinutes: locked ? lockMin : null },
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+    });
+    fireLoginAbuse(identifier, count, ctx, user?.id);
     throw unauthorized('INVALID_CREDENTIALS', 'Incorrect email/username or password.');
   }
   if (user.status === 'BANNED') {
@@ -206,6 +251,15 @@ export async function login(identifierRaw: string, password: string, ctx: Reques
 
   attempts.delete(identifier);
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+  await audit({
+    actorId: user.id,
+    action: 'LOGIN_SUCCESS',
+    entity: 'User',
+    entityId: user.id,
+    after: { identifier, role: user.role },
+    ip: ctx.ip,
+    userAgent: ctx.userAgent,
+  });
 
   const access = signAccessToken({ sub: user.id, role: user.role, username: user.username });
   const refresh = await issueToken(user.id, 'REFRESH', REFRESH_TTL_MS(), ctx);
@@ -222,7 +276,29 @@ export async function login(identifierRaw: string, password: string, ctx: Reques
 // ---------------------------------------------------------------------------
 export async function refreshSession(rawRefresh: string, ctx: RequestContext) {
   const row = await findToken(rawRefresh, 'REFRESH');
-  if (!row) throw unauthorized('TOKEN_INVALID', 'Session expired. Please sign in again.');
+  if (!row) {
+    // Rotation makes every refresh token single-use, so a token that exists
+    // but is already revoked is a REPLAY — treat it as a theft signal.
+    const replayed = await prisma.authToken.findFirst({
+      where: { tokenHash: hashToken(rawRefresh), type: 'REFRESH', revokedAt: { not: null } },
+      select: { userId: true },
+    });
+    if (replayed) {
+      await audit({
+        actorId: replayed.userId,
+        action: 'REFRESH_TOKEN_REUSED',
+        entity: 'AuthToken',
+        entityId: null,
+        after: { type: 'REFRESH', reason: 'rotated token replayed' },
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      });
+      fireRefreshReuse(replayed.userId, ctx);
+      // Defence in depth: kill every live session for that account.
+      await revokeAllRefreshTokens(replayed.userId);
+    }
+    throw unauthorized('TOKEN_INVALID', 'Session expired. Please sign in again.');
+  }
 
   // Rotation: old token is single-use.
   await revokeToken(row.id);
@@ -271,35 +347,62 @@ export async function forgotPassword(emailRaw: string, ctx: RequestContext) {
   return { sent: true, resetTokenDevOnly: env.NODE_ENV === 'development' ? token : undefined };
 }
 
-export async function resetPassword(token: string, newPassword: string) {
+export async function resetPassword(token: string, newPassword: string, ctx: RequestContext = {}) {
   const row = await findToken(token, 'PASSWORD_RESET');
   if (!row) throw badRequest('TOKEN_INVALID', 'Reset link is invalid or has expired.');
 
   await prisma.$transaction([
     prisma.user.update({
       where: { id: row.userId },
-      data: { passwordHash: bcrypt.hashSync(newPassword, 10) },
+      data: { passwordHash: bcrypt.hashSync(newPassword, BCRYPT_ROUNDS) },
     }),
     prisma.authToken.updateMany({
       where: { userId: row.userId, revokedAt: null },
       data: { revokedAt: new Date() },
     }),
   ]);
+  await audit({
+    actorId: row.userId,
+    action: 'PASSWORD_RESET',
+    entity: 'User',
+    entityId: row.userId,
+    after: { allSessionsRevoked: true },
+    ip: ctx.ip,
+    userAgent: ctx.userAgent,
+  });
   return { reset: true };
 }
 
-export async function changePassword(userId: string, currentPassword: string, newPassword: string) {
+export async function changePassword(userId: string, currentPassword: string, newPassword: string, ctx: RequestContext = {}) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || !bcrypt.compareSync(currentPassword, user.passwordHash)) {
+    await audit({
+      actorId: userId,
+      action: 'PASSWORD_CHANGE_FAILED',
+      entity: 'User',
+      entityId: userId,
+      after: { reason: 'current password incorrect' },
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+    });
     throw unauthorized('INVALID_CREDENTIALS', 'Current password is incorrect.');
   }
   await prisma.$transaction([
-    prisma.user.update({ where: { id: userId }, data: { passwordHash: bcrypt.hashSync(newPassword, 10) } }),
+    prisma.user.update({ where: { id: userId }, data: { passwordHash: bcrypt.hashSync(newPassword, BCRYPT_ROUNDS) } }),
     prisma.authToken.updateMany({
       where: { userId, type: 'REFRESH', revokedAt: null },
       data: { revokedAt: new Date() },
     }),
   ]);
+  await audit({
+    actorId: userId,
+    action: 'PASSWORD_CHANGED',
+    entity: 'User',
+    entityId: userId,
+    after: { refreshSessionsRevoked: true },
+    ip: ctx.ip,
+    userAgent: ctx.userAgent,
+  });
   return { changed: true };
 }
 

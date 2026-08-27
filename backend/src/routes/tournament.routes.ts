@@ -6,6 +6,8 @@ import { prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import { ok } from '../lib/respond';
 import { notFound } from '../lib/errors';
+import { couponLimiter, joinLimiter } from '../middleware/rateLimit';
+import { reqContext } from '../lib/security';
 import { joinSchema, couponPreviewSchema } from '../validation/tournament.schema';
 import {
   cancelRegistration, joinTournament, myRegistrations, previewCoupon,
@@ -14,21 +16,22 @@ import {
 export const tournamentRouter = Router();
 
 // Join (auth required) — race-safe, transactional
-tournamentRouter.post('/join', requireAuth, async (req, res) => {
+tournamentRouter.post('/join', requireAuth, joinLimiter, async (req, res) => {
   const input = joinSchema.parse(req.body);
-  const out = await joinTournament(req.auth!.id, input, req.ip);
+  const ctx = reqContext(req);
+  const out = await joinTournament(req.auth!.id, input, ctx.ip, ctx.userAgent);
   return ok(res, out, 'Tournament joined successfully', 201);
 });
 
 // Coupon preview before join (auth required — personal limits apply)
-tournamentRouter.get('/coupon-preview', requireAuth, async (req, res) => {
+tournamentRouter.get('/coupon-preview', requireAuth, couponLimiter, async (req, res) => {
   const q = couponPreviewSchema.parse(req.query);
   const t = await prisma.tournament.findUnique({
     where: { slug: q.tournamentSlug },
     select: { id: true, entryFeePerPlayer: true },
   });
   if (!t) throw notFound('Tournament not found');
-  const out = await previewCoupon(q.code, t.id, req.auth!.id, Number(t.entryFeePerPlayer));
+  const out = await previewCoupon(q.code, t.id, req.auth!.id, Number(t.entryFeePerPlayer), reqContext(req));
   return ok(res, out);
 });
 
