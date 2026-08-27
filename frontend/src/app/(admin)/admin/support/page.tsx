@@ -64,7 +64,7 @@ export default function AdminSupportPage() {
                 className={`mb-2 w-full rounded-card border p-3 text-left transition ${selected?.id === t.id ? 'border-accent bg-accent/[8%]' : 'border-line bg-white/[2%] hover:border-fg-3/40'}`}>
                 <div className="flex items-center justify-between gap-2">
                   <p className="truncate text-sm font-bold text-fg">{t.subject}</p>
-                  <span className="shrink-0 text-[10px] text-fg-3">{new Date(t.updatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                  <span className="shrink-0 text-[10px] text-fg-3">{new Date(t.updatedAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })}</span>
                 </div>
                 <p className="mt-0.5 text-[11px] text-fg-3">{t.user.username} · {t.category}</p>
                 <div className="mt-1.5 flex gap-1.5"><Pill status={t.status} /><Pill status={t.priority} label={t.priority} /></div>
@@ -94,7 +94,7 @@ export default function AdminSupportPage() {
                           <AuthedImage src={`/api/backend${m.attachment}`} alt="Attachment" className="max-h-44 rounded-input border border-line" />
                         </span>
                       )}
-                      <p className="mt-1 text-[10px] text-fg-3">{m.sender} · {new Date(m.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+                      <p className="mt-1 text-[10px] text-fg-3">{m.sender} · {new Date(m.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</p>
                     </div>
                   ))}
                 </div>

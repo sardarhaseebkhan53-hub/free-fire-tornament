@@ -68,7 +68,7 @@ export default function AdminDepositsPage() {
                   <p className="font-semibold text-fg">{d.user.username}</p>
                   <p className="text-[11px] text-fg-3">{d.user.email}</p>
                 </Td>
-                <Td className="tabular font-bold text-success">₹{d.amount.toLocaleString('en-IN')}</Td>
+                <Td className="tabular font-bold text-success">PKR {d.amount.toLocaleString('en-PK')}</Td>
                 <Td><span className="text-xs text-fg-2">{d.methodLabel}</span></Td>
                 <Td><span className="font-mono text-xs text-fg-2">{d.transactionId}</span></Td>
                 <Td>
@@ -76,7 +76,7 @@ export default function AdminDepositsPage() {
                   <p className="text-[11px] text-fg-3">{d.senderAccount ?? '—'}</p>
                 </Td>
                 <Td><Pill status={d.status} /></Td>
-                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(d.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</Td>
+                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(d.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</Td>
                 <Td>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {d.screenshot && (
@@ -110,7 +110,7 @@ export default function AdminDepositsPage() {
       {proof && (
         <Modal title={`Payment proof — ${proof.user.username}`} onClose={() => setProof(null)} wide>
           <div className="grid gap-3 text-sm sm:grid-cols-2">
-            <p className="text-fg-2">Amount: <span className="font-bold text-success">₹{proof.amount.toLocaleString('en-IN')}</span></p>
+            <p className="text-fg-2">Amount: <span className="font-bold text-success">PKR {proof.amount.toLocaleString('en-PK')}</span></p>
             <p className="text-fg-2">Method: <span className="font-bold text-fg">{proof.methodLabel}</span></p>
             <p className="text-fg-2 sm:col-span-2">TID: <span className="font-mono text-fg">{proof.transactionId}</span></p>
           </div>
@@ -141,8 +141,8 @@ function ReviewModal({ action, playerName, amount, onClose, onConfirm }: {
     <Modal title={action === 'APPROVE' ? 'Approve deposit' : 'Reject deposit'} onClose={onClose}>
       <p className="text-sm text-fg-2">
         {action === 'APPROVE'
-          ? <>Credit <span className="font-bold text-success">₹{amount.toLocaleString('en-IN')}</span> to <span className="font-bold text-fg">{playerName}</span>&apos;s cash balance. This happens exactly once.</>
-          : <>Reject <span className="font-bold text-fg">{playerName}</span>&apos;s deposit of ₹{amount.toLocaleString('en-IN')}. No money moves.</>}
+          ? <>Credit <span className="font-bold text-success">PKR {amount.toLocaleString('en-PK')}</span> to <span className="font-bold text-fg">{playerName}</span>&apos;s cash balance. This happens exactly once.</>
+          : <>Reject <span className="font-bold text-fg">{playerName}</span>&apos;s deposit of PKR {amount.toLocaleString('en-PK')}. No money moves.</>}
       </p>
       <label className="mt-4 block">
         <span className="mb-1.5 block text-xs font-semibold text-fg-2">Note {action === 'REJECT' ? '(shared with the player)' : '(optional)'}</span>

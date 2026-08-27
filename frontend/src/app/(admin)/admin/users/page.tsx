@@ -95,10 +95,10 @@ function UsersInner() {
                   <Pill status={u.status} />
                   {u.isVerified && <ShieldCheck size={12} className="ml-1.5 inline text-success" />}
                 </Td>
-                <Td className="tabular text-fg-2">₹{(u.wallet?.cash ?? 0).toLocaleString('en-IN')}</Td>
-                <Td className="tabular text-fg-2">{(u.wallet?.coins ?? 0).toLocaleString('en-IN')}</Td>
-                <Td className="tabular text-reward">₹{(u.wallet?.winning ?? 0).toLocaleString('en-IN')}</Td>
-                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(u.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</Td>
+                <Td className="tabular text-fg-2">PKR {(u.wallet?.cash ?? 0).toLocaleString('en-PK')}</Td>
+                <Td className="tabular text-fg-2">{(u.wallet?.coins ?? 0).toLocaleString('en-PK')}</Td>
+                <Td className="tabular text-reward">PKR {(u.wallet?.winning ?? 0).toLocaleString('en-PK')}</Td>
+                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(u.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}</Td>
                 <Td>
                   <div className="flex items-center gap-1.5">
                     <button
@@ -169,7 +169,7 @@ function AdjustModal({ user, onClose, refresh }: { user: Row; onClose: () => voi
         method: 'POST',
         body: { bucket, amount: Number(amount), note },
       });
-      setResult(`Done — new ${bucket.toLowerCase()} balance ₹${out.balanceAfter.toLocaleString('en-IN')}.`);
+      setResult(`Done — new ${bucket.toLowerCase()} balance PKR ${out.balanceAfter.toLocaleString('en-PK')}.`);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Adjustment failed.');

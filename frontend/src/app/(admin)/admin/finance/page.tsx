@@ -9,7 +9,7 @@ import { Donut, Kpi, MultiLineChart, Pill, Table, Td, Tr, useAdminList } from '@
 import { getToken } from '@/lib/client-api';
 import { MODE_LABEL } from '@/lib/format';
 
-const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+const inr = (n: number) => `PKR ${Math.round(n).toLocaleString('en-PK')}`;
 
 interface Finance {
   totals: {
@@ -64,18 +64,18 @@ export default function AdminFinancePage() {
     { label: 'Refunds', value: t.refunds, color: '#EF4444' },
     { label: 'Payment costs', value: t.paymentCosts, color: '#3B82F6' },
     { label: 'Referral & bonus', value: t.referralBonusCosts, color: '#F59E0B' },
-    { label: 'Net revenue', value: Math.max(0, t.netRevenue), color: '#10B981' },
+    { label: 'Estimated net profit', value: Math.max(0, t.netRevenue), color: '#10B981' },
   ];
   const bucketLabel = (b: string) =>
     gran === 'month'
-      ? new Date(b).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
-      : new Date(b).toLocaleDateString('en-IN', gran === 'week' ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
+      ? new Date(b).toLocaleDateString('en-PK', { month: 'short', year: 'numeric' })
+      : new Date(b).toLocaleDateString('en-PK', gran === 'week' ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
 
   return (
     <div>
       <AdminPageTitle
         title="Financial Dashboard"
-        sub="Entry fees are the only revenue — deposits are player funds, never profit."
+        sub="Total collection − player rewards = platform gross. Net profit is an estimate after costs — deposits and withdrawals are player funds, never revenue."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="rounded-input border border-line bg-white/[3%] px-3 py-2 text-sm text-fg-2 outline-none [color-scheme:dark]">
@@ -108,7 +108,7 @@ export default function AdminFinancePage() {
         <Kpi label="Gross Entry Collection" value={inr(t.grossEntryCollection)} tone="accent" sub={<span className="text-fg-3">{t.registrations} confirmed entries</span>} />
         <Kpi label="Prizes Distributed" value={inr(t.prizesDistributed)} tone="reward" icon={<Trophy size={16} />} />
         <Kpi label="Platform Gross" value={inr(t.platformGross)} tone="info" sub={<span className="text-fg-3">collection − refunds − prizes</span>} />
-        <Kpi label="Net Revenue" value={inr(t.netRevenue)} tone="success" sub={<span className={t.netMarginPct >= 0 ? 'text-success' : 'text-danger'}>{t.netMarginPct}% margin</span>} />
+        <Kpi label="Estimated Net Profit" value={inr(t.netRevenue)} tone="success" sub={<span className={t.netMarginPct >= 0 ? 'text-success' : 'text-danger'}>{t.netMarginPct}% margin · estimated</span>} />
       </div>
 
       {/* Cost lines */}

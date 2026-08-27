@@ -23,7 +23,7 @@ interface Revenue {
   series: Array<{ day: string; deposits: number; withdrawals: number; prizes: number; entries: number; registrations: number }>;
 }
 
-const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+const inr = (n: number) => `PKR ${Math.round(n).toLocaleString('en-PK')}`;
 
 function timeAgo(d: string) {
   const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
@@ -62,8 +62,8 @@ export default function AdminDashboard() {
 
       {/* KPI row — design 26 */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Kpi label="Total Users" value={k.totalUsers.toLocaleString('en-IN')} tone="accent" icon={<Users size={16} />} sub={<span className="text-fg-3">registered players</span>} />
-        <Kpi label="Active Today" value={k.activeToday.toLocaleString('en-IN')} tone="info" icon={<UserCheck size={16} />} sub={<span className="text-fg-3">last 24h activity</span>} />
+        <Kpi label="Total Users" value={k.totalUsers.toLocaleString('en-PK')} tone="accent" icon={<Users size={16} />} sub={<span className="text-fg-3">registered players</span>} />
+        <Kpi label="Active Today" value={k.activeToday.toLocaleString('en-PK')} tone="info" icon={<UserCheck size={16} />} sub={<span className="text-fg-3">last 24h activity</span>} />
         <Kpi label="Live Tournaments" value={k.liveTournaments} tone="danger" icon={<Trophy size={16} />} sub={<span className="text-fg-3">running now</span>} />
         <Kpi label="Pending Deposits" value={k.pendingDeposits.count} tone="warning" icon={<Wallet size={16} />} sub={<span className="text-fg-3">{inr(k.pendingDeposits.amount)} total</span>} />
         <Kpi label="Pending Withdrawals" value={k.pendingWithdrawals.count} tone="reward" icon={<Upload size={16} />} sub={<span className="text-fg-3">{inr(k.pendingWithdrawals.amount)} total</span>} />
@@ -94,7 +94,7 @@ export default function AdminDashboard() {
 
         <div className="glass rounded-card p-5">
           <p className="text-xs font-bold uppercase tracking-wide text-fg-3">Tournament Registrations</p>
-          <p className="tabular mt-1 font-display text-2xl font-bold text-fg">{t.registrations.toLocaleString('en-IN')}</p>
+          <p className="tabular mt-1 font-display text-2xl font-bold text-fg">{t.registrations.toLocaleString('en-PK')}</p>
           <p className="text-[11px] text-fg-3">confirmed entries, last 30 days</p>
           <BarChart series={series.map((s) => ({ day: s.day, value: s.registrations }))} />
         </div>

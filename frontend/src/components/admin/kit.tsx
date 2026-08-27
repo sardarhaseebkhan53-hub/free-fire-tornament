@@ -250,7 +250,7 @@ export function Donut({ parts, total, label }: { parts: Array<{ label: string; v
           <div key={p.label} className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />
             <span className="text-fg-2">{p.label}</span>
-            <span className="tabular ml-auto pl-4 font-bold text-fg">₹{Math.round(p.value).toLocaleString('en-IN')}</span>
+            <span className="tabular ml-auto pl-4 font-bold text-fg">PKR {Math.round(p.value).toLocaleString('en-PK')}</span>
             <span className="w-10 text-right text-fg-3">{Math.round((p.value / sum) * 100)}%</span>
           </div>
         ))}

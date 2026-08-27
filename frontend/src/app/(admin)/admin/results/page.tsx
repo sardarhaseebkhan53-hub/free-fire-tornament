@@ -98,7 +98,7 @@ export default function AdminResultsPage() {
     setBusy(true);
     try {
       const out = await api<{ totalPaid: number; awards: unknown[] }>(`/admin/tournaments/${tourId}/distribute-prizes`, { method: 'POST', body: {} });
-      setDistributed(`Distributed ₹${out.totalPaid.toLocaleString('en-IN')} across ${out.awards.length} awards.`);
+      setDistributed(`Distributed PKR ${out.totalPaid.toLocaleString('en-PK')} across ${out.awards.length} awards.`);
     } catch (e) {
       setDistributed(null);
       alert(e instanceof Error ? e.message : 'Distribution failed');

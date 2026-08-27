@@ -183,7 +183,7 @@ export default function TournamentBuilderPage() {
             </div>
             <div className="rounded-card border border-line bg-base/50 p-4 text-xs text-fg-3">
               Slots are {type === 'SOLO' ? 'players' : `teams of ${teamSize}`}; every player pays the entry fee individually. Collection = fee × slots ={' '}
-              <span className="font-bold text-fg">₹{economics.collection.toLocaleString('en-IN')}</span>.
+              <span className="font-bold text-fg">PKR {economics.collection.toLocaleString('en-PK')}</span>.
             </div>
           </div>
         )}
@@ -199,11 +199,11 @@ export default function TournamentBuilderPage() {
                     <option value="MVP">MVP</option>
                   </select>
                   <input value={p.label} onChange={(e) => setPrize(i, { label: e.target.value })} placeholder="Label" className={`${inputCls} w-36`} />
-                  <input value={p.amount} onChange={(e) => setPrize(i, { amount: e.target.value.replace(/[^\d]/g, '') })} placeholder="Amount ₹" className={`${inputCls} w-28`} />
+                  <input value={p.amount} onChange={(e) => setPrize(i, { amount: e.target.value.replace(/[^\d]/g, '') })} placeholder="Amount PKR " className={`${inputCls} w-28`} />
                   {p.kind === 'KILL_POOL' && (
                     <>
-                      <input value={p.perKill ?? ''} onChange={(e) => setPrize(i, { perKill: e.target.value.replace(/[^\d]/g, '') })} placeholder="Per kill ₹" className={`${inputCls} w-28`} />
-                      <input value={p.cap ?? ''} onChange={(e) => setPrize(i, { cap: e.target.value.replace(/[^\d]/g, '') })} placeholder="Budget cap ₹" className={`${inputCls} w-32`} />
+                      <input value={p.perKill ?? ''} onChange={(e) => setPrize(i, { perKill: e.target.value.replace(/[^\d]/g, '') })} placeholder="Per kill PKR " className={`${inputCls} w-28`} />
+                      <input value={p.cap ?? ''} onChange={(e) => setPrize(i, { cap: e.target.value.replace(/[^\d]/g, '') })} placeholder="Budget cap PKR " className={`${inputCls} w-32`} />
                     </>
                   )}
                   <button onClick={() => setPrizes((ps) => ps.filter((_, idx) => idx !== i))} className="ml-auto text-xs font-bold text-danger hover:underline">Remove</button>
@@ -220,6 +220,10 @@ export default function TournamentBuilderPage() {
             {/* Economics calculator — design 29 */}
             <div className="mt-2 rounded-card border border-line bg-base/60 p-4">
               <p className="text-[11px] font-bold uppercase tracking-wide text-fg-3">Profit Calculator</p>
+              <p className="mt-1 text-[10px] leading-relaxed text-fg-3">
+                Collection − player rewards = <span className="font-bold text-fg-2">platform gross</span>. Net profit is
+                estimated later, after payment costs, refunds, bonuses, referral costs, operating costs and taxes.
+              </p>
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
                 {[
                   ['Expected collection', economics.collection, 'text-fg'],
@@ -227,11 +231,11 @@ export default function TournamentBuilderPage() {
                   ['Kill budget (cap)', economics.kill, 'text-fg-2'],
                   ['MVP budget', economics.mvp, 'text-fg-2'],
                   ['Player rewards', economics.rewards, 'text-warning'],
-                  ['Estimated profit', economics.profit, economics.safe ? 'text-success' : 'text-danger'],
+                  ['Est. platform gross', economics.profit, economics.safe ? 'text-success' : 'text-danger'],
                 ].map(([label, v, tone]) => (
                   <div key={label as string} className="rounded-input bg-white/[3%] px-3 py-2">
                     <p className="text-[10px] text-fg-3">{label}</p>
-                    <p className={`tabular font-bold ${tone}`}>₹{Number(v).toLocaleString('en-IN')}</p>
+                    <p className={`tabular font-bold ${tone}`}>PKR {Number(v).toLocaleString('en-PK')}</p>
                   </div>
                 ))}
               </div>
@@ -248,19 +252,19 @@ export default function TournamentBuilderPage() {
           <div className="flex flex-col gap-4">
             <div className="rounded-card border border-line bg-white/[2%] p-4 text-sm">
               <p className="font-display text-base font-bold text-fg">{title || 'Untitled tournament'}</p>
-              <p className="mt-1 text-xs text-fg-3">{type.replace('_', ' ')} · {map} · {maxSlots} slots · entry ₹{Number(entryFee).toLocaleString('en-IN')}</p>
+              <p className="mt-1 text-xs text-fg-3">{type.replace('_', ' ')} · {map} · {maxSlots} slots · entry PKR {Number(entryFee).toLocaleString('en-PK')}</p>
               <p className="mt-2 text-xs text-fg-2">
-                {startTime ? new Date(startTime).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'} → deadline{' '}
-                {deadline ? new Date(deadline).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                {startTime ? new Date(startTime).toLocaleString('en-PK', { dateStyle: 'medium', timeStyle: 'short' }) : '—'} → deadline{' '}
+                {deadline ? new Date(deadline).toLocaleString('en-PK', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
               </p>
-              <p className="mt-2 text-xs text-fg-2">{prizes.length} prizes · rewards ₹{economics.rewards.toLocaleString('en-IN')} · profit ₹{economics.profit.toLocaleString('en-IN')}</p>
+              <p className="mt-2 text-xs text-fg-2">{prizes.length} prizes · rewards PKR {economics.rewards.toLocaleString('en-PK')} · platform gross PKR {economics.profit.toLocaleString('en-PK')}</p>
             </div>
             {!economics.safe && (
               <label className="flex items-start gap-2.5 rounded-input border border-danger/30 bg-danger/[8%] px-4 py-3 text-xs text-fg-2">
                 <input type="checkbox" onChange={(e) => { (e.target as HTMLInputElement).dataset.confirmed = 'true'; }} id="confirm-loss" className="mt-0.5 accent-danger" />
                 <span>
                   I understand this configuration projects a <span className="font-bold text-danger">platform loss</span> of{' '}
-                  ₹{Math.abs(economics.profit).toLocaleString('en-IN')} and confirm publishing anyway.
+                  PKR {Math.abs(economics.profit).toLocaleString('en-PK')} and confirm publishing anyway.
                 </span>
               </label>
             )}

@@ -228,7 +228,7 @@ export default function DashboardPage() {
             <div>
               <p className="font-display text-xl font-bold text-fg">REFER &amp; EARN</p>
               <p className="mt-0.5 text-sm text-fg-2">
-                Earn up to <span className="font-bold text-reward">₹500</span> for every friend you invite!
+                Earn up to <span className="font-bold text-reward">PKR 500</span> for every friend you invite!
               </p>
               <p className="mt-1 text-[11px] text-fg-3">Your code: <span className="font-mono font-bold text-accent">{me.referralCode}</span></p>
             </div>
@@ -256,7 +256,7 @@ export default function DashboardPage() {
                   <div className="min-w-0">
                     <TypeChip type={t.type} />
                     <p className="mt-0.5 truncate pl-9 text-[11px] text-fg-3">
-                      {t.description ?? ''} · {new Date(t.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
+                      {t.description ?? ''} · {new Date(t.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
                     </p>
                   </div>
                   <span className={`tabular shrink-0 text-sm font-bold ${t.direction === 'CREDIT' ? 'text-success' : 'text-danger'}`}>
@@ -283,7 +283,7 @@ export default function DashboardPage() {
                   <Link href={`/players/${row.user.username}`} className="min-w-0 flex-1 truncate text-sm font-semibold text-fg hover:text-accent">
                     {row.user.profile?.freeFireIGN ?? row.user.username}
                   </Link>
-                  <span className="tabular text-sm font-bold text-fg">{row.totalPoints.toLocaleString('en-IN')}</span>
+                  <span className="tabular text-sm font-bold text-fg">{row.totalPoints.toLocaleString('en-PK')}</span>
                 </div>
               ))}
               {lb.length === 0 && <p className="py-4 text-sm text-fg-3">Leaderboard warming up.</p>}

@@ -78,14 +78,14 @@ export default function AdminWithdrawalsPage() {
                   <p className="font-semibold text-fg">{w.user.username}</p>
                   <p className="text-[11px] text-fg-3">{w.accountName}</p>
                 </Td>
-                <Td className="tabular font-bold text-fg">₹{w.amount.toLocaleString('en-IN')}</Td>
+                <Td className="tabular font-bold text-fg">PKR {w.amount.toLocaleString('en-PK')}</Td>
                 <Td><span className="text-xs text-fg-2">{w.methodLabel}</span></Td>
                 <Td><span className="font-mono text-xs text-fg-2">{w.accountMasked}</span></Td>
                 <Td>
                   <Pill status={w.status} />
                   {w.paidReference && <p className="mt-0.5 font-mono text-[10px] text-fg-3">{w.paidReference}</p>}
                 </Td>
-                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(w.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</Td>
+                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(w.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</Td>
                 <Td>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {NEXT[w.status] && (
@@ -147,7 +147,7 @@ function WithdrawModal({ row, action, onClose, onConfirm }: {
     <Modal title={c.title} onClose={onClose}>
       <p className="text-sm text-fg-2">{c.hint}</p>
       <div className="mt-3 rounded-input border border-line bg-white/[3%] p-3 text-sm">
-        <p className="font-bold text-fg">{row.user.username} — ₹{row.amount.toLocaleString('en-IN')}</p>
+        <p className="font-bold text-fg">{row.user.username} — PKR {row.amount.toLocaleString('en-PK')}</p>
         <p className="mt-0.5 text-xs text-fg-3">{row.methodLabel} · {row.accountMasked} · {row.accountName}</p>
       </div>
       {action === 'PAID' && (

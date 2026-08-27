@@ -220,7 +220,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
               className="flex items-center gap-2 rounded-pill border border-line bg-white/[3%] py-1.5 pl-3.5 pr-1.5 text-sm font-bold text-fg transition hover:border-accent/40"
             >
               <WalletIcon size={15} className="text-accent" />
-              <span className="tabular">₹{total.toLocaleString('en-IN')}</span>
+              <span className="tabular">PKR {total.toLocaleString('en-PK')}</span>
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-white">
                 <Plus size={13} />
               </span>

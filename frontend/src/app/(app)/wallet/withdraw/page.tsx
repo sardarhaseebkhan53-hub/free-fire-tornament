@@ -149,7 +149,7 @@ export default function WithdrawPage() {
         <div className="glass rounded-card p-5 sm:p-6">
           <h2 className="font-display text-base font-bold text-fg">1. Enter Withdrawal Amount</h2>
           <div className="mt-3 flex items-center rounded-input border border-line bg-white/[3%] pr-2 transition focus-within:border-accent">
-            <span className="pl-4 font-display text-lg text-accent">₹</span>
+            <span className="pl-4 font-display text-lg text-accent">PKR </span>
             <input
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))}
@@ -173,7 +173,7 @@ export default function WithdrawPage() {
                 onClick={() => setAmount(String(q))}
                 className="rounded-pill border border-line bg-white/[2%] px-4 py-1.5 text-xs font-semibold text-fg-2 transition hover:border-accent/40 hover:text-fg"
               >
-                ₹{q.toLocaleString('en-IN')}
+                PKR {q.toLocaleString('en-PK')}
               </button>
             ))}
           </div>
@@ -285,7 +285,7 @@ export default function WithdrawPage() {
                     <p className="truncate text-xs font-bold text-fg">To {wd.methodLabel}</p>
                     <p className="truncate text-[10px] text-fg-3">{wd.accountMasked}</p>
                     <p className="text-[10px] text-fg-3">
-                      {new Date(wd.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                      {new Date(wd.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
                     </p>
                   </div>
                   <div className="text-right">

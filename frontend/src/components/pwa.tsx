@@ -3,7 +3,7 @@
 // "Install CLUTCHNEX" prompt (beforeinstallprompt on Chrome/Android, A2HS
 // instructions on iOS Safari). Dismissals are remembered for 14 days.
 import { useEffect, useState } from 'react';
-import { Share, Smartphone, X } from 'lucide-react';
+import { Download, Share, Smartphone, X } from 'lucide-react';
 
 const DISMISS_KEY = 'cn_install_dismissed_at';
 const DISMISS_DAYS = 14;
@@ -136,7 +136,7 @@ export function InstallBanner() {
                 onClick={install}
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-input bg-accent py-2 text-xs font-bold text-white transition hover:bg-accent-strong"
               >
-                <Smartphone size={13} /> Install App
+                <Smartphone size={13} /> Install CLUTCHNEX
               </button>
               <button
                 onClick={dismiss}
@@ -149,5 +149,117 @@ export function InstallBanner() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Design v2 §PWA install — the reusable "INSTALL CLUTCHNEX" button used in the
+ * hero and the install section. CLUTCHNEX is a web app / PWA: this never links
+ * to an app store, it triggers the browser install prompt (Chromium) or shows
+ * Add-to-Home-Screen instructions (iOS Safari / unsupported browsers).
+ */
+export function InstallButton({
+  variant = 'ghost',
+  label = 'Install CLUTCHNEX',
+  className = '',
+}: {
+  variant?: 'primary' | 'ghost';
+  label?: string;
+  className?: string;
+}) {
+  const { deferred, installed, isIos } = useInstallPrompt();
+  const [howTo, setHowTo] = useState(false);
+
+  const base =
+    'inline-flex items-center justify-center gap-2 rounded-input px-6 py-3.5 text-sm font-bold uppercase tracking-wide transition';
+  const skin =
+    variant === 'primary'
+      ? 'bg-accent text-white shadow-[0_0_28px_rgba(139,92,246,0.45)] hover:bg-accent-strong'
+      : 'border border-line bg-white/[3%] text-fg hover:border-accent/40 hover:text-accent';
+
+  async function onClick() {
+    if (deferred) {
+      await deferred.prompt();
+      await deferred.userChoice;
+      return;
+    }
+    setHowTo(true);
+  }
+
+  if (installed) {
+    return (
+      <span className={`${base} border border-success/30 bg-success/10 text-success ${className}`}>
+        <Smartphone size={16} /> App installed
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <button type="button" onClick={onClick} className={`${base} ${skin} ${className}`}>
+        <Download size={16} /> {label}
+      </button>
+
+      {howTo && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Add CLUTCHNEX to your home screen"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          onClick={() => setHowTo(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="glass w-full max-w-md rounded-card p-6 shadow-2xl motion-safe:animate-fade-up"
+          >
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-input bg-gradient-to-br from-accent to-accent-strong font-display text-lg font-bold text-white shadow-[0_0_20px_rgba(139,92,246,0.55)]">
+                C
+              </span>
+              <div>
+                <p className="font-display text-base font-bold text-fg">Install the web app</p>
+                <p className="mt-1 text-xs leading-relaxed text-fg-3">
+                  CLUTCHNEX is a web application (PWA) — install it straight from your browser. It is
+                  not distributed on Google Play or the Apple App Store.
+                </p>
+              </div>
+            </div>
+
+            <ol className="mt-4 space-y-2 text-sm text-fg-2">
+              {isIos ? (
+                <>
+                  <li className="flex gap-2">
+                    <b className="text-accent">1.</b> Tap <Share size={14} className="inline" /> <b>Share</b> in Safari.
+                  </li>
+                  <li className="flex gap-2"><b className="text-accent">2.</b> Choose <b>Add to Home Screen</b>.</li>
+                  <li className="flex gap-2"><b className="text-accent">3.</b> Confirm <b>Add</b> — CLUTCHNEX opens full screen.</li>
+                </>
+              ) : (
+                <>
+                  <li className="flex gap-2"><b className="text-accent">1.</b> Open your browser menu (⋮).</li>
+                  <li className="flex gap-2"><b className="text-accent">2.</b> Choose <b>Install app</b> or <b>Add to Home screen</b>.</li>
+                  <li className="flex gap-2"><b className="text-accent">3.</b> Confirm — CLUTCHNEX launches like a native app.</li>
+                </>
+              )}
+            </ol>
+
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={() => setHowTo(false)}
+                className="flex-1 rounded-input bg-accent py-2.5 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-accent-strong"
+              >
+                Got it
+              </button>
+              <button
+                onClick={() => setHowTo(false)}
+                className="rounded-input border border-line px-4 py-2.5 text-xs font-semibold text-fg-3 transition hover:text-fg-2"
+              >
+                Continue in Browser
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

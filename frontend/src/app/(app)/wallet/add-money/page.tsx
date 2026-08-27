@@ -90,7 +90,7 @@ export default function AddMoneyPage() {
           <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_260px]">
             <div>
               <div className="flex items-center rounded-input border border-accent bg-accent/[6%] px-4 shadow-[0_0_0_3px_rgba(139,92,246,0.12)]">
-                <span className="font-display text-2xl text-accent">₹</span>
+                <span className="font-display text-2xl text-accent">PKR </span>
                 <input
                   value={amount}
                   onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))}
@@ -111,7 +111,7 @@ export default function AddMoneyPage() {
                         : 'border-line bg-white/[3%] text-fg-2 hover:border-accent/40 hover:text-fg'
                     }`}
                   >
-                    ₹{q.toLocaleString('en-IN')}
+                    PKR {q.toLocaleString('en-PK')}
                   </button>
                 ))}
               </div>
@@ -125,9 +125,9 @@ export default function AddMoneyPage() {
                   C
                 </span>
                 <div className="text-left">
-                  <p className="tabular font-display text-3xl font-bold text-accent">{coins.toLocaleString('en-IN')}</p>
+                  <p className="tabular font-display text-3xl font-bold text-accent">{coins.toLocaleString('en-PK')}</p>
                   <p className="text-xs font-semibold text-fg-2">Tournament Coins</p>
-                  {bonus > 0 && <p className="text-xs font-bold text-success">+ {bonus.toLocaleString('en-IN')} Bonus</p>}
+                  {bonus > 0 && <p className="text-xs font-bold text-success">+ {bonus.toLocaleString('en-PK')} Bonus</p>}
                 </div>
               </div>
             </div>

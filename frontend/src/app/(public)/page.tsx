@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import {
   BadgeCheck, Gamepad2, Gift, Play, Radio, ShieldCheck, Smartphone,
-  Sparkles, Trophy, Users, Wallet, ArrowRight, MessageCircle,
+  Sparkles, Trophy, Users, Wallet, ArrowRight, MessageCircle, Download,
 } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import type { Faq, HomeStats, LeaderboardEntry, TournamentSummary, WinnerRow } from '@/lib/types';
@@ -12,6 +12,7 @@ import { SectionHeading, StatCard, Badge, Avatar } from '@/components/ui';
 import { TournamentCard } from '@/components/tournament-card';
 import { FaqList } from '@/components/faq-list';
 import { FeaturedMobile } from '@/components/featured-mobile';
+import { InstallButton } from '@/components/pwa';
 import { JsonLd, faqJsonLd, organizationJsonLd, pageMetadata, websiteJsonLd } from '@/lib/seo';
 import type { Metadata } from 'next';
 
@@ -86,17 +87,25 @@ export default async function HomePage() {
               The Arena<br />
               <span className="text-accent drop-shadow-[0_0_18px_rgba(139,92,246,0.6)]">Is Calling</span>
             </h1>
-            <p className="mt-2.5 max-w-48 text-xs leading-relaxed text-fg-2 drop-shadow">
-              Compete. Conquer. Celebrate.
+            <p className="mt-2.5 max-w-52 text-xs leading-relaxed text-fg-2 drop-shadow">
+              Are you ready to clutch?
               <br />
-              Be the last one standing.
+              Compete, build your squad, climb the leaderboard.
             </p>
-            <Link
-              href="/register"
-              className="mt-4 inline-flex items-center gap-1.5 rounded-input bg-accent px-5 py-2.5 text-xs font-bold text-white shadow-[0_0_22px_rgba(139,92,246,0.5)] transition hover:bg-accent-strong"
-            >
-              Play Now <span aria-hidden>›</span>
-            </Link>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Link
+                href="/tournaments"
+                className="inline-flex items-center gap-1.5 rounded-input bg-accent px-5 py-2.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-[0_0_22px_rgba(139,92,246,0.5)] transition hover:bg-accent-strong"
+              >
+                Explore Tournaments <span aria-hidden>›</span>
+              </Link>
+              <Link
+                href="/legal/how-it-works"
+                className="inline-flex items-center gap-1.5 rounded-input border border-line bg-base/60 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-fg-2 transition hover:text-fg"
+              >
+                How It Works
+              </Link>
+            </div>
           </div>
         </div>
         {/* carousel dots — design 41 */}
@@ -120,28 +129,27 @@ export default async function HomePage() {
           <h1 className="mx-auto max-w-3xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-fg sm:text-6xl">
             THE ARENA IS <span className="text-accent drop-shadow-[0_0_24px_rgba(139,92,246,0.5)]">CALLING</span>
           </h1>
+          <p className="mt-3 font-display text-lg font-bold uppercase tracking-[0.18em] text-accent/90 sm:text-xl">
+            Are you ready to clutch?
+          </p>
           <p className="mx-auto mt-5 max-w-2xl text-base text-fg-2 sm:text-lg">
-            Join competitive Free Fire tournaments, compete with skilled players, and win rewards.
+            Compete in competitive Free Fire tournaments, build your squad, climb the leaderboard and
+            prove your skills.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
-              href="/register"
-              className="inline-flex items-center gap-2 rounded-input bg-accent px-7 py-3.5 text-sm font-bold text-white shadow-[0_0_28px_rgba(139,92,246,0.45)] transition hover:bg-accent-strong"
-            >
-              <Play size={16} /> Play Now
-            </Link>
-            <Link
               href="/tournaments"
-              className="inline-flex items-center gap-2 rounded-input border border-line bg-white/[3%] px-7 py-3.5 text-sm font-semibold text-fg transition hover:border-accent/40"
+              className="inline-flex items-center gap-2 rounded-input bg-accent px-7 py-3.5 text-sm font-bold uppercase tracking-wide text-white shadow-[0_0_28px_rgba(139,92,246,0.45)] transition hover:bg-accent-strong"
             >
-              Explore Tournaments
+              <Play size={16} /> Explore Tournaments
             </Link>
             <Link
               href="/legal/how-it-works"
-              className="inline-flex items-center gap-2 rounded-input px-5 py-3.5 text-sm font-semibold text-fg-2 transition hover:text-fg"
+              className="inline-flex items-center gap-2 rounded-input border border-line bg-white/[3%] px-7 py-3.5 text-sm font-semibold uppercase tracking-wide text-fg transition hover:border-accent/40"
             >
               How It Works <ArrowRight size={15} />
             </Link>
+            <InstallButton />
           </div>
 
           {/* STATS */}
@@ -356,21 +364,86 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* PWA INSTALL */}
+      {/* PWA INSTALL — design v2 §PWA install. Web app / PWA only: no store badges. */}
       <section className="mx-auto max-w-7xl px-4 pb-14 sm:px-6">
-        <div className="glass flex flex-col items-center gap-6 rounded-card px-6 py-8 sm:flex-row sm:px-10">
-          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-card bg-accent/15 text-accent">
-            <Smartphone size={26} />
-          </span>
-          <div className="flex-1 text-center sm:text-left">
-            <h2 className="font-display text-xl font-bold text-fg">Install CLUTCHNEX</h2>
-            <p className="mt-1 text-sm text-fg-2">
-              Faster access, notifications and an app-like experience — straight from your browser.
-            </p>
+        <div className="glass relative overflow-hidden rounded-card px-6 py-10 sm:px-10">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_-20%,rgba(139,92,246,0.18),transparent_60%)]" />
+          <div className="relative grid gap-8 lg:grid-cols-[1.15fr_.85fr] lg:items-center">
+            <div>
+              <span className="inline-flex items-center gap-2 rounded-pill border border-line bg-white/[4%] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-fg-3">
+                <Smartphone size={12} className="text-accent" /> Install Web App
+              </span>
+              <h2 className="mt-4 font-display text-2xl font-bold uppercase tracking-tight text-fg sm:text-3xl">
+                Your tournament hub. <span className="text-accent">Anywhere.</span>
+              </h2>
+              <p className="mt-3 max-w-xl text-sm text-fg-2">
+                Install CLUTCHNEX on your device for a fast, app-like experience.
+              </p>
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <InstallButton variant="primary" />
+                <Link
+                  href="/tournaments"
+                  className="inline-flex items-center gap-2 rounded-input px-5 py-3.5 text-sm font-semibold text-fg-2 transition hover:text-fg"
+                >
+                  Continue in Browser <ArrowRight size={15} />
+                </Link>
+              </div>
+              <div className="mt-6 flex flex-wrap gap-2">
+                {['Add to Home Screen', 'Works offline', 'Instant launch', 'Match notifications'].map((f) => (
+                  <span
+                    key={f}
+                    className="rounded-pill border border-line bg-white/[3%] px-3 py-1.5 text-[11px] font-semibold text-fg-3"
+                  >
+                    {f}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-5 text-[11px] leading-relaxed text-fg-3">
+                CLUTCHNEX is currently available as a web application / PWA — install it directly from
+                your browser. It is not distributed on Google Play or the Apple App Store.
+              </p>
+            </div>
+
+            {/* Browser → home-screen illustration (pure CSS, no store artwork) */}
+            <div className="relative mx-auto flex w-full max-w-sm items-end justify-center gap-4">
+              <div className="w-full rounded-card border border-line bg-base/70 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
+                <div className="flex items-center gap-1.5 rounded-input bg-white/[4%] px-2 py-1.5">
+                  <span className="h-2 w-2 rounded-full bg-danger/70" />
+                  <span className="h-2 w-2 rounded-full bg-warning/70" />
+                  <span className="h-2 w-2 rounded-full bg-success/70" />
+                  <span className="ml-2 flex-1 truncate rounded-pill bg-base/80 px-2 py-1 text-[9px] text-fg-3">
+                    clutchnex.com
+                  </span>
+                  <span className="rounded bg-accent/20 px-1.5 py-1 text-accent">
+                    <Download size={10} />
+                  </span>
+                </div>
+                <div className="mt-2 space-y-2 rounded-input bg-white/[3%] p-3">
+                  <div className="h-2 w-24 rounded-pill bg-accent/50" />
+                  <div className="h-2 w-full rounded-pill bg-white/10" />
+                  <div className="h-2 w-4/5 rounded-pill bg-white/10" />
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    <div className="h-9 rounded bg-white/[6%]" />
+                    <div className="h-9 rounded bg-white/[6%]" />
+                    <div className="h-9 rounded bg-white/[6%]" />
+                  </div>
+                </div>
+              </div>
+              <div className="-ml-14 w-24 shrink-0 rounded-[1.25rem] border border-line bg-base p-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
+                <div className="rounded-[0.9rem] bg-surface p-2">
+                  <span className="mx-auto flex h-9 w-9 items-center justify-center rounded-[0.6rem] bg-gradient-to-br from-accent to-accent-strong font-display text-sm font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.6)]">
+                    C
+                  </span>
+                  <p className="mt-1 text-center text-[7px] font-bold text-fg-2">CLUTCHNEX</p>
+                  <div className="mt-2 grid grid-cols-3 gap-1" aria-hidden>
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <span key={i} className="h-4 rounded bg-white/[6%]" />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <span className="rounded-input border border-line px-5 py-2.5 text-xs font-semibold text-fg-3">
-            Use your browser menu → “Add to Home Screen”
-          </span>
         </div>
       </section>
 

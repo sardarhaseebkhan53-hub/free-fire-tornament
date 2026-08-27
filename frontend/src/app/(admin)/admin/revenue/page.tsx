@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { AreaChart, Kpi, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
 
-const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+const inr = (n: number) => `PKR ${Math.round(n).toLocaleString('en-PK')}`;
 
 interface Revenue {
   totals: { deposits: number; withdrawals: number; prizes: number; entryCollection: number; netRevenue: number; registrations: number };
@@ -51,7 +51,7 @@ export default function AdminRevenuePage() {
         <Table head={['Day', 'Entry collection', 'Prizes', 'Net', 'Deposits', 'Withdrawals', 'Registrations']}>
           {[...data.series].reverse().map((s) => (
             <Tr key={s.day}>
-              <Td className="whitespace-nowrap text-xs text-fg-2">{new Date(s.day).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</Td>
+              <Td className="whitespace-nowrap text-xs text-fg-2">{new Date(s.day).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}</Td>
               <Td className="tabular text-fg">{inr(s.entries)}</Td>
               <Td className="tabular text-reward">{inr(s.prizes)}</Td>
               <Td className={`tabular font-bold ${s.entries - s.prizes >= 0 ? 'text-success' : 'text-danger'}`}>{inr(s.entries - s.prizes)}</Td>

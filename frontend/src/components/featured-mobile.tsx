@@ -76,11 +76,11 @@ export function FeaturedMobile({ t }: { t: FeaturedTournament }) {
                 <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-fg-3">
                   Entry Fee <Gem size={11} className="text-accent" />
                 </p>
-                <p className="tabular font-display text-lg font-bold text-accent">₹{t.entryFeePerPlayer.toLocaleString('en-IN')}</p>
+                <p className="tabular font-display text-lg font-bold text-accent">PKR {t.entryFeePerPlayer.toLocaleString('en-PK')}</p>
               </div>
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-fg-3">Prize Pool</p>
-                <p className="tabular font-display text-lg font-bold text-reward">₹{t.prizePool.toLocaleString('en-IN')}</p>
+                <p className="tabular font-display text-lg font-bold text-reward">PKR {t.prizePool.toLocaleString('en-PK')}</p>
               </div>
             </div>
           </div>

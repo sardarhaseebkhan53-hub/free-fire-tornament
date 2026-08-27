@@ -64,10 +64,10 @@ export default function AdminTournamentsPage() {
                 </Td>
                 <Td><span className="text-xs text-fg-2">{t.type.replace('_', ' ')}</span></Td>
                 <Td><Pill status={t.status} /></Td>
-                <Td className="tabular text-fg-2">₹{t.entryFeePerPlayer.toLocaleString('en-IN')}</Td>
-                <Td className="tabular text-reward">₹{t.prizePool.toLocaleString('en-IN')}</Td>
+                <Td className="tabular text-fg-2">PKR {t.entryFeePerPlayer.toLocaleString('en-PK')}</Td>
+                <Td className="tabular text-reward">PKR {t.prizePool.toLocaleString('en-PK')}</Td>
                 <Td className="tabular text-xs text-fg-2">{t.registeredSlots}/{t.maxSlots}</Td>
-                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(t.startTime).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</Td>
+                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(t.startTime).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</Td>
                 <Td>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {FLOW[t.status] && (
