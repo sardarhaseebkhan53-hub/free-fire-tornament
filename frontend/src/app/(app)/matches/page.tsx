@@ -10,7 +10,8 @@ import {
 import { EmptyState } from '@/components/ui';
 import { Countdown } from '@/components/countdown';
 import { MODE_LABEL } from '@/lib/format';
-import { api, getToken } from '@/lib/client-api';
+import { api } from '@/lib/client-api';
+import { deferLoad, useHasSession } from '@/lib/session';
 
 interface MyMatch {
   id: string; matchNumber: number; round: number; map: string | null;
@@ -79,23 +80,24 @@ function Thumb({ seed }: { seed: string }) {
 
 export default function MyMatchesPage() {
   const [items, setItems] = useState<Item[] | null>(null);
-  const [anon, setAnon] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const hasSession = useHasSession();
+  const anon = hasSession === false || loadFailed;
   const [tab, setTab] = useState<Tab>('upcoming');
   const [pwVisible, setPwVisible] = useState<Record<string, boolean>>({});
   const [resultFor, setResultFor] = useState<{ item: Item; match: MyMatch } | null>(null);
   const [standingsFor, setStandingsFor] = useState<Item | null>(null);
 
   const load = useCallback(() => {
-    const token = localStorage.getItem('cn_access');
-    if (!token) return setAnon(true);
-    api<Item[]>('/matches/my').then(setItems).catch(() => setAnon(true));
+    api<Item[]>('/matches/my').then(setItems).catch(() => setLoadFailed(true));
   }, []);
 
   useEffect(() => {
-    load();
+    if (!hasSession) return;
+    deferLoad(load);
     const id = setInterval(load, 15_000);
     return () => clearInterval(id);
-  }, [load]);
+  }, [hasSession, load]);
 
   if (anon) {
     return (
@@ -198,7 +200,7 @@ export default function MyMatchesPage() {
                     </div>
 
                     <div className="flex flex-col items-start gap-2 lg:items-end">
-                      <StatusPill tab={tab} tournamentStatus={it.tournament.status} />
+                      <StatusPill tab={tab} />
                       {tab === 'completed' && (
                         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                           <button
@@ -291,7 +293,7 @@ function Metric({ label, value, gold, green }: { label: string; value: string; g
   );
 }
 
-function StatusPill({ tab, tournamentStatus }: { tab: Tab; tournamentStatus: string }) {
+function StatusPill({ tab }: { tab: Tab }) {
   if (tab === 'completed') {
     return <span className="rounded-pill border border-success/30 bg-success/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-success">Completed</span>;
   }

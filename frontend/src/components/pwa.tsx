@@ -2,7 +2,7 @@
 // PWA runtime (Phase 13, design 46): service-worker registration + the
 // "Install CLUTCHNEX" prompt (beforeinstallprompt on Chrome/Android, A2HS
 // instructions on iOS Safari). Dismissals are remembered for 14 days.
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Download, Share, Smartphone, X } from 'lucide-react';
 
 const DISMISS_KEY = 'cn_install_dismissed_at';
@@ -25,34 +25,46 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+/** Browser facts are read straight from the environment, never mirrored into
+ *  state inside an effect (which would cascade renders on every mount). */
+const noopSubscribe = () => () => {};
+
+function isStandalone() {
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+}
+
 function useInstallPrompt() {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
-  const [installed, setInstalled] = useState(false);
-  const [dismissed, setDismissed] = useState(true); // start hidden; eligibility check below
-  const [isIos, setIsIos] = useState(false);
+  const [appInstalled, setAppInstalled] = useState(false);
+  const [dismissedNow, setDismissedNow] = useState(false);
+
+  const standalone = useSyncExternalStore(noopSubscribe, isStandalone, () => false);
+  const isIos = useSyncExternalStore(
+    noopSubscribe,
+    () => /iphone|ipad|ipod/i.test(window.navigator.userAgent),
+    () => false,
+  );
+  const recentlyDismissed = useSyncExternalStore(
+    noopSubscribe,
+    () => Date.now() - Number(localStorage.getItem(DISMISS_KEY) ?? 0) < DISMISS_DAYS * 86_400_000,
+    () => true, // hidden until the browser has been read
+  );
+
+  const installed = standalone || appInstalled;
+  const dismissed = recentlyDismissed || dismissedNow;
 
   useEffect(() => {
-    const standalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-    if (standalone) {
-      setInstalled(true);
-      return;
-    }
-
-    const ios = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
-    setIsIos(ios);
-
-    const recentlyDismissed =
-      Date.now() - Number(localStorage.getItem(DISMISS_KEY) ?? 0) < DISMISS_DAYS * 86_400_000;
-    if (!recentlyDismissed) setDismissed(false);
+    if (standalone) return;
 
     const onPrompt = (e: Event) => {
       e.preventDefault();
       setDeferred(e as BeforeInstallPromptEvent);
     };
     const onInstalled = () => {
-      setInstalled(true);
+      setAppInstalled(true);
       setDeferred(null);
     };
     window.addEventListener('beforeinstallprompt', onPrompt);
@@ -61,9 +73,9 @@ function useInstallPrompt() {
       window.removeEventListener('beforeinstallprompt', onPrompt);
       window.removeEventListener('appinstalled', onInstalled);
     };
-  }, []);
+  }, [standalone]);
 
-  return { deferred, installed, dismissed, isIos, setDismissed };
+  return { deferred, installed, dismissed, isIos, setDismissed: setDismissedNow };
 }
 
 export function InstallBanner() {

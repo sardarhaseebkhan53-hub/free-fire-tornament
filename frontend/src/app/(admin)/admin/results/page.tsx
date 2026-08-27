@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Loader2, RefreshCcw, Trophy, X } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
-import { AuthedImage, Modal, Pill, useAdminList } from '@/components/admin/kit';
+import { AuthedImage, Pill, useAdminList } from '@/components/admin/kit';
 import { api } from '@/lib/client-api';
 
 interface Submission {
@@ -36,9 +36,21 @@ export default function AdminResultsPage() {
   const [tourId, setTourId] = useState('');
   const standings = useAdminList<Standings>(tourId ? `/admin/tournaments/${tourId}/results` : '/admin/results?status=NONE', [tourId]);
   const [busy, setBusy] = useState(false);
-  const [placement, setPlacement] = useState('');
-  const [kills, setKills] = useState('');
-  const [note, setNote] = useState('');
+  // Review form state is keyed by the submission it belongs to, so selecting a
+  // different submission resets the form by derivation instead of an effect.
+  const [draft, setDraft] = useState<{ id: string; placement: string; kills: string; note: string } | null>(null);
+  const form = draft && draft.id === selected?.id
+    ? draft
+    : {
+        id: selected?.id ?? '',
+        placement: selected?.placement?.toString() ?? '',
+        kills: selected?.kills?.toString() ?? '',
+        note: '',
+      };
+  const { placement, kills, note } = form;
+  const setPlacement = (v: string) => setDraft({ ...form, placement: v });
+  const setKills = (v: string) => setDraft({ ...form, kills: v });
+  const setNote = (v: string) => setDraft({ ...form, note: v });
   const [distributed, setDistributed] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,14 +59,6 @@ export default function AdminResultsPage() {
       .then((j) => { if (j.success) setTournaments(j.data.items); })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (selected) {
-      setPlacement(selected.placement?.toString() ?? '');
-      setKills(selected.kills?.toString() ?? '');
-      setNote('');
-    }
-  }, [selected]);
 
   // Auto-calculated points preview (placement table + kills × tournament rate 1..N).
   const perKill = 1; // displayed as info; the server recomputes with the real rate

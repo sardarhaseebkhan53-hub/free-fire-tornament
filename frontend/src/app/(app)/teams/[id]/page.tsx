@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { Crown, Loader2, Shield } from 'lucide-react';
 import { Avatar } from '@/components/ui';
 import { money } from '@/lib/format';
+import { deferLoad } from '@/lib/session';
 
 interface Member {
   userId: string; role: string; joinedAt: string;
@@ -50,7 +51,7 @@ export default function TeamDetailPage() {
     if (json.success) setTeam(json.data);
   }, [teamId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { deferLoad(load); }, [load]);
 
   async function act(fn: () => Promise<Response>, okText: string) {
     setBusy(true); setMsg(null);

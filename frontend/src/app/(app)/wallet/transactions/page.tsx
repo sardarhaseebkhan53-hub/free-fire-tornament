@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { ArrowDownLeft, ArrowUpRight, Loader2, Search } from 'lucide-react';
 import { api, getToken } from '@/lib/client-api';
 import { CopyChip, StatusPill, TypeChip } from '@/components/wallet/bits';
+import { useHasSession } from '@/lib/session';
 
 interface Tx {
   id: string; type: string; description: string | null; reference: string | null;
@@ -44,12 +45,20 @@ export default function TransactionsPage() {
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [anon, setAnon] = useState(false);
+  const hasSession = useHasSession();
+  const anon = hasSession === false;
+
+  // Changing any filter implicitly returns to page 1 — the page number is
+  // stored together with the filter signature it belongs to, so no effect is
+  // needed to reset it.
+  const filterKey = `${filter}|${search}|${from}|${to}|${pageSize}`;
+  const [pageState, setPageState] = useState({ key: filterKey, page: 1 });
+  const page = pageState.key === filterKey ? pageState.page : 1;
+  const setPage = (p: number | ((prev: number) => number)) =>
+    setPageState({ key: filterKey, page: typeof p === 'function' ? p(page) : p });
 
   const load = useCallback(async () => {
-    if (!getToken()) { setAnon(true); return; }
     setLoading(true);
     try {
       const qs = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
@@ -67,11 +76,10 @@ export default function TransactionsPage() {
   }, [filter, search, from, to, page, pageSize]);
 
   useEffect(() => {
+    if (!hasSession) return;
     const t = setTimeout(load, search ? 350 : 0);
     return () => clearTimeout(t);
-  }, [load, search]);
-
-  useEffect(() => { setPage(1); }, [filter, search, from, to, pageSize]);
+  }, [hasSession, load, search]);
 
   function exportCsv() {
     const qs = new URLSearchParams({ format: 'csv' });

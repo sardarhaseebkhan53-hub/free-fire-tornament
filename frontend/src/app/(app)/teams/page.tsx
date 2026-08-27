@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, Shield, Users } from 'lucide-react';
 import { Avatar, EmptyState } from '@/components/ui';
+import { deferLoad } from '@/lib/session';
 
 interface MyTeam {
   role: string;
@@ -44,7 +45,7 @@ export default function TeamsPage() {
     setInvites(i.success ? i.data : []);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { deferLoad(load); }, [load]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();

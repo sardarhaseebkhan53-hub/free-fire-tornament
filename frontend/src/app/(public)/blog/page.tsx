@@ -1,6 +1,5 @@
 // Blog listing — admin-managed content, SEO fields served from the API.
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import type { BlogSummary } from '@/lib/types';
 import { dateOnly } from '@/lib/format';

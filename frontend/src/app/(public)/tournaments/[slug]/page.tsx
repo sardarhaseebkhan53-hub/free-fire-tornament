@@ -1,14 +1,13 @@
 // Tournament details — spec §29 + §68: full financial breakdown, prizes with
 // kill pool & MVP info, rules, participants, matches (credentials hidden
 // until release — public responses never contain them).
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Clock, MapPin, ShieldCheck, Skull, Star, Users } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import type { TournamentDetails } from '@/lib/types';
 import { money, MODE_LABEL, STATUS_LABEL, dateTime } from '@/lib/format';
-import { Badge, Avatar, SectionHeading } from '@/components/ui';
-import { Countdown } from '@/components/countdown';
+import { Badge, Avatar } from '@/components/ui';
+import { Countdown, CountdownUntil } from '@/components/countdown';
 import { JoinTournament } from '@/components/join-tournament';
 import { JsonLd, breadcrumbJsonLd, eventJsonLd, pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
@@ -81,10 +80,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             {t.registrationOpen ? (
               <p className="text-sm text-fg-2">
                 Registration closes in{' '}
-                <Countdown
-                  targetMs={new Date(t.registrationDeadline).getTime() - Date.now()}
-                  className="font-bold text-warning"
-                />{' '}
+                <CountdownUntil at={t.registrationDeadline} className="font-bold text-warning" />{' '}
                 · match starts in <Countdown targetMs={t.startsInMs} className="font-bold text-fg" />
               </p>
             ) : (

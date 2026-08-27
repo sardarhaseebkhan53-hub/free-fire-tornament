@@ -7,7 +7,8 @@ import {
   ArrowLeft, CheckCircle2, Clock3, Loader2, Lock, Phone, ShieldAlert,
   ShieldCheck, User as UserIcon, Landmark, Wallet as WalletIcon,
 } from 'lucide-react';
-import { api, getToken } from '@/lib/client-api';
+import { api } from '@/lib/client-api';
+import { deferLoad, useHasSession } from '@/lib/session';
 import { MethodBrand, StatusPill, type Method } from '@/components/wallet/bits';
 import { fmt } from '@/lib/format';
 
@@ -40,7 +41,8 @@ export default function WithdrawPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<number | null>(null);
-  const [anon, setAnon] = useState(false);
+  const hasSession = useHasSession();
+  const anon = hasSession === false;
 
   async function refresh() {
     const [o, w] = await Promise.all([
@@ -52,10 +54,10 @@ export default function WithdrawPage() {
   }
 
   useEffect(() => {
-    if (!getToken()) { setAnon(true); return; }
-    refresh().catch(() => {});
+    if (!hasSession) return;
+    deferLoad(() => refresh().catch(() => {}));
     fetch('/api/backend/public/settings/public').then((r) => r.json()).then((j) => setPub(j.data)).catch(() => {});
-  }, []);
+  }, [hasSession]);
 
   if (anon) {
     return (

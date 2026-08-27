@@ -9,7 +9,8 @@ import {
   Home, LayoutDashboard, Loader2, Megaphone, Search, Settings, Shield, ShieldAlert,
   ScrollText, Swords, TrendingUp, Trophy, Upload, UserRound, Users, Wallet, XCircle,
 } from 'lucide-react';
-import { api, getToken } from '@/lib/client-api';
+import { api } from '@/lib/client-api';
+import { useHasSession } from '@/lib/session';
 
 const NAV = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
@@ -34,24 +35,26 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [me, setMe] = useState<{ username: string; role: string } | null>(null);
-  const [state, setState] = useState<'loading' | 'ok' | 'denied'>('loading');
-  const [drawer, setDrawer] = useState(false);
+  const [loaded, setLoaded] = useState<'loading' | 'ok' | 'denied'>('loading');
+  const hasSession = useHasSession();
+  const state = hasSession === false ? 'denied' : hasSession === null ? 'loading' : loaded;
+  // Bound to the route it was opened on so navigation closes it implicitly.
+  const [drawerRoute, setDrawerRoute] = useState<string | null>(null);
+  const drawer = drawerRoute === pathname;
 
   useEffect(() => {
-    if (!getToken()) { setState('denied'); return; }
+    if (!hasSession) return;
     api<{ username: string; role: string }>('/auth/me')
       .then((m) => {
         if (['ADMIN', 'SUPER_ADMIN'].includes(m.role)) {
           setMe(m);
-          setState('ok');
+          setLoaded('ok');
         } else {
-          setState('denied');
+          setLoaded('denied');
         }
       })
-      .catch(() => setState('denied'));
-  }, []);
-
-  useEffect(() => setDrawer(false), [pathname]);
+      .catch(() => setLoaded('denied'));
+  }, [hasSession]);
 
   if (state === 'loading') {
     return <div className="flex min-h-screen items-center justify-center bg-base"><Loader2 className="animate-spin text-accent" /></div>;
@@ -131,7 +134,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       <div className="lg:pl-60">
         {/* Topbar — design 26 */}
         <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-line bg-base/90 px-4 backdrop-blur-xl sm:px-6">
-          <button className="rounded-input p-2 text-fg-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu">
+          <button className="rounded-input p-2 text-fg-2 lg:hidden" onClick={() => setDrawerRoute(pathname)} aria-label="Open menu">
             <UserRound size={18} />
           </button>
           <form
@@ -168,7 +171,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
       {drawer && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawer(false)} />
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerRoute(null)} />
           <div className="absolute inset-y-0 left-0 w-64 border-r border-line bg-surface">{sidebar}</div>
         </div>
       )}
