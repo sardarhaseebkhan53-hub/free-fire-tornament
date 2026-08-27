@@ -28,6 +28,7 @@ export interface TestUser {
   username: string;
   email: string;
   password: string;
+  referralCode: string;
 }
 
 /** Create a verified, ACTIVE player with a wallet. Password is returned in
@@ -64,7 +65,7 @@ export async function makeUser(opts: {
         },
       },
     },
-    select: { id: true, username: true, email: true },
+    select: { id: true, username: true, email: true, referralCode: true },
   });
   return { ...user, password };
 }

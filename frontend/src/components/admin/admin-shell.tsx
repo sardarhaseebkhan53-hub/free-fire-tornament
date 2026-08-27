@@ -5,12 +5,13 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  ArrowUpRight, BarChart3, Bell, FileText, Headphones,
+  ArrowUpRight, BarChart3, FileText, Headphones,
   Home, LayoutDashboard, Loader2, Megaphone, Search, Settings, Shield, ShieldAlert,
   ScrollText, Swords, TrendingUp, Trophy, Upload, UserRound, Users, Wallet, XCircle,
 } from 'lucide-react';
 import { api } from '@/lib/client-api';
 import { useHasSession } from '@/lib/session';
+import { NotificationsBell } from '@/components/notifications-bell';
 
 const NAV = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
@@ -152,9 +153,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             />
             <Search size={15} className="text-fg-3" />
           </form>
-          <button className="relative flex h-9 w-9 items-center justify-center rounded-full border border-line text-fg-2" title="Notifications — via user profiles" disabled>
-            <Bell size={16} />
-          </button>
+          <NotificationsBell variant="admin" />
           <div className="flex items-center gap-2.5 rounded-pill border border-line py-1 pl-1 pr-3">
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/20 font-display text-xs font-bold text-accent">
               {me.username.slice(0, 2).toUpperCase()}

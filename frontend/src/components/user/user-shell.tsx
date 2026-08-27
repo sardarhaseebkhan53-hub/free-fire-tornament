@@ -11,6 +11,7 @@ import {
 import { api } from '@/lib/client-api';
 import { Avatar } from '@/components/ui';
 import { NexaWidget } from '@/components/nexa-widget';
+import { NotificationsBell } from '@/components/notifications-bell';
 
 export interface Me {
   id: string;
@@ -224,13 +225,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
               </span>
             </Link>
           )}
-          <button
-            className="flex h-9 w-9 items-center justify-center rounded-pill border border-line text-fg-2 transition hover:text-fg"
-            title="Notifications — coming soon"
-            disabled
-          >
-            <Bell size={16} />
-          </button>
+          <NotificationsBell />
           {me && (
             <div className="relative" ref={menuRef}>
               <button

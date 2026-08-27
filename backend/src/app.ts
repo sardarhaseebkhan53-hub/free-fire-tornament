@@ -25,6 +25,7 @@ import { walletRouter } from './routes/wallet.routes';
 import { adminRouter } from './routes/admin.routes';
 import { supportRouter } from './routes/support.routes';
 import { nexaRouter } from './routes/nexa.routes';
+import { notificationRouter } from './routes/notification.routes';
 
 export function createApp() {
   const app = express();
@@ -88,6 +89,7 @@ export function createApp() {
   app.use('/api/support', supportRouter);
   app.use('/api/nexa', nexaRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/notifications', notificationRouter);
 
   // Uploaded files. PRIVATE directories (payment proofs, ticket attachments,
   // result screenshots) are deliberately NOT mounted — they are served only by

@@ -7,6 +7,7 @@ import { Prisma } from '../../generated/prisma';
 import { prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden } from '../lib/errors';
 import { getSetting, invalidateSetting } from './settings.service';
+import { notifyAllUsers } from './notification.service';
 import { computeEconomics, type PrizeInput } from './tournament-economics.service';
 import { moveBalance, TX_OPTS } from './wallet.service';
 import type { Bucket } from './wallet.service';
@@ -354,7 +355,23 @@ export async function createTournament(adminId: string, input: BuilderInput, ctx
     },
   });
 
+  // Announce published tournaments to every active player.
+  if (input.publish) await announceTournament(tournament.id, input.title, tournament.slug, input.type, input.entryFeePerPlayer, input.startTime);
+
   return { id: tournament.id, slug: tournament.slug, status: tournament.status, economics };
+}
+
+/** "New tournament" broadcast — shared by create (publish) and status changes to REGISTRATION_OPEN. */
+async function announceTournament(
+  id: string, title: string, slug: string, type: string, entryFee: number, startTime: string | Date,
+) {
+  const when = new Date(startTime).toLocaleString('en-PK', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  await notifyAllUsers({
+    type: 'TOURNAMENT_UPDATE',
+    title: 'New tournament just dropped 🏆',
+    body: `${title} (${type.replace('_', ' ')}) — entry PKR ${entryFee}, starts ${when}. Registration is open — lock your slot!`,
+    data: { slug, area: 'tournaments', tournamentId: id },
+  });
 }
 
 export async function setTournamentStatus(adminId: string, id: string, status: string, ctx: { ip?: string }) {
@@ -372,6 +389,10 @@ export async function setTournamentStatus(adminId: string, id: string, status: s
       before: { status: t.status }, after: { status }, ip: ctx.ip,
     },
   });
+  // First time a draft goes live → announce it to every active player.
+  if (status === 'REGISTRATION_OPEN' && t.status === 'DRAFT') {
+    await announceTournament(id, t.title, t.slug, t.type, t.entryFeePerPlayer.toNumber(), t.startTime.toISOString());
+  }
   if (status === 'CANCELLED') {
     // refund via the existing cancellation service path would duplicate Phase 5 logic;
     // guard: only DRAFT/empty tournaments may be cancelled without players.

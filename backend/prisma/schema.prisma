@@ -645,8 +645,10 @@ model Match {
   credentialsReleasedAt DateTime?
 
   resultsFinalized Boolean  @default(false)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  // Set once the "starts in ~5 minutes" reminder has been sent (scheduler).
+  startNotifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   participants      MatchParticipant[]
   resultSubmissions ResultSubmission[]
@@ -748,16 +750,19 @@ model ReferralReward {
   id               String               @id @default(cuid())
   referrerId       String
   referrer         User                 @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
-  referredUserId   String               @unique
+  referredUserId   String
   referredUser     User                 @relation("ReferredUser", fields: [referredUserId], references: [id], onDelete: Cascade)
   rewardAmount     Decimal              @db.Decimal(14, 2)
   status           ReferralRewardStatus @default(PENDING)
-  qualifyingAction String? // e.g. "FIRST_DEPOSIT_APPROVED"
+  qualifyingAction String // "FIRST_LOGIN" (referee's first sign-in) | "FIRST_DEPOSIT_APPROVED"
   qualifiedAt      DateTime?
   creditedAt       DateTime?
   walletTxId       String?
   createdAt        DateTime             @default(now())
 
+  // One reward per qualifying action per referred user (login reward and
+  // first-deposit reward are separate, independently credited events).
+  @@unique([referredUserId, qualifyingAction])
   @@index([referrerId, status])
   @@map("referral_rewards")
 }
