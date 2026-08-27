@@ -40,7 +40,7 @@ authRouter.post('/register', registerLimiter, async (req, res) => {
   const body = registerSchema.parse(req.body);
   const { confirmPassword: _omit, ...input } = body;
   const out = await svc.register(input, ctxOf(req));
-  return ok(res, out, 'Account created. Please verify your email.', 201);
+  return ok(res, out, 'Account created — it is active and ready. You can sign in now.', 201);
 });
 
 authRouter.post('/login', loginLimiter, async (req, res) => {

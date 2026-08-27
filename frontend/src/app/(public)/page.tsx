@@ -71,7 +71,7 @@ export default async function HomePage() {
       {(faqs ?? []).length > 0 && <JsonLd data={faqJsonLd((faqs ?? []).slice(0, 8))} />}
       {/* MOBILE HERO — design 41: compact banner card with art */}
       <section className="px-4 pt-4 lg:hidden">
-        <div className="relative overflow-hidden rounded-card border border-line">
+        <div className="animate-fade-up relative overflow-hidden rounded-card border border-line shadow-[0_18px_44px_-18px_rgba(0,0,0,0.7)]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/art/hero-mobile.png"
@@ -79,9 +79,11 @@ export default async function HomePage() {
             className="absolute inset-0 h-full w-full object-cover object-[70%_30%]"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-base via-base/85 to-base/10" />
-          <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-pill bg-danger/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
-            <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-dot" /> Live
-          </span>
+          {stats && stats.liveTournaments > 0 && (
+            <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-pill bg-danger/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
+              <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-dot" /> Live
+            </span>
+          )}
           <div className="relative p-5">
             <h1 className="font-display text-[2rem] font-bold uppercase italic leading-[1.02] text-fg drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]">
               The Arena<br />
@@ -95,13 +97,13 @@ export default async function HomePage() {
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Link
                 href="/tournaments"
-                className="inline-flex items-center gap-1.5 rounded-input bg-accent px-5 py-2.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-[0_0_22px_rgba(139,92,246,0.5)] transition hover:bg-accent-strong"
+                className="inline-flex items-center gap-1.5 rounded-input bg-accent px-5 py-2.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-[0_0_22px_rgba(139,92,246,0.5)] transition duration-200 hover:bg-accent-strong hover:shadow-[0_0_26px_rgba(139,92,246,0.65)] active:scale-95"
               >
                 Explore Tournaments <span aria-hidden>›</span>
               </Link>
               <Link
                 href="/legal/how-it-works"
-                className="inline-flex items-center gap-1.5 rounded-input border border-line bg-base/60 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-fg-2 transition hover:text-fg"
+                className="inline-flex items-center gap-1.5 rounded-input border border-line bg-base/60 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-fg-2 transition duration-200 hover:text-fg hover:border-accent/40 active:scale-95"
               >
                 How It Works
               </Link>
@@ -121,31 +123,31 @@ export default async function HomePage() {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.18),transparent_55%)]" />
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent" />
         <div className="relative mx-auto max-w-7xl px-4 pb-16 pt-16 text-center sm:px-6 sm:pt-24">
-          <div className="mb-6 flex justify-center">
+          <div className="mb-6 flex justify-center animate-fade-up">
             <Badge tone="accent" live>
               {stats && stats.liveTournaments > 0 ? `${stats.liveTournaments} tournaments live now` : 'The arena is open'}
             </Badge>
           </div>
-          <h1 className="mx-auto max-w-3xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-fg sm:text-6xl">
+          <h1 className="animate-fade-up mx-auto max-w-3xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-fg sm:text-6xl" style={{ animationDelay: '60ms' }}>
             THE ARENA IS <span className="text-accent drop-shadow-[0_0_24px_rgba(139,92,246,0.5)]">CALLING</span>
           </h1>
-          <p className="mt-3 font-display text-lg font-bold uppercase tracking-[0.18em] text-accent/90 sm:text-xl">
+          <p className="animate-fade-up mt-3 font-display text-lg font-bold uppercase tracking-[0.18em] text-accent/90 sm:text-xl" style={{ animationDelay: '120ms' }}>
             Are you ready to clutch?
           </p>
-          <p className="mx-auto mt-5 max-w-2xl text-base text-fg-2 sm:text-lg">
+          <p className="animate-fade-up mx-auto mt-5 max-w-2xl text-base text-fg-2 sm:text-lg" style={{ animationDelay: '180ms' }}>
             Compete in competitive Free Fire tournaments, build your squad, climb the leaderboard and
             prove your skills.
           </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <div className="animate-fade-up mt-8 flex flex-wrap items-center justify-center gap-3" style={{ animationDelay: '240ms' }}>
             <Link
               href="/tournaments"
-              className="inline-flex items-center gap-2 rounded-input bg-accent px-7 py-3.5 text-sm font-bold uppercase tracking-wide text-white shadow-[0_0_28px_rgba(139,92,246,0.45)] transition hover:bg-accent-strong"
+              className="inline-flex items-center gap-2 rounded-input bg-accent px-7 py-3.5 text-sm font-bold uppercase tracking-wide text-white shadow-[0_0_28px_rgba(139,92,246,0.45)] transition duration-200 hover:bg-accent-strong hover:shadow-[0_0_34px_rgba(139,92,246,0.6)] active:scale-[0.98]"
             >
               <Play size={16} /> Explore Tournaments
             </Link>
             <Link
               href="/legal/how-it-works"
-              className="inline-flex items-center gap-2 rounded-input border border-line bg-white/[3%] px-7 py-3.5 text-sm font-semibold uppercase tracking-wide text-fg transition hover:border-accent/40"
+              className="inline-flex items-center gap-2 rounded-input border border-line bg-white/[3%] px-7 py-3.5 text-sm font-semibold uppercase tracking-wide text-fg transition duration-200 hover:border-accent/40 hover:bg-white/[5%] active:scale-[0.98]"
             >
               How It Works <ArrowRight size={15} />
             </Link>
@@ -154,7 +156,7 @@ export default async function HomePage() {
 
           {/* STATS */}
           {stats && (
-            <div className="mx-auto mt-14 grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="animate-fade-up mx-auto mt-14 grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-4" style={{ animationDelay: '300ms' }}>
               <StatCard label="Total Players" value={compact(stats.totalPlayers)} />
               <StatCard label="Tournaments" value={compact(stats.totalTournaments)} />
               <StatCard label="Prize Distributed" value={money(stats.totalPrizeDistributed)} accent />

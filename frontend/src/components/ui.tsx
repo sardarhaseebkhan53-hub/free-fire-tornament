@@ -1,5 +1,6 @@
 // Core UI primitives — every page uses these (design system §Components).
 import type { ReactNode } from 'react';
+import { Inbox } from 'lucide-react';
 
 export function Badge({
   tone = 'neutral',
@@ -56,11 +57,17 @@ export function SectionHeading({
 
 export function StatCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className="glass rounded-card px-5 py-4">
-      <p className={`tabular font-display text-2xl font-bold sm:text-3xl ${accent ? 'text-accent' : 'text-fg'}`}>
+    <div className="glass card-hover min-w-0 rounded-card px-4 py-4 sm:px-5">
+      {/* Responsive value: long amounts like "PKR 123,500" must never blow out
+          a 2-col mobile grid (~100px content at 320px) — scale down on phones
+          and allow wrapping between the currency and the number. */}
+      <p
+        className={`tabular font-display text-[1.35rem] font-bold leading-tight break-words sm:text-2xl md:text-3xl ${accent ? 'text-accent' : 'text-fg'}`}
+        style={{ overflowWrap: 'anywhere' }}
+      >
         {value}
       </p>
-      <p className="mt-1 text-xs font-medium tracking-wide uppercase text-fg-3">{label}</p>
+      <p className="mt-1 text-[10px] font-medium tracking-wide uppercase text-fg-3 sm:text-xs">{label}</p>
     </div>
   );
 }
@@ -68,8 +75,34 @@ export function StatCard({ label, value, accent }: { label: string; value: strin
 export function EmptyState({ title, sub }: { title: string; sub?: string }) {
   return (
     <div className="glass rounded-card px-6 py-14 text-center">
+      <span
+        aria-hidden
+        className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-accent/25 bg-accent/10 text-accent"
+      >
+        <Inbox size={20} />
+      </span>
       <p className="font-display text-lg font-semibold text-fg">{title}</p>
-      {sub && <p className="mt-2 text-sm text-fg-2">{sub}</p>}
+      {sub && <p className="mx-auto mt-2 max-w-md text-sm text-fg-2">{sub}</p>}
+    </div>
+  );
+}
+
+/** Skeleton block — placeholder that holds layout while data loads. */
+export function Skeleton({ className = '' }: { className?: string }) {
+  return <div aria-hidden className={`skeleton ${className}`} />;
+}
+
+/** Card-shaped skeleton for grid/list loading states (prevents layout jump). */
+export function CardSkeleton() {
+  return (
+    <div className="glass rounded-card p-5">
+      <Skeleton className="h-4 w-2/3" />
+      <Skeleton className="mt-3 h-3 w-1/3" />
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <Skeleton className="h-14" />
+        <Skeleton className="h-14" />
+      </div>
+      <Skeleton className="mt-4 h-9 w-full" />
     </div>
   );
 }

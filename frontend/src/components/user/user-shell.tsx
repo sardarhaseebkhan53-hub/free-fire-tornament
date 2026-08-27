@@ -11,6 +11,7 @@ import {
 import { api } from '@/lib/client-api';
 import { Avatar } from '@/components/ui';
 import { NexaWidget } from '@/components/nexa-widget';
+import { NotificationsBell } from '@/components/notifications-bell';
 
 export interface Me {
   id: string;
@@ -168,7 +169,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
             onClick={() => setDrawerRoute(pathname)}
             aria-label="Open menu"
             aria-expanded={drawerOpen}
-            className="flex h-9 w-9 items-center justify-center rounded-input text-fg-2 transition hover:text-fg"
+            className="flex h-10 w-10 items-center justify-center rounded-input text-fg-2 transition hover:text-fg active:scale-95"
           >
             <Menu size={20} />
           </button>
@@ -192,8 +193,8 @@ export function UserShell({ children }: { children: React.ReactNode }) {
         {/* Mobile drawer — design 42 */}
         {drawerOpen && (
           <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerRoute(null)} />
-            <div className="absolute inset-y-0 left-0 flex w-72 flex-col overflow-y-auto border-r border-line bg-surface pt-6">
+            <div className="animate-fade-in absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerRoute(null)} />
+            <div className="animate-drawer-in absolute inset-y-0 left-0 flex w-[17.5rem] max-w-[86vw] flex-col overflow-y-auto border-r border-line bg-surface pt-6 shadow-2xl">
               <div className="mb-6 flex items-center justify-between px-4">
                 <Logo />
                 <button
@@ -224,13 +225,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
               </span>
             </Link>
           )}
-          <button
-            className="flex h-9 w-9 items-center justify-center rounded-pill border border-line text-fg-2 transition hover:text-fg"
-            title="Notifications — coming soon"
-            disabled
-          >
-            <Bell size={16} />
-          </button>
+          <NotificationsBell />
           {me && (
             <div className="relative" ref={menuRef}>
               <button
@@ -242,7 +237,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
                 <ChevronsUpDown size={14} className="text-fg-3" />
               </button>
               {menuOpen && (
-                <div className="absolute right-0 top-11 w-48 rounded-card border border-line bg-surface p-1.5 shadow-2xl">
+                <div className="animate-rise absolute right-0 top-11 w-48 rounded-card border border-line bg-surface p-1.5 shadow-2xl">
                   <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-input px-3 py-2 text-sm text-fg-2 hover:bg-white/5 hover:text-fg">
                     <LayoutDashboard size={15} /> Dashboard
                   </Link>

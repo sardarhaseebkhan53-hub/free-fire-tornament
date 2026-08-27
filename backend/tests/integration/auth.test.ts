@@ -18,7 +18,7 @@ afterAll(async () => {
 });
 
 describe('registration', () => {
-  it('creates a pending-verification account with wallet and profile', async () => {
+  it('creates an ACTIVE account (automatic activation) with wallet and profile', async () => {
     const name = uid('reg');
     const out = await auth.register(
       {
@@ -36,11 +36,28 @@ describe('registration', () => {
       where: { id: out.user.id },
       include: { wallet: true, profile: true },
     });
-    expect(row.status).toBe('PENDING_VERIFICATION');
+    // ACCOUNT CREATION = AUTOMATICALLY ACTIVE. No admin/email approval gate.
+    expect(row.status).toBe('ACTIVE');
+    // Email verification is a separate optional track (welcome bonus / badge).
     expect(row.isVerified).toBe(false);
     expect(row.wallet).toBeTruthy();
     expect(row.profile?.fullName).toBe('Reg Test');
     expect(row.referralCode).toMatch(/^CLUTCH-/);
+    // Wallet starts empty — activation never credits money.
+    expect(Number(row.wallet!.cashBalance)).toBe(0);
+    expect(Number(row.wallet!.coinBalance)).toBe(0);
+  });
+
+  it('lets a freshly registered user log in immediately without any approval', async () => {
+    const name = uid('instant');
+    await auth.register(
+      { fullName: 'Instant', username: name, email: `${name}@example.com`, password: 'Register@123' },
+      ctx,
+    ).then((out) => created.push(out.user.id));
+
+    const out = await auth.login(name, 'Register@123', ctx);
+    expect(out.user.status).toBe('ACTIVE');
+    expect(out.accessToken.split('.')).toHaveLength(3);
   });
 
   it('hashes the password with bcrypt cost 12 and never stores it in clear', async () => {

@@ -19,7 +19,7 @@ export function Kpi({
     warning: 'bg-warning/15 text-warning',
   };
   return (
-    <div className="glass rounded-card p-4">
+    <div className="glass card-hover rounded-card p-4">
       <div className="flex items-center gap-3">
         {icon && <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-input ${tones[tone]}`}>{icon}</span>}
         <p className="truncate text-[11px] font-bold uppercase tracking-wide text-fg-3">{label}</p>
@@ -43,7 +43,7 @@ export function Table({ head, children }: { head: string[]; children: React.Reac
     <div className="glass overflow-x-auto rounded-card">
       <table className="w-full min-w-[720px] text-left text-sm">
         <thead>
-          <tr className="border-b border-line text-[11px] uppercase tracking-wide text-fg-3">
+          <tr className="border-b border-line bg-white/[2%] text-[11px] uppercase tracking-wide text-fg-3">
             {head.map((h) => <th key={h} className="whitespace-nowrap px-4 py-3 font-semibold">{h}</th>)}
           </tr>
         </thead>
@@ -54,7 +54,7 @@ export function Table({ head, children }: { head: string[]; children: React.Reac
 }
 
 export function Tr({ children }: { children: React.ReactNode }) {
-  return <tr className="border-b border-line/60 transition last:border-0 hover:bg-white/[2%]">{children}</tr>;
+  return <tr className="border-b border-line/60 transition-colors duration-150 last:border-0 hover:bg-accent/[4%]">{children}</tr>;
 }
 
 export function Td({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -70,6 +70,7 @@ const PILL: Record<string, string> = {
   VERIFIED: 'bg-success/15 text-success border-success/30',
   RESOLVED: 'bg-success/15 text-success border-success/30',
   PENDING: 'bg-warning/15 text-warning border-warning/30',
+  PENDING_VERIFICATION: 'bg-warning/15 text-warning border-warning/30',
   UNDER_REVIEW: 'bg-warning/15 text-warning border-warning/30',
   WAITING_USER: 'bg-warning/15 text-warning border-warning/30',
   DRAFT: 'bg-white/5 text-fg-2 border-line',
@@ -98,9 +99,15 @@ export function Pill({ status, label }: { status: string; label?: string }) {
 
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       <div
-        className={`max-h-[88vh] w-full overflow-y-auto rounded-[20px] border border-line bg-surface p-6 shadow-2xl ${wide ? 'max-w-2xl' : 'max-w-md'}`}
+        className={`animate-modal-in max-h-[88vh] w-full overflow-y-auto rounded-[20px] border border-line bg-surface p-6 shadow-2xl ${wide ? 'max-w-2xl' : 'max-w-md'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="font-display text-lg font-bold text-fg">{title}</h2>
@@ -117,10 +124,21 @@ export function Pager({ page, total, pageSize, onPage }: { page: number; total: 
     <div className="mt-4 flex items-center justify-between text-xs text-fg-3">
       <p>Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}</p>
       <div className="flex items-center gap-1.5">
-        <button onClick={() => onPage(page - 1)} disabled={page <= 1} className="rounded-input border border-line px-2.5 py-1 disabled:opacity-40">‹</button>
+        <button onClick={() => onPage(page - 1)} disabled={page <= 1} aria-label="Previous page" className="rounded-input border border-line px-3 py-1.5 font-bold transition hover:border-accent/40 hover:text-accent active:scale-95 disabled:pointer-events-none disabled:opacity-40">‹</button>
         <span className="px-1 font-bold text-fg-2">{page} / {pages}</span>
-        <button onClick={() => onPage(page + 1)} disabled={page >= pages} className="rounded-input border border-line px-2.5 py-1 disabled:opacity-40">›</button>
+        <button onClick={() => onPage(page + 1)} disabled={page >= pages} aria-label="Next page" className="rounded-input border border-line px-3 py-1.5 font-bold transition hover:border-accent/40 hover:text-accent active:scale-95 disabled:pointer-events-none disabled:opacity-40">›</button>
       </div>
+    </div>
+  );
+}
+
+/** Skeleton placeholder rows for admin tables while data loads. */
+export function TableSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="glass space-y-2.5 rounded-card p-4" aria-busy="true" aria-label="Loading">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="skeleton h-10 w-full" style={{ opacity: 1 - i * 0.08 }} />
+      ))}
     </div>
   );
 }

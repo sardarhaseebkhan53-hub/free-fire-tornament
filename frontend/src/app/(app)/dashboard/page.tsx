@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  ArrowRight, Coins, Copy, Check, Crown, Gamepad2, Gift, Headphones, Loader2,
+  ArrowRight, Coins, Copy, Check, Crown, Gamepad2, Gift, Headphones,
   Lock, Plus, Target, Swords, Trophy, Upload, Users, Wallet as WalletIcon,
 } from 'lucide-react';
 import { api } from '@/lib/client-api';
@@ -12,6 +12,7 @@ import { useHasSession } from '@/lib/session';
 import { useNow, useTimeUntil } from '@/lib/client-time';
 import { msToCountdown } from '@/lib/format';
 import { TypeChip } from '@/components/wallet/bits';
+import { Skeleton } from '@/components/ui';
 import { fmt } from '@/lib/format';
 
 interface Me {
@@ -66,7 +67,22 @@ export default function DashboardPage() {
   );
 
   if (state === 'loading') {
-    return <div className="flex min-h-[50vh] items-center justify-center"><Loader2 className="animate-spin text-accent" /></div>;
+    // Skeleton mirrors the real layout (title + bucket cards + rows) so the
+    // page shape is stable and nothing jumps when data lands.
+    return (
+      <div className="mx-auto max-w-6xl" aria-busy="true" aria-label="Loading dashboard">
+        <Skeleton className="h-8 w-64" />
+        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
+        </div>
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <Skeleton className="h-40" />
+          <Skeleton className="h-40" />
+        </div>
+      </div>
+    );
   }
   if (state === 'anon' || !me) {
     return (

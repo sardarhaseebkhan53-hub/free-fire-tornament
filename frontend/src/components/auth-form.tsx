@@ -3,7 +3,8 @@
 // server-side; this component only displays the API's verdict.
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, type FormEvent, Suspense } from 'react';
-import { Loader2 } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
 
 function Field({
   label, name, type = 'text', placeholder, required = true, hint,
@@ -67,13 +68,19 @@ function AuthFormInner({ mode }: { mode: 'login' | 'register' }) {
         window.dispatchEvent(new Event('storage'));
         router.push(search.get('next') ?? '/dashboard');
       } else {
+        // Account activation is AUTOMATIC — the user can sign in right away.
+        // The email link is only the optional verification track (badge/bonus).
         setVerifyNotice(
-          `Account created! We sent a verification link to ${body.email}. Verify it to unlock your welcome bonus.`,
+          `Account created — you're in! Your account is active, so you can sign in right now. We also sent a confirmation link to ${body.email} (optional: it adds the verified badge and unlocks the welcome bonus).`,
         );
         (e.target as HTMLFormElement).reset();
       }
     } catch {
-      setError('Could not reach the server. Please try again.');
+      setError(
+        mode === 'login'
+          ? 'Could not reach the server. Please try again.'
+          : 'Unable to create account. Please check your information and try again.',
+      );
     } finally {
       setLoading(false);
     }
@@ -84,8 +91,17 @@ function AuthFormInner({ mode }: { mode: 'login' | 'register' }) {
 
   if (verifyNotice) {
     return (
-      <div className="rounded-input border border-success/30 bg-success/10 px-4 py-4 text-sm text-success">
-        {verifyNotice}
+      <div className="animate-rise rounded-input border border-success/30 bg-success/10 px-4 py-4 text-sm text-success" role="status">
+        <p className="flex items-start gap-2.5">
+          <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+          <span>{verifyNotice}</span>
+        </p>
+        <Link
+          href="/login"
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-input bg-accent px-4 py-3 text-sm font-bold text-white shadow-[0_0_24px_rgba(139,92,246,0.35)] transition hover:bg-accent-strong active:scale-[0.98]"
+        >
+          Sign In Now <ArrowRight size={15} />
+        </Link>
       </div>
     );
   }
@@ -137,7 +153,7 @@ function AuthFormInner({ mode }: { mode: 'login' | 'register' }) {
       <button
         type="submit"
         disabled={loading}
-        className="flex w-full items-center justify-center gap-2 rounded-input bg-accent px-4 py-3 text-sm font-bold text-white shadow-[0_0_24px_rgba(139,92,246,0.35)] transition hover:bg-accent-strong disabled:opacity-60"
+        className="flex w-full items-center justify-center gap-2 rounded-input bg-accent px-4 py-3 text-sm font-bold text-white shadow-[0_0_24px_rgba(139,92,246,0.35)] transition duration-200 hover:bg-accent-strong hover:shadow-[0_0_28px_rgba(139,92,246,0.5)] active:scale-[0.98] disabled:opacity-60"
       >
         {loading && <Loader2 size={15} className="animate-spin" />}
         {mode === 'login' ? 'Sign In' : 'Create Account'}

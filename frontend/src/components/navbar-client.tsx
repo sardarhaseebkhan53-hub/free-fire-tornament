@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSyncExternalStore } from 'react';
 import { Bell, LogOut, Search, Wallet } from 'lucide-react';
 import { notifySessionChange } from '@/lib/session';
+import { NotificationsBell } from '@/components/notifications-bell';
 
 interface Session {
   sub: string;
@@ -63,6 +64,7 @@ export function NavbarClient() {
       <div className="hidden items-center gap-2 lg:flex">
         {session ? (
           <>
+            <NotificationsBell />
             <Link
               href="/dashboard"
               className="inline-flex items-center gap-2 rounded-input border border-line px-3 py-2 text-sm font-semibold text-fg transition hover:border-accent/40"
@@ -84,7 +86,7 @@ export function NavbarClient() {
             </Link>
             <Link
               href="/register"
-              className="rounded-input bg-accent px-4 py-2 text-sm font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition hover:bg-accent-strong"
+              className="rounded-input bg-accent px-4 py-2 text-sm font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition duration-200 hover:bg-accent-strong hover:shadow-[0_0_24px_rgba(139,92,246,0.55)] active:scale-95"
             >
               Register
             </Link>
@@ -92,23 +94,28 @@ export function NavbarClient() {
         )}
       </div>
 
-      {/* Mobile header icons — design 41: search + bell */}
+      {/* Mobile header icons — design 41: search + bell (notifications when
+          signed in, support for visitors) */}
       <div className="flex items-center gap-2 lg:hidden">
         <Link
           href="/tournaments"
           aria-label="Search tournaments"
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-2 transition hover:text-fg"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-2 transition hover:text-fg active:scale-95"
         >
           <Search size={16} />
         </Link>
-        <Link
-          href="/support"
-          aria-label="Updates & support"
-          className="relative flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-2 transition hover:text-fg"
-        >
-          <Bell size={16} />
-          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-danger" />
-        </Link>
+        {session ? (
+          <NotificationsBell />
+        ) : (
+          <Link
+            href="/support"
+            aria-label="Updates & support"
+            className="relative flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-2 transition hover:text-fg active:scale-95"
+          >
+            <Bell size={16} />
+            <span className="absolute right-2.5 top-2.5 h-1.5 w-1.5 rounded-full bg-danger" />
+          </Link>
+        )}
       </div>
     </>
   );

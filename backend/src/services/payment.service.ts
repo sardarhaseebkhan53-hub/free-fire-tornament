@@ -9,6 +9,8 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { moveBalance, TX_OPTS } from './wallet.service';
 import { fireDepositFraud, fireRejectedDepositTid, fireWithdrawalFraud } from './fraud.service';
+import { notifyAdmins } from './notification.service';
+import { creditReferralRewardTx } from './referral.service';
 
 const num = (d: unknown) => Math.round(Number(d ?? 0) * 100) / 100;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -105,6 +107,15 @@ export async function createDeposit(
       after: { amount: input.amount, method: input.method, tid: input.transactionId },
       ip: ctx.ip, userAgent: ctx.userAgent,
     },
+  });
+
+  // Manual verification queue — alert every admin (drives the bell + sound).
+  const depositor = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+  await notifyAdmins({
+    type: 'SYSTEM',
+    title: 'New deposit pending review 💰',
+    body: `PKR ${input.amount} via ${METHOD_LABEL[input.method]} from ${depositor?.username ?? 'a player'} — TID ${input.transactionId}.`,
+    data: { depositId: dep.id, area: 'deposits' },
   });
 
   // Phase 14 — detection runs AFTER the row commits, off the request path.
@@ -232,6 +243,14 @@ export async function requestWithdrawal(
   // Phase 14 — churn / burst / new-account / shared-payout checks.
   fireWithdrawalFraud(out.id, ctx);
 
+  // Payout queue — alert every admin (drives the bell + sound).
+  await notifyAdmins({
+    type: 'SYSTEM',
+    title: 'New withdrawal request 💸',
+    body: `PKR ${input.amount} to ${METHOD_LABEL[input.method]} ${masked} — pending review.`,
+    data: { withdrawalId: out.id, area: 'withdrawals' },
+  });
+
   return { withdrawal: serializeWithdrawal(out), fee, net: round2(input.amount - fee) };
 }
 
@@ -343,6 +362,9 @@ export async function reviewDeposit(
 ) {
   // Settings reads stay OUTSIDE the transaction (Phase 5 deadlock fix).
   const currency = await getSetting('platform.currency', 'PKR');
+  // Referral reward gate: the referrer is paid when the referred player's
+  // FIRST approved deposit reaches this minimum (default PKR 100).
+  const referralMin = Number(await getSetting('referral.minFirstDeposit', 100));
   const out = await prisma.$transaction(async (tx) => {
     const dep = await tx.deposit.findUnique({ where: { id: depositId } });
     if (!dep) throw notFound('Deposit not found');
@@ -374,6 +396,27 @@ export async function reviewDeposit(
         ...(walletTxId ? { walletTxId } : {}),
       },
     });
+
+    if (action === 'APPROVE') {
+      // Referral reward: is THIS approval the player's first approved deposit
+      // of at least referral.minFirstDeposit? (Row is APPROVED now, so the
+      // query includes it. Smaller earlier deposits never qualify — the reward
+      // stays PENDING until a qualifying deposit is approved.) If the player
+      // was referred, the referrer's PKR-50 reward credits in this SAME
+      // transaction, exactly once.
+      const firstQualifying = await tx.deposit.findFirst({
+        where: {
+          userId: dep.userId,
+          status: 'APPROVED',
+          amount: { gte: new Prisma.Decimal(referralMin) },
+        },
+        orderBy: { reviewedAt: 'asc' },
+        select: { id: true },
+      });
+      if (firstQualifying?.id === dep.id) {
+        await creditReferralRewardTx(tx, dep.userId, 'FIRST_DEPOSIT_APPROVED', currency);
+      }
+    }
 
     await tx.notification.create({
       data: {
