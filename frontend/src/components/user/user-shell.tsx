@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Bell, ChevronsUpDown, Gift, Headphones, LayoutDashboard, LogOut, Plus,
+  Bell, ChevronsUpDown, Gift, Headphones, LayoutDashboard, LogOut, Menu, Plus,
   Settings, Swords, Trophy, Users, Wallet as WalletIcon, X,
 } from 'lucide-react';
 import { api } from '@/lib/client-api';
@@ -63,6 +63,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,6 +78,11 @@ export function UserShell({ children }: { children: React.ReactNode }) {
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, []);
+
+  // Close the mobile drawer whenever the route changes.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
 
   async function logout() {
     await fetch('/api/backend/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
@@ -157,20 +163,53 @@ export function UserShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="lg:pl-64">
-        {/* Mobile header */}
+        {/* Mobile header — design 42: hamburger + wordmark + bell */}
         <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-base/90 px-4 backdrop-blur-xl lg:hidden">
-          <Logo />
-          {me && (
-            <Link
-              href="/wallet/add-money"
-              className="flex items-center gap-1.5 rounded-pill border border-line bg-white/[3%] px-3 py-1.5 text-sm font-bold text-fg"
-            >
-              <WalletIcon size={14} className="text-accent" />
-              <span className="tabular">₹{total.toLocaleString('en-IN')}</span>
-              <Plus size={13} className="text-accent" />
-            </Link>
-          )}
+          <button
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open menu"
+            aria-expanded={drawerOpen}
+            className="flex h-9 w-9 items-center justify-center rounded-input text-fg-2 transition hover:text-fg"
+          >
+            <Menu size={20} />
+          </button>
+          <Link href="/dashboard" className="flex flex-col items-center leading-none">
+            <span className="font-display text-lg font-bold tracking-tight text-fg">
+              CLUTCH<span className="text-accent">NEX</span>
+            </span>
+            <span className="mt-0.5 text-[8px] font-semibold uppercase tracking-[0.24em] text-fg-3">
+              Premium Free Fire Esports
+            </span>
+          </Link>
+          <button
+            className="relative flex h-9 w-9 items-center justify-center rounded-input text-fg-2 transition hover:text-fg"
+            title="Notifications — coming soon"
+            disabled
+          >
+            <Bell size={18} />
+          </button>
         </header>
+
+        {/* Mobile drawer — design 42 */}
+        {drawerOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerOpen(false)} />
+            <div className="absolute inset-y-0 left-0 flex w-72 flex-col overflow-y-auto border-r border-line bg-surface pt-6">
+              <div className="mb-6 flex items-center justify-between px-4">
+                <Logo />
+                <button
+                  onClick={() => setDrawerOpen(false)}
+                  aria-label="Close menu"
+                  className="flex h-8 w-8 items-center justify-center rounded-input border border-line text-fg-3"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+              {navList}
+              <div className="mt-auto pt-4">{profileCard}</div>
+            </div>
+          </div>
+        )}
 
         {/* Top chips row (desktop) */}
         <div className="hidden items-center justify-end gap-3 px-8 pt-6 lg:flex">

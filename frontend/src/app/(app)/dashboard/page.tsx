@@ -4,8 +4,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  ArrowRight, Coins, Copy, Check, Crown, Gamepad2, Gift, Loader2, Lock,
-  Target, Swords, Trophy, Users, Wallet as WalletIcon,
+  ArrowRight, Coins, Copy, Check, Crown, Gamepad2, Gift, Headphones, Loader2,
+  Lock, Plus, Target, Swords, Trophy, Upload, Users, Wallet as WalletIcon,
 } from 'lucide-react';
 import { api, getToken } from '@/lib/client-api';
 import { msToCountdown } from '@/lib/format';
@@ -83,6 +83,7 @@ export default function DashboardPage() {
   }
 
   const w = me.wallet ?? { cashBalance: 0, coinBalance: 0, winningBalance: 0, bonusBalance: 0 };
+  const totalBalance = Number(w.cashBalance) + Number(w.coinBalance) + Number(w.winningBalance) + Number(w.bonusBalance);
   const s = me.stats ?? { matchesPlayed: 0, wins: 0, kills: 0, totalPoints: 0, earnings: '0' };
   const winRate = s.matchesPlayed > 0 ? Math.round((s.wins / s.matchesPlayed) * 1000) / 10 : 0;
 
@@ -109,8 +110,46 @@ export default function DashboardPage() {
         {me.isVerified && <Crown size={20} className="mb-1 inline text-reward" />}
       </h1>
 
-      {/* Bucket cards */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* MOBILE — design 42: wallet balance card + quick actions */}
+      <div className="mt-4 lg:hidden">
+        <div className="relative overflow-hidden rounded-card border border-accent/25 bg-gradient-to-r from-accent/[14%] via-surface to-surface p-5">
+          <WalletIcon size={54} className="absolute right-4 top-4 text-accent/40" aria-hidden />
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-fg-3">Wallet Balance</p>
+          <p className="tabular mt-1 font-display text-3xl font-bold text-fg">
+            {fmt(totalBalance)}
+          </p>
+          <div className="mt-4 flex gap-3">
+            <Link href="/wallet/add-money" className="flex flex-1 items-center justify-center gap-1.5 rounded-input bg-accent py-2.5 text-xs font-bold text-white shadow-[0_4px_18px_rgba(139,92,246,0.4)]">
+              <Plus size={14} /> Add Money
+            </Link>
+            <Link href="/wallet/withdraw" className="flex flex-1 items-center justify-center gap-1.5 rounded-input border border-line bg-white/[3%] py-2.5 text-xs font-bold text-fg">
+              <Upload size={14} /> Withdraw
+            </Link>
+          </div>
+        </div>
+
+        <p className="mb-2 mt-5 text-[11px] font-bold uppercase tracking-[0.18em] text-fg-3">Quick Actions</p>
+        <div className="grid grid-cols-4 gap-2.5">
+          {[
+            { label: 'Join', sub: 'Matches', href: '/tournaments', icon: Gamepad2 },
+            { label: 'Teams', sub: 'My Team', href: '/teams', icon: Users },
+            { label: 'Wallet', sub: 'Balance', href: '/wallet', icon: WalletIcon },
+            { label: 'Support', sub: 'Help Center', href: '/support', icon: Headphones },
+          ].map((a) => {
+            const Icon = a.icon;
+            return (
+              <Link key={a.label} href={a.href} className="glass flex flex-col items-center gap-1.5 rounded-card px-2 py-3.5 text-center transition hover:border-accent/40">
+                <Icon size={20} className="text-accent" />
+                <span className="text-[11px] font-bold leading-none text-fg">{a.label}</span>
+                <span className="text-[9px] leading-none text-fg-3">{a.sub}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Bucket cards (desktop — design 12) */}
+      <div className="mt-6 hidden gap-4 sm:grid-cols-2 lg:grid xl:grid-cols-4">
         {bucketCards.map((b) => {
           const Icon = b.icon;
           return (
@@ -130,8 +169,8 @@ export default function DashboardPage() {
         })}
       </div>
 
-      {/* Quick actions */}
-      <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {/* Quick actions (desktop — design 12) */}
+      <div className="mt-4 hidden grid-cols-2 gap-4 lg:grid xl:grid-cols-4">
         <Link href="/tournaments" className="flex items-center justify-center gap-2 rounded-card bg-gradient-to-r from-accent to-accent-strong px-4 py-3.5 font-display text-sm font-bold text-white shadow-[0_6px_20px_rgba(139,92,246,0.35)] transition hover:brightness-110">
           <Swords size={17} /> Join Tournament <ArrowRight size={15} />
         </Link>
