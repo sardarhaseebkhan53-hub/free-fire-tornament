@@ -1,6 +1,6 @@
 # CLUTCHNEX — UI Concept Gallery (Design Approval Gate)
 
-Status: **44 concepts — 42 approved & locked (UI gate passed) + screens 43 (Phase 10 financial dashboard) and 44 (Phase 11 support + NEXA chat) approved on delivery**
+Status: **45 concepts — 42 approved & locked (UI gate passed) + screens 43 (Phase 10), 44 (Phase 11) and 45 (Phase 12 SEO routes) approved on delivery**
 
 Implemented so far (Phases 7–8): screens **12, 13, 14, 15, 16, 17, 22** are live in the
 Next.js app — user shell, dashboard, my matches (with result submission), wallet,
@@ -86,3 +86,9 @@ All concepts follow the CLUTCHNEX premium esports design system.
 | # | Screen | File |
 |---|--------|------|
 | 44 | Support Center + NEXA chat + WhatsApp — one UI for PC & mobile | `design/44-user-support-nexa.png` |
+
+## Batch 7 — Phase 12 (APPROVED)
+
+| # | Screen | File |
+|---|--------|------|
+| 45 | SEO landing routes — hub + mode pages, one UI for PC & mobile | `design/45-seo-landing-routes.png` |

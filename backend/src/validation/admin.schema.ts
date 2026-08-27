@@ -65,6 +65,8 @@ export const createBlogSchema = z.object({
   category: z.enum(['TOURNAMENTS', 'GUIDES', 'TIPS', 'NEWS', 'STRATEGY', 'ANNOUNCEMENTS']).default('NEWS'),
   excerpt: z.string().trim().max(300).optional().default(''),
   content: z.string().trim().min(20).max(50000),
+  seoTitle: z.string().trim().max(140).optional().default(''),
+  seoDescription: z.string().trim().max(320).optional().default(''),
   publish: z.boolean().default(false),
 });
 

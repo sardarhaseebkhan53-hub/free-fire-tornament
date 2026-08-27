@@ -284,6 +284,24 @@ export async function publicSettings() {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 12 — SEO: admin-managed per-page overrides, served to the site
+// ---------------------------------------------------------------------------
+
+/** Public per-page SEO overrides. Empty object when none configured (pages
+ *  fall back to their built-in metadata). */
+export async function getSeoConfig(pageSlug: string) {
+  const row = await prisma.seoConfig.findUnique({ where: { pageSlug } });
+  if (!row) return {};
+  return {
+    title: row.title ?? undefined,
+    description: row.description ?? undefined,
+    canonicalUrl: row.canonicalUrl ?? undefined,
+    ogImageUrl: row.ogImageUrl ?? undefined,
+    keywords: row.keywords ?? undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Phase 8 — public final standings for a completed tournament
 // ---------------------------------------------------------------------------
 

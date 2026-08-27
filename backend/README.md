@@ -48,6 +48,7 @@ Copy `.env.example` to `.env` first if you want to override defaults.
 | `npm run studio`      | Prisma Studio                                           |
 | `npm run verify:finance` | Financial dashboard suite (P&L truth, CSV, RBAC)     |
 | `npm run verify:support` | Support tickets + NEXA guardrails suite (Phase 11)  |
+| `npm run verify:seo`     | SEO + Blog CMS live checks against the web app (Phase 12) |
 
 ## Architecture notes
 

@@ -2,8 +2,10 @@
 import { AuthForm } from '@/components/auth-form';
 
 export const metadata = {
-  title: 'Create Account',
-  description: 'Join CLUTCHNEX — Free Fire tournaments with verified prize pools.',
+  title: 'Create Your Free Account | CLUTCHNEX',
+  description:
+    'Join CLUTCHNEX — Free Fire tournaments with verified PKR prize pools. Register free, link your Free Fire UID and start competing.',
+  alternates: { canonical: '/register' },
 };
 
 export default function RegisterPage() {

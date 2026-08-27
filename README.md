@@ -8,7 +8,7 @@ room-credential release, an immutable wallet ledger, manual payment
 verification (JazzCash / EasyPaisa / bank transfer), prize distribution,
 referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
-- 🎨 **UI design: APPROVED & LOCKED** — 44 concept screens in [`design/`](design/)
+- 🎨 **UI design: APPROVED & LOCKED** — 45 concept screens in [`design/`](design/)
   plus the design system spec [`design/DESIGN_SYSTEM_DRAFT.md`](design/DESIGN_SYSTEM_DRAFT.md).
   All UI implements this design; no redesigns without explicit approval.
 - 🔧 **API-first backend** — the same REST API will serve the web app today and a
@@ -30,11 +30,11 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
 ---
 
-## Progress — 12 of 17 phases complete
+## Progress — 13 of 17 phases complete
 
 | # | Phase | Status |
 |---|---|---|
-| 0 | UI design gate (44 screens + design system) | ✅ Approved & locked |
+| 0 | UI design gate (45 screens + design system) | ✅ Approved & locked |
 | 1 | Project setup & scaffolding | ✅ Done (merged, PR #1) |
 | 2 | Database | ✅ Done |
 | 3 | Authentication | ✅ Done |
@@ -46,9 +46,8 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 9 | Admin panel | ✅ Done |
 | 10 | Financial dashboard | ✅ Done |
 | 11 | Support + WhatsApp + NEXA chatbot | ✅ Done |
-| 12 | SEO + Blog CMS | ⬜ Next |
-| 12 | SEO + Blog CMS | ⬜ |
-| 13 | PWA | ⬜ |
+| 12 | SEO + Blog CMS | ✅ Done |
+| 13 | PWA | ⬜ Next |
 | 14 | Security hardening | ⬜ |
 | 15 | Testing | ⬜ |
 | 16 | Deployment | ⬜ |
@@ -301,11 +300,30 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
   limit, zero auditable actions from NEXA) + finance/wallet/join/results suites
   still green; live e2e through the Next proxy; `next build` + `tsc` clean.
 
-### ⬜ Phase 12 — SEO + Blog CMS
-Dynamic metadata, sitemap, robots, canonicals, Open Graph, structured data
-(Organization, FAQ, Breadcrumb, Event), SEO routes
-(`/free-fire-tournaments`, `/tournaments/solo|duo|squad|clash-squad`, …),
-admin-managed blog with SEO fields.
+### ⬜ Phase 12 — SEO + Blog CMS → ✅ done
+
+- **SEO routes (design 45, user-approved)**: `/free-fire-tournaments` hub
+  (hero, four mode cards, featured tournaments, FAQ) and
+  `/tournaments/solo | duo | squad | clash-squad` mode landings — live data,
+  per-mode copy, prize notes, mode FAQs, server-driven status filters.
+- **Metadata everywhere**: one `pageMetadata()` builder (canonical URL, Open
+  Graph, Twitter cards, keywords) on home, tournaments + details, leaderboard,
+  winners, blog + articles, support, player profiles, register — login is
+  noindex; admin `SeoConfig` overrides are **finally served to the site**
+  through the new `GET /api/public/seo/:pageSlug` and win over built-ins.
+- **Structured data**: Organization + WebSite + FAQPage (home, support, hub,
+  mode pages), BreadcrumbList (hub, modes, tournament details, articles),
+  Event with entry-fee Offer (tournament details), Article (blog).
+- **sitemap.xml + robots.txt**: hourly-revalidating sitemap with all static
+  routes + live tournament slugs + published blog slugs; robots disallow
+  /admin, app pages and /api.
+- **Blog CMS SEO fields**: `seoTitle`/`seoDescription` flow from the admin
+  composer through the API to the public article page (title, OG, Article
+  JSON-LD) with graceful fallback to title/excerpt.
+- **Verified:** `npm run verify:seo` — 47/47 live checks against the running
+  site (robots, sitemap contents, every JSON-LD type, canonicals/OG, the full
+  admin-override → live-page loop, blog SEO round-trip, noindex) + all five
+  previous suites still green; `next build` + `tsc` clean.
 
 ### ⬜ Phase 13 — PWA
 Manifest, service worker, app icons, offline fallback, install prompt

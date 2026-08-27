@@ -3,8 +3,20 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
+import { pageMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 
-export const metadata = { title: 'Player Profile' };
+export async function generateMetadata({ params }: { params: Promise<{ username: string }> }): Promise<Metadata> {
+  const { username } = await params;
+  const p = await apiServerSafe<PublicPlayer>(`/public/players/${encodeURIComponent(username)}`);
+  if (!p) return { title: 'Player not found | CLUTCHNEX' };
+  return pageMetadata({
+    slug: `player-${username}`,
+    title: `${p.freeFireIGN ?? p.username} (${p.username}) — Free Fire Player Stats | CLUTCHNEX`,
+    description: `Free Fire stats for ${p.username}: ${p.stats.matchesPlayed} matches, ${p.stats.wins} wins, ${p.stats.kills} kills, ${p.stats.totalPoints} points.`,
+    path: `/players/${username}`,
+  });
+}
 
 interface PublicPlayer {
   username: string;

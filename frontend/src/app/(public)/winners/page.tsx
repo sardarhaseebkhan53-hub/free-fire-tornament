@@ -4,12 +4,19 @@ import { Trophy } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import type { WinnerRow } from '@/lib/types';
 import { money, dateOnly, MODE_LABEL } from '@/lib/format';
+import { pageMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 import { SectionHeading, Badge, EmptyState } from '@/components/ui';
 
-export const metadata = {
-  title: 'Winners — Verified Prize Payouts',
-  description: 'Every CLUTCHNEX winner and verified payout. Real tournaments, real results.',
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return pageMetadata({
+    slug: 'winners',
+    title: 'Free Fire Winners — Verified PKR Prize Payouts | CLUTCHNEX',
+    description: 'Every CLUTCHNEX winner and verified payout. Real tournaments, real results.',
+    path: '/winners',
+    keywords: 'free fire winners, FF prize payouts, free fire pkr winnings',
+  });
+}
 
 export default async function WinnersPage() {
   const winners = await apiServerSafe<WinnerRow[]>('/public/winners?limit=24');

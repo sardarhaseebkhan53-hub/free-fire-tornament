@@ -519,7 +519,7 @@ export async function listBlog(filter: { page: number; pageSize: number }) {
   };
 }
 
-export async function createBlog(adminId: string, input: { title: string; category: string; excerpt?: string; content: string; publish?: boolean }) {
+export async function createBlog(adminId: string, input: { title: string; category: string; excerpt?: string; content: string; publish?: boolean; seoTitle?: string; seoDescription?: string }) {
   const slug = `${slugify(input.title)}-${Math.random().toString(36).slice(2, 5)}`;
   const post = await prisma.blogPost.create({
     data: {
@@ -531,6 +531,8 @@ export async function createBlog(adminId: string, input: { title: string; catego
       status: input.publish ? 'PUBLISHED' : 'DRAFT',
       authorId: adminId,
       publishedAt: input.publish ? new Date() : null,
+      seoTitle: input.seoTitle || null,
+      seoDescription: input.seoDescription || null,
     },
   });
   await prisma.auditLog.create({
