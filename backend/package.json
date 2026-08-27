@@ -2,7 +2,7 @@
   "name": "clutchnex-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "CLUTCHNEX Free Fire esports tournament platform \u2014 API-first backend (Express + Prisma + PostgreSQL)",
+  "description": "CLUTCHNEX Free Fire esports tournament platform — API-first backend (Express + Prisma + PostgreSQL)",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -10,7 +10,7 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "db:dev": "node scripts/dev-db.mjs",
-    "db:generate": "prisma generate",
+    "db:generate": "node scripts/db-generate.mjs",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
@@ -18,7 +18,9 @@
     "studio": "prisma studio",
     "verify:join": "tsx scripts/verify-join-engine.mts",
     "verify:wallet": "tsx scripts/verify-wallet.mts",
-    "verify:results": "tsx scripts/verify-results.mts"
+    "verify:results": "tsx scripts/verify-results.mts",
+    "verify:finance": "tsx scripts/verify-finance.mts",
+    "postinstall": "node scripts/offline-prisma-patch.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
@@ -37,6 +39,8 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.7",
     "@electric-sql/pglite-socket": "^0.2.10",
+    "@prisma/prisma-schema-wasm": "^7.10.0-4.0edf323efd1d98336f3f0a68684b56f689b900d3",
+    "@prisma/schema-engine-wasm": "^7.10.0-4.0edf323efd1d98336f3f0a68684b56f689b900d3",
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.9",
     "@types/cors": "^2.8.19",

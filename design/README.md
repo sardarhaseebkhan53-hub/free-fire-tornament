@@ -1,6 +1,6 @@
 # CLUTCHNEX — UI Concept Gallery (Design Approval Gate)
 
-Status: **ALL 42 CONCEPTS DELIVERED — AWAITING FINAL APPROVAL (UI GATE)**
+Status: **43 concepts — 42 approved & locked (UI gate passed) + screen 43 (Phase 10 financial dashboard) approved on delivery**
 
 Implemented so far (Phases 7–8): screens **12, 13, 14, 15, 16, 17, 22** are live in the
 Next.js app — user shell, dashboard, my matches (with result submission), wallet,
@@ -74,3 +74,9 @@ All concepts follow the CLUTCHNEX premium esports design system.
 | 40 | Audit Logs | `design/40-admin-audit-logs.png` |
 | 41 | Mobile / PWA — public + install banner + bottom nav | `design/41-mobile-public-pwa.png` |
 | 42 | Mobile / PWA — user app + NEXA chat + WhatsApp FAB | `design/42-mobile-user-nexa.png` |
+
+## Batch 5 — Phase 10 (APPROVED)
+
+| # | Screen | File |
+|---|--------|------|
+| 43 | Financial Dashboard — full P&L, one UI for PC & mobile | `design/43-admin-financial-dashboard.png` |

@@ -7,7 +7,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   ArrowUpRight, BarChart3, Bell, FileText, Headphones,
   Home, LayoutDashboard, Loader2, Megaphone, Search, Settings, Shield,
-  ScrollText, Swords, Trophy, Upload, UserRound, Users, Wallet, XCircle,
+  ScrollText, Swords, TrendingUp, Trophy, Upload, UserRound, Users, Wallet, XCircle,
 } from 'lucide-react';
 import { api, getToken } from '@/lib/client-api';
 
@@ -19,6 +19,7 @@ const NAV = [
   { href: '/admin/results', label: 'Results', icon: BarChart3 },
   { href: '/admin/deposits', label: 'Deposits', icon: Wallet },
   { href: '/admin/withdrawals', label: 'Withdrawals', icon: Upload },
+  { href: '/admin/finance', label: 'Financials', icon: TrendingUp },
   { href: '/admin/revenue', label: 'Revenue', icon: BarChart3 },
   { href: '/admin/support', label: 'Support', icon: Headphones },
   { href: '/admin/blog', label: 'Blog', icon: FileText },

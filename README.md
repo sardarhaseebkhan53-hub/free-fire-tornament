@@ -8,7 +8,7 @@ room-credential release, an immutable wallet ledger, manual payment
 verification (JazzCash / EasyPaisa / bank transfer), prize distribution,
 referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
-- 🎨 **UI design: APPROVED & LOCKED** — 42 concept screens in [`design/`](design/)
+- 🎨 **UI design: APPROVED & LOCKED** — 43 concept screens in [`design/`](design/)
   plus the design system spec [`design/DESIGN_SYSTEM_DRAFT.md`](design/DESIGN_SYSTEM_DRAFT.md).
   All UI implements this design; no redesigns without explicit approval.
 - 🔧 **API-first backend** — the same REST API will serve the web app today and a
@@ -30,11 +30,11 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
 ---
 
-## Progress — 7 of 17 phases complete
+## Progress — 11 of 17 phases complete
 
 | # | Phase | Status |
 |---|---|---|
-| 0 | UI design gate (42 screens + design system) | ✅ Approved & locked |
+| 0 | UI design gate (43 screens + design system) | ✅ Approved & locked |
 | 1 | Project setup & scaffolding | ✅ Done (merged, PR #1) |
 | 2 | Database | ✅ Done |
 | 3 | Authentication | ✅ Done |
@@ -44,8 +44,8 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 7 | Wallet & manual payments | ✅ Done |
 | 8 | Results & prize distribution | ✅ Done |
 | 9 | Admin panel | ✅ Done |
-| 10 | Financial dashboard | ⬜ Next |
-| 11 | Support + WhatsApp + NEXA chatbot | ⬜ |
+| 10 | Financial dashboard | ✅ Done |
+| 11 | Support + WhatsApp + NEXA chatbot | ⬜ Next |
 | 12 | SEO + Blog CMS | ⬜ |
 | 13 | PWA | ⬜ |
 | 14 | Security hardening | ⬜ |
@@ -241,10 +241,33 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
   settings round-trip — every action in the audit trail; wallet/results/join
   suites still green; `next build` + `tsc` clean.
 
-### ⬜ Phase 10 — Financial dashboard *(next)*
-Gross entry collection, prize distributed, platform gross, payment costs, refunds,
-referral/bonus costs, withdrawals, net revenue — never conflating deposits with
-profit; daily/weekly/monthly/tournament charts; CSV export.
+### ⬜ Phase 10 — Financial dashboard → ✅ done
+
+- **One rule above all: deposits are player funds, never revenue.** The only
+  revenue line is entry fees actually charged (confirmed registrations);
+  everything the platform pays out or gives away is a cost.
+- **`GET /api/admin/finance`** (ADMIN+): window totals — gross entry collection,
+  coupon discounts (foregone), refunds, prizes distributed, payment costs,
+  referral & bonus costs, platform gross, net revenue + margin — plus
+  deposits/withdrawals reported strictly as player-fund context;
+  **daily/weekly/monthly bucket series over 30/60/90-day windows** that
+  reconcile with the totals to the rupee; **all-time per-tournament P&L**
+  (collected − refunded − prizes). `format=csv` exports an audit-friendly
+  Summary + Series + Per-tournament spreadsheet.
+- **UI (design 43, user-approved)**: "Financials" in the admin sidebar — dual
+  KPI rows, entry-collection-vs-prizes-vs-net multi-line chart with
+  Daily/Weekly/Monthly pills, "where entry fees went" donut, per-tournament P&L
+  (table on desktop, stacked cards on mobile), daily ledger with player-fund
+  columns marked reconciliation-only, Export CSV. Same design on mobile & PC.
+- **Offline Prisma fix**: `npm install` now auto-patches `@prisma/engines`
+  (`scripts/offline-prisma-patch.mjs`) so `npm run db:generate` works with the
+  WASM engines even where `binaries.prisma.sh` is unreachable.
+- **Verified:** `npm run verify:finance` — 36/36 checks (every P&L line
+  recomputed straight from SQL, end-to-end payment-cost flow, a deposit approval
+  provably changes zero profit lines, bucket reconciliation across all nine
+  window/granularity combos, tournament P&L truth, CSV type/content, RBAC) +
+  wallet/join/results suites still green; live e2e through the Next proxy
+  (login → dashboard JSON → CSV → page); `next build` + `tsc` clean.
 
 ### ⬜ Phase 11 — Support + WhatsApp + NEXA
 Ticket system (categories, priorities, statuses, attachments), configurable WhatsApp

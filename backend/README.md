@@ -25,6 +25,12 @@ npm run db:seed
 
 Copy `.env.example` to `.env` first if you want to override defaults.
 
+> **Restricted networks** (no access to `binaries.prisma.sh`): `npm install`
+> auto-applies `scripts/offline-prisma-patch.mjs`, and `npm run db:generate`
+> uses the CLI's bundled WASM engines, so client generation works fully
+> offline. Apply migrations with `node scripts/apply-migrations-offline.mjs`
+> instead of `npm run db:migrate:dev`.
+
 ## Scripts
 
 | Script                | What it does                                            |
@@ -40,6 +46,7 @@ Copy `.env.example` to `.env` first if you want to override defaults.
 | `npm run db:push`     | `prisma db push` (prototyping, no migration files)      |
 | `npm run db:seed`     | Seed the demo dataset                                   |
 | `npm run studio`      | Prisma Studio                                           |
+| `npm run verify:finance` | Financial dashboard suite (P&L truth, CSV, RBAC)     |
 
 ## Architecture notes
 
