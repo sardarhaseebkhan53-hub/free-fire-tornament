@@ -69,14 +69,14 @@ export function NexaWidget() {
   return (
     <>
       {/* Floating bubbles */}
-      <div className="fixed bottom-20 right-4 z-40 flex items-center gap-2 lg:bottom-6 lg:right-6">
+      <div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-40 flex items-center gap-2 lg:bottom-6 lg:right-6">
         {whatsapp && (
           <a
             href={`https://wa.me/${whatsapp.replace(/\D/g, '')}`}
             target="_blank"
             rel="noreferrer"
             aria-label="Chat with us on WhatsApp"
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_8px_24px_rgba(37,211,102,0.5)] transition hover:scale-105"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_8px_24px_rgba(37,211,102,0.5)] transition duration-200 hover:scale-105 active:scale-95"
           >
             <MessageCircle size={22} />
           </a>
@@ -85,7 +85,7 @@ export function NexaWidget() {
           onClick={() => setOpen((v) => !v)}
           aria-label={open ? 'Close NEXA assistant' : 'Open NEXA assistant'}
           aria-expanded={open}
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-strong text-white shadow-[0_8px_24px_rgba(139,92,246,0.55)] transition hover:scale-105"
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-strong text-white shadow-[0_8px_24px_rgba(139,92,246,0.55)] transition duration-200 hover:scale-105 active:scale-95"
         >
           {open ? <X size={22} /> : <Bot size={24} />}
         </button>
@@ -96,7 +96,7 @@ export function NexaWidget() {
         <div
           role="dialog"
           aria-label="NEXA assistant"
-          className="fixed inset-x-3 bottom-36 top-20 z-40 flex flex-col overflow-hidden rounded-[20px] border border-line bg-surface/95 shadow-2xl backdrop-blur-xl sm:inset-x-auto sm:right-6 sm:top-auto sm:bottom-24 sm:h-[520px] sm:w-[380px]"
+          className="animate-modal-in fixed inset-x-3 bottom-36 top-20 z-40 flex flex-col overflow-hidden rounded-[20px] border border-line bg-surface/95 shadow-2xl backdrop-blur-xl sm:inset-x-auto sm:right-6 sm:top-auto sm:bottom-24 sm:h-[520px] sm:w-[380px]"
         >
           <div className="flex items-center gap-3 border-b border-line bg-gradient-to-r from-accent/20 to-transparent px-4 py-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-strong text-white shadow-[0_0_16px_rgba(139,92,246,0.5)]">

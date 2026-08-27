@@ -3,10 +3,10 @@
 // minimum-withdrawal and WhatsApp support cards. All values are live API data.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Coins, Gift, Headset, Loader2, Plus, ShieldCheck, Trophy, Upload, Wallet as WalletIcon } from 'lucide-react';
+import { ArrowRight, Coins, Gift, Headset, Plus, ShieldCheck, Trophy, Upload, Wallet as WalletIcon } from 'lucide-react';
 import { api } from '@/lib/client-api';
 import { CopyChip, StatusPill, TypeChip } from '@/components/wallet/bits';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, Skeleton } from '@/components/ui';
 import { fmt, fmtDate } from '@/lib/format';
 import { useHasSession } from '@/lib/session';
 
@@ -43,7 +43,20 @@ export default function WalletPage() {
   }, [hasSession]);
 
   if (state === 'loading') {
-    return <div className="flex min-h-[50vh] items-center justify-center"><Loader2 className="animate-spin text-accent" /></div>;
+    // Skeleton mirrors the balance hero + bucket grid so the layout holds.
+    return (
+      <div className="mx-auto max-w-6xl" aria-busy="true" aria-label="Loading wallet">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="mt-2 h-4 w-64" />
+        <Skeleton className="mt-6 h-44 rounded-[20px]" />
+        <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-28" />
+          ))}
+        </div>
+        <Skeleton className="mt-8 h-64" />
+      </div>
+    );
   }
   if (state === 'anon' || state === 'error') {
     return (

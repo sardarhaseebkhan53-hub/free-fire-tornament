@@ -84,7 +84,7 @@ export function NavbarClient() {
             </Link>
             <Link
               href="/register"
-              className="rounded-input bg-accent px-4 py-2 text-sm font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition hover:bg-accent-strong"
+              className="rounded-input bg-accent px-4 py-2 text-sm font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition duration-200 hover:bg-accent-strong hover:shadow-[0_0_24px_rgba(139,92,246,0.55)] active:scale-95"
             >
               Register
             </Link>
@@ -97,17 +97,17 @@ export function NavbarClient() {
         <Link
           href="/tournaments"
           aria-label="Search tournaments"
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-2 transition hover:text-fg"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-2 transition hover:text-fg active:scale-95"
         >
           <Search size={16} />
         </Link>
         <Link
           href="/support"
           aria-label="Updates & support"
-          className="relative flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-2 transition hover:text-fg"
+          className="relative flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-2 transition hover:text-fg active:scale-95"
         >
           <Bell size={16} />
-          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-danger" />
+          <span className="absolute right-2.5 top-2.5 h-1.5 w-1.5 rounded-full bg-danger" />
         </Link>
       </div>
     </>

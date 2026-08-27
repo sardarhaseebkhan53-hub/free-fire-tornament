@@ -294,7 +294,10 @@ model User {
   passwordHash String
   role         Role       @default(USER)
   avatar       String?
-  status       UserStatus @default(PENDING_VERIFICATION)
+  // Accounts are ACTIVE the moment registration succeeds (automatic activation).
+  // PENDING_VERIFICATION remains in the enum for legacy rows only; it is NOT
+  // related to DepositStatus (manual payment verification) in any way.
+  status       UserStatus @default(ACTIVE)
   isVerified   Boolean    @default(false)
   verifiedAt   DateTime?
 

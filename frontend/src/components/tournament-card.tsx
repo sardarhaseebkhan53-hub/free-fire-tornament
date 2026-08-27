@@ -19,7 +19,7 @@ export function TournamentCard({ t }: { t: TournamentSummary }) {
   return (
     <Link
       href={`/tournaments/${t.slug}`}
-      className="glass group flex overflow-hidden rounded-card transition-transform duration-200 hover:-translate-y-1 hover:border-accent/40 sm:flex-col"
+      className="glass card-hover group flex overflow-hidden rounded-card duration-200 hover:-translate-y-1 sm:flex-col"
     >
       {/* Banner zone */}
       <div className="relative h-auto min-h-28 w-24 shrink-0 bg-gradient-to-br from-accent/30 via-elevated to-surface sm:h-28 sm:w-full">
@@ -72,7 +72,10 @@ export function TournamentCard({ t }: { t: TournamentSummary }) {
         {/* Slots progress */}
         <div className="mt-3">
           <div className="h-1.5 overflow-hidden rounded-full bg-white/5">
-            <div className="h-full rounded-full bg-accent" style={{ width: `${fillPct}%` }} />
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-accent to-accent-strong transition-[width] duration-500"
+              style={{ width: `${fillPct}%` }}
+            />
           </div>
           <p className="mt-1.5 flex items-center gap-1.5 text-xs text-fg-3">
             <Users size={12} className="shrink-0" />
@@ -96,11 +99,11 @@ export function TournamentCard({ t }: { t: TournamentSummary }) {
             )}
           </div>
           {t.registrationOpen ? (
-            <span className="rounded-input bg-accent px-4 py-2 text-xs font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition group-hover:bg-accent-strong sm:px-5">
+            <span className="rounded-input bg-accent px-4 py-2 text-xs font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition duration-200 group-hover:bg-accent-strong group-hover:shadow-[0_0_22px_rgba(139,92,246,0.55)] group-active:scale-95 sm:px-5">
               Join
             </span>
           ) : (
-            <span className="rounded-input border border-line px-4 py-2 text-xs font-semibold text-fg-3 sm:px-5">
+            <span className="rounded-input border border-line px-4 py-2 text-xs font-semibold text-fg-3 transition group-hover:border-accent/30 group-hover:text-fg-2 sm:px-5">
               {t.status === 'COMPLETED' ? 'Results' : 'Details'}
             </span>
           )}

@@ -134,7 +134,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       <div className="lg:pl-60">
         {/* Topbar — design 26 */}
         <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-line bg-base/90 px-4 backdrop-blur-xl sm:px-6">
-          <button className="rounded-input p-2 text-fg-2 lg:hidden" onClick={() => setDrawerRoute(pathname)} aria-label="Open menu">
+          <button className="rounded-input p-2.5 text-fg-2 transition active:scale-95 lg:hidden" onClick={() => setDrawerRoute(pathname)} aria-label="Open menu" aria-expanded={drawer}>
             <UserRound size={18} />
           </button>
           <form
@@ -170,9 +170,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {drawer && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerRoute(null)} />
-          <div className="absolute inset-y-0 left-0 w-64 border-r border-line bg-surface">{sidebar}</div>
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
+          <div className="animate-fade-in absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerRoute(null)} />
+          <div className="animate-drawer-in absolute inset-y-0 left-0 w-64 max-w-[85vw] overflow-y-auto border-r border-line bg-surface shadow-2xl">{sidebar}</div>
         </div>
       )}
     </div>

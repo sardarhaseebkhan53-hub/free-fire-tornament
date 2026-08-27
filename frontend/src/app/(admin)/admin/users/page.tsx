@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { Ban, Loader2, Search, ShieldCheck, Wallet } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
-import { Kpi, Modal, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
+import { Kpi, Modal, Pager, Pill, Table, TableSkeleton, Td, Tr, useAdminList } from '@/components/admin/kit';
 import { api } from '@/lib/client-api';
 
 interface Row {
@@ -50,7 +50,8 @@ function UsersInner() {
         <Kpi label="Total" value={data?.total ?? '—'} tone="accent" />
         <Kpi label="Filtered" value={data?.items.length ?? 0} tone="info" />
         <Kpi label="Banned" value={data?.items.filter((u) => u.status === 'BANNED').length ?? 0} tone="danger" />
-        <Kpi label="Unverified" value={data?.items.filter((u) => !u.isVerified).length ?? 0} tone="warning" />
+        {/* Email confirmation is an optional track — accounts are ACTIVE on signup. */}
+        <Kpi label="Email Unconfirmed" value={data?.items.filter((u) => !u.isVerified).length ?? 0} tone="warning" />
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -80,7 +81,7 @@ function UsersInner() {
       </div>
 
       {loading && !data ? (
-        <div className="flex min-h-64 items-center justify-center"><Loader2 className="animate-spin text-accent" /></div>
+        <TableSkeleton rows={8} />
       ) : (
         <>
           <Table head={['User', 'Role', 'Status', 'Cash', 'Coins', 'Winning', 'Joined', 'Actions']}>
@@ -103,7 +104,7 @@ function UsersInner() {
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => setAdjustFor(u)}
-                      className="inline-flex items-center gap-1 rounded-input border border-line px-2.5 py-1 text-[11px] font-bold text-fg-2 transition hover:border-accent/40 hover:text-accent"
+                      className="inline-flex items-center gap-1 rounded-input border border-line px-2.5 py-1.5 text-[11px] font-bold text-fg-2 transition hover:border-accent/40 hover:text-accent active:scale-95"
                     >
                       <Wallet size={12} /> Adjust
                     </button>
@@ -111,7 +112,7 @@ function UsersInner() {
                       <button
                         onClick={() => run(() => api(`/admin/users/${u.id}/status`, { method: 'POST', body: { status: 'ACTIVE', reason: 'Restored by admin' } }), u.id)}
                         disabled={busy === u.id}
-                        className="rounded-input border border-success/30 px-2.5 py-1 text-[11px] font-bold text-success disabled:opacity-50"
+                        className="rounded-input border border-success/30 px-2.5 py-1.5 text-[11px] font-bold text-success transition hover:bg-success/10 active:scale-95 disabled:opacity-50"
                       >
                         Restore
                       </button>
@@ -122,7 +123,7 @@ function UsersInner() {
                           if (reason !== null) run(() => api(`/admin/users/${u.id}/status`, { method: 'POST', body: { status: 'BANNED', reason } }), u.id);
                         }}
                         disabled={busy === u.id}
-                        className="inline-flex items-center gap-1 rounded-input border border-danger/30 px-2.5 py-1 text-[11px] font-bold text-danger disabled:opacity-50"
+                        className="inline-flex items-center gap-1 rounded-input border border-danger/30 px-2.5 py-1.5 text-[11px] font-bold text-danger transition hover:bg-danger/10 active:scale-95 disabled:opacity-50"
                       >
                         <Ban size={12} /> Ban
                       </button>

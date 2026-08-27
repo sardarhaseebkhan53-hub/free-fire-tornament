@@ -21,7 +21,7 @@ export function BottomNav() {
       className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-base/95 backdrop-blur-xl lg:hidden"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
-      <div className="mx-auto flex max-w-md items-stretch justify-between px-2 pt-1.5">
+      <div className="mx-auto flex max-w-md items-stretch justify-between px-1.5 pt-1">
         {ITEMS.map((item) => {
           const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
           const Icon = item.icon;
@@ -29,18 +29,19 @@ export function BottomNav() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-1 flex-col items-center gap-1 rounded-card pb-1.5 pt-1 text-[10px] font-semibold transition ${
-                active ? 'text-accent' : 'text-fg-3 hover:text-fg-2'
+              aria-current={active ? 'page' : undefined}
+              className={`flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-card pb-1 pt-1.5 text-[10px] font-semibold transition-colors duration-200 ${
+                active ? 'text-accent' : 'text-fg-3 active:text-fg-2'
               }`}
             >
               <span
-                className={`flex h-8 w-12 items-center justify-center rounded-lg transition ${
+                className={`flex h-9 w-14 items-center justify-center rounded-xl transition-all duration-200 ${
                   active
                     ? 'bg-accent/15 shadow-[0_0_16px_rgba(139,92,246,0.35)]'
                     : ''
                 }`}
               >
-                <Icon size={19} strokeWidth={active ? 2.4 : 2} />
+                <Icon size={20} strokeWidth={active ? 2.4 : 2} />
               </span>
               {item.label}
             </Link>

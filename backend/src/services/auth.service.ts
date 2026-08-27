@@ -125,13 +125,19 @@ export async function register(input: RegisterInput, ctx: RequestContext) {
     referralCode = makeReferralCode();
   }
 
+  // ACCOUNT ACTIVATION IS AUTOMATIC (spec §Account): a user who completes
+  // registration is immediately ACTIVE and can log in right away. The
+  // PENDING_VERIFICATION status is reserved for legacy rows only.
+  // Email verification (isVerified) is a separate, optional track — it never
+  // gates login or account features, and it has NOTHING to do with the manual
+  // payment verification flow (deposits are always admin-reviewed).
   const user = await prisma.user.create({
     data: {
       username,
       email,
       phone: input.phone,
       passwordHash: bcrypt.hashSync(input.password, BCRYPT_ROUNDS),
-      status: 'PENDING_VERIFICATION',
+      status: 'ACTIVE',
       referralCode,
       referredById,
       profile: {
@@ -181,6 +187,10 @@ export async function verifyEmail(token: string) {
   const row = await findToken(token, 'EMAIL_VERIFICATION');
   if (!row) throw badRequest('TOKEN_INVALID', 'Verification link is invalid or has expired.');
 
+  // Email confirmation only flips the isVerified flag (and any legacy
+  // PENDING_VERIFICATION row to ACTIVE). Account activation is NOT gated by
+  // this — new accounts are ACTIVE from registration. Payment verification is
+  // a completely separate admin flow and is never touched here.
   const user = await prisma.user.update({
     where: { id: row.userId },
     data: { isVerified: true, verifiedAt: new Date(), status: 'ACTIVE' },
@@ -188,21 +198,22 @@ export async function verifyEmail(token: string) {
   });
   await revokeToken(row.id);
 
-  // Welcome bonus (admin-configurable; 0 disables it)
+  // Welcome bonus (admin-configurable; 0 disables it) — tied to the OPTIONAL
+  // email-confirmation track. It is not a payment and never auto-approves one.
   const bonus = await getSetting('wallet.welcomeBonus', 0);
   if (bonus > 0) {
     await applyWalletTx(user.id, 'BONUS', 'CREDIT', bonus, 'BONUS_CREDIT', {
-      description: 'Welcome bonus — email verified',
+      description: 'Welcome bonus — email confirmed',
     });
   }
   await prisma.notification.create({
     data: {
       userId: user.id,
       type: 'ACCOUNT',
-      title: 'Account verified 🎉',
+      title: 'Email confirmed 🎉',
       body: bonus > 0
-        ? `Welcome to CLUTCHNEX! A Rs ${bonus} welcome bonus was added to your bonus balance.`
-        : 'Welcome to CLUTCHNEX — the arena is calling.',
+        ? `Thanks for confirming your email! A Rs ${bonus} welcome bonus was added to your bonus balance.`
+        : 'Thanks for confirming your email — your account now shows the verified badge.',
     },
   });
   return user;
