@@ -24,3 +24,20 @@ export const registerLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, code: 'RATE_LIMITED', message: 'Too many accounts created from this network.' },
 });
+
+// Phase 11 — support tickets & NEXA chat
+export const ticketCreateLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many tickets created — please reply on an existing one.' },
+});
+
+export const nexaLimiter = rateLimit({
+  windowMs: 5 * 60_000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { success: false, code: 'RATE_LIMITED', message: 'NEXA needs a breath — try again in a few minutes.' },
+});

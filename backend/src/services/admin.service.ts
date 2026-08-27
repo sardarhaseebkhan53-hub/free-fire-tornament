@@ -465,6 +465,7 @@ export async function listTickets(filter: { status?: string; page: number; pageS
       user: t.user,
       messages: t.messages.map((m) => ({
         id: m.id, body: m.body, fromStaff: (m.sender?.role ?? 'USER') !== 'USER', sender: m.sender?.username ?? 'staff', createdAt: m.createdAt,
+        attachment: m.attachment ? `/api/support/attachments/${m.id}` : null,
       })),
     })),
     page: filter.page, pageSize: filter.pageSize, total,
@@ -475,7 +476,7 @@ export async function replyTicket(adminId: string, id: string, body: string, clo
   const ticket = await prisma.supportTicket.findUnique({ where: { id }, include: { user: { select: { username: true } } } });
   if (!ticket) throw badRequest('NOT_FOUND', 'Ticket not found');
   const message = await prisma.supportMessage.create({
-    data: { ticketId: id, senderId: adminId, body },
+    data: { ticketId: id, senderId: adminId, isStaff: true, body },
   });
   await prisma.supportTicket.update({
     where: { id },

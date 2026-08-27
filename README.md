@@ -8,7 +8,7 @@ room-credential release, an immutable wallet ledger, manual payment
 verification (JazzCash / EasyPaisa / bank transfer), prize distribution,
 referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
-- 🎨 **UI design: APPROVED & LOCKED** — 43 concept screens in [`design/`](design/)
+- 🎨 **UI design: APPROVED & LOCKED** — 44 concept screens in [`design/`](design/)
   plus the design system spec [`design/DESIGN_SYSTEM_DRAFT.md`](design/DESIGN_SYSTEM_DRAFT.md).
   All UI implements this design; no redesigns without explicit approval.
 - 🔧 **API-first backend** — the same REST API will serve the web app today and a
@@ -30,11 +30,11 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
 ---
 
-## Progress — 11 of 17 phases complete
+## Progress — 12 of 17 phases complete
 
 | # | Phase | Status |
 |---|---|---|
-| 0 | UI design gate (43 screens + design system) | ✅ Approved & locked |
+| 0 | UI design gate (44 screens + design system) | ✅ Approved & locked |
 | 1 | Project setup & scaffolding | ✅ Done (merged, PR #1) |
 | 2 | Database | ✅ Done |
 | 3 | Authentication | ✅ Done |
@@ -45,15 +45,16 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 8 | Results & prize distribution | ✅ Done |
 | 9 | Admin panel | ✅ Done |
 | 10 | Financial dashboard | ✅ Done |
-| 11 | Support + WhatsApp + NEXA chatbot | ⬜ Next |
+| 11 | Support + WhatsApp + NEXA chatbot | ✅ Done |
+| 12 | SEO + Blog CMS | ⬜ Next |
 | 12 | SEO + Blog CMS | ⬜ |
 | 13 | PWA | ⬜ |
 | 14 | Security hardening | ⬜ |
 | 15 | Testing | ⬜ |
 | 16 | Deployment | ⬜ |
 
-All completed work lives in **[PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2)**
-(one commit per phase, each independently verified).
+All completed work lives in **[PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4)**
+(and the merged history: PR #1, PR #2, PR #3) — one commit per phase, each independently verified.
 
 ---
 
@@ -269,11 +270,36 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
   wallet/join/results suites still green; live e2e through the Next proxy
   (login → dashboard JSON → CSV → page); `next build` + `tsc` clean.
 
-### ⬜ Phase 11 — Support + WhatsApp + NEXA
-Ticket system (categories, priorities, statuses, attachments), configurable WhatsApp
-number across header/footer/payment pages, NEXA rule-based chatbot (replaceable by a
-real AI later) with hard limits — it can never approve payments, change balances or
-reveal room credentials.
+### ⬜ Phase 11 — Support + WhatsApp + NEXA → ✅ done
+
+- **Player support tickets** (`/api/support`): create with category / priority /
+  subject / message + **screenshot attachment** (MIME/size-gated), paginated
+  *My Tickets* with last-message previews and status counts, full thread,
+  owner-checked everywhere, player reply reopens (`WAITING_USER → OPEN`),
+  player close, `CLOSED` tickets immutable (open a new one). Attachments are
+  served through an **owner-or-staff gated** download route. Staff get in-app
+  nudges on new tickets/replies; the Phase 9 admin reply flow (now correctly
+  marking `isStaff`) notifies the player.
+- **UI (design 44, user-approved)**: Support Center at `/support/tickets` —
+  status filter pills, ticket cards with category/status/priority, thread with
+  staff/player bubbles + attachment previews, reply bar with attach, New Ticket
+  modal with dropzone. Table-grade desktop layout collapses to stacked cards on
+  mobile — one design for both. Admin support panel now previews player
+  attachments inline.
+- **NEXA rule-based chatbot** (`POST /api/nexa`, public, 20 req/5 min):
+  14 intents incl. deposit status, withdrawals, entries, refunds, prizes,
+  referrals, account, human escalation — with **hard limits by construction**:
+  it is a pure read-only function, never approves payments, never changes
+  balances, never reveals room credentials (guarded refusals always carry the
+  limits notice; every response includes it). Unknown input → WhatsApp/ticket
+  escalation. `NexaEngine` interface is the swap point for a real AI later.
+  Floating NEXA widget + configurable WhatsApp bubble across the user app;
+  WhatsApp help strip on the payment-proof page (add-money already had it).
+- **Verified:** `npm run verify:support` — 42/42 (lifecycle, cross-player
+  isolation, attachment gating incl. staff access, reopen/close/immutability,
+  validation, all NEXA guardrails incl. tricky room-credential phrasings, rate
+  limit, zero auditable actions from NEXA) + finance/wallet/join/results suites
+  still green; live e2e through the Next proxy; `next build` + `tsc` clean.
 
 ### ⬜ Phase 12 — SEO + Blog CMS
 Dynamic metadata, sitemap, robots, canonicals, Open Graph, structured data
@@ -381,4 +407,4 @@ free-fire-tornament/
 └── README.md          # this file
 ```
 
-**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · Phases 7–9 in review on this branch.
+**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · PR #3 (Phases 7–9, merged) · [PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4) (Phases 10–11).

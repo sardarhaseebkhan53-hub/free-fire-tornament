@@ -41,10 +41,10 @@ export default async function SupportPage() {
             <p className="mt-1 text-sm text-fg-2">Fastest — chat with support now.</p>
           </a>
         )}
-        <Link href="/login" className="glass rounded-card p-6 transition hover:border-accent/40">
+        <Link href="/support/tickets" className="glass rounded-card p-6 transition hover:border-accent/40">
           <Ticket size={22} className="text-accent" />
           <h2 className="mt-3 font-display text-base font-bold text-fg">Open a Ticket</h2>
-          <p className="mt-1 text-sm text-fg-2">Track payment or tournament issues to resolution.</p>
+          <p className="mt-1 text-sm text-fg-2">Track payment or tournament issues to resolution — right in your account.</p>
         </Link>
         <a href={`mailto:${email}`} className="glass rounded-card p-6 transition hover:border-info/40">
           <LifeBuoy size={22} className="text-info" />

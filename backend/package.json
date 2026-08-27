@@ -20,6 +20,7 @@
     "verify:wallet": "tsx scripts/verify-wallet.mts",
     "verify:results": "tsx scripts/verify-results.mts",
     "verify:finance": "tsx scripts/verify-finance.mts",
+    "verify:support": "tsx scripts/verify-support.mts",
     "postinstall": "node scripts/offline-prisma-patch.mjs"
   },
   "dependencies": {

@@ -70,3 +70,44 @@ export function optionalScreenshot(req: Request, res: Response, next: NextFuncti
     return next();
   });
 }
+
+// --- Support ticket attachments (Phase 11) -----------------------------------
+// Same MIME/size gates as payment screenshots, separate folder + prefix so
+// access rules and cleanup stay isolated. Served only through the gated
+// /api/support/attachments/:messageId route (owner or staff).
+export const TICKET_DIR = path.join(UPLOAD_ROOT, 'tickets');
+
+fs.mkdirSync(TICKET_DIR, { recursive: true });
+
+const ticketStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, TICKET_DIR),
+  filename: (req, file, cb) => {
+    const ext = ALLOWED.get(file.mimetype) ?? path.extname(file.originalname).toLowerCase();
+    cb(null, `tkt-${(req.auth?.id ?? 'anon').slice(-8)}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}${ext}`);
+  },
+});
+
+const ticketUpload = multer({
+  storage: ticketStorage,
+  limits: { fileSize: env.MAX_UPLOAD_MB * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (!ALLOWED.has(file.mimetype)) {
+      return cb(badRequest('VALIDATION_ERROR', 'Attachment must be a JPG, PNG or WebP image.'));
+    }
+    return cb(null, true);
+  },
+});
+
+/** Optional ticket attachment, field name `attachment`. */
+export function optionalTicketAttachment(req: Request, res: Response, next: NextFunction) {
+  ticketUpload.single('attachment')(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) {
+      const msg = err.code === 'LIMIT_FILE_SIZE'
+        ? `Attachment must be under ${env.MAX_UPLOAD_MB}MB.`
+        : 'Upload failed — please try a different file.';
+      return next(badRequest('VALIDATION_ERROR', msg));
+    }
+    if (err) return next(err);
+    return next();
+  });
+}

@@ -3,14 +3,14 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
-import { Pill, useAdminList } from '@/components/admin/kit';
+import { AuthedImage, Pill, useAdminList } from '@/components/admin/kit';
 import { api } from '@/lib/client-api';
 
 interface Ticket {
   id: string; category: string; subject: string; priority: string; status: string;
   createdAt: string; updatedAt: string;
   user: { username: string; email: string };
-  messages: Array<{ id: string; body: string; fromStaff: boolean; sender: string; createdAt: string }>;
+  messages: Array<{ id: string; body: string; fromStaff: boolean; sender: string; createdAt: string; attachment: string | null }>;
 }
 interface Page { items: Ticket[]; total: number }
 
@@ -89,6 +89,11 @@ export default function AdminSupportPage() {
                   {selected.messages.map((m) => (
                     <div key={m.id} className={`max-w-[85%] rounded-card px-3.5 py-2.5 text-sm ${m.fromStaff ? 'self-end bg-accent/15 text-fg' : 'self-start border border-line bg-white/[3%] text-fg-2'}`}>
                       <p>{m.body}</p>
+                      {m.attachment && (
+                        <span className="mt-1 block">
+                          <AuthedImage src={`/api/backend${m.attachment}`} alt="Attachment" className="max-h-44 rounded-input border border-line" />
+                        </span>
+                      )}
                       <p className="mt-1 text-[10px] text-fg-3">{m.sender} · {new Date(m.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</p>
                     </div>
                   ))}

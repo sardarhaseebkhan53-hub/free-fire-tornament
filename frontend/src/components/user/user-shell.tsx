@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/client-api';
 import { Avatar } from '@/components/ui';
+import { NexaWidget } from '@/components/nexa-widget';
 
 export interface Me {
   id: string;
@@ -37,7 +38,7 @@ const NAV: NavItem[] = [
   { label: 'Referrals', icon: Gift, soon: true },
   { label: 'Notifications', icon: Bell, soon: true },
   { label: 'Settings', icon: Settings, soon: true },
-  { href: '/support', label: 'Support', icon: Headphones },
+  { href: '/support/tickets', label: 'Support', icon: Headphones },
 ];
 
 function Logo() {
@@ -261,6 +262,9 @@ export function UserShell({ children }: { children: React.ReactNode }) {
 
         <div className="px-4 pb-24 pt-5 sm:px-6 lg:px-8 lg:pb-12">{children}</div>
       </div>
+
+      {/* NEXA assistant + WhatsApp — design 44/42 (Phase 11) */}
+      <NexaWidget />
     </div>
   );
 }
