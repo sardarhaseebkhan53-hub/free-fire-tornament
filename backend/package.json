@@ -22,7 +22,8 @@
     "verify:finance": "tsx scripts/verify-finance.mts",
     "verify:support": "tsx scripts/verify-support.mts",
     "postinstall": "node scripts/offline-prisma-patch.mjs",
-    "verify:seo": "tsx scripts/verify-seo.mts"
+    "verify:seo": "tsx scripts/verify-seo.mts",
+    "verify:pwa": "tsx scripts/verify-pwa.mts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

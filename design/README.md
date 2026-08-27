@@ -1,6 +1,6 @@
 # CLUTCHNEX — UI Concept Gallery (Design Approval Gate)
 
-Status: **45 concepts — 42 approved & locked (UI gate passed) + screens 43 (Phase 10), 44 (Phase 11) and 45 (Phase 12 SEO routes) approved on delivery**
+Status: **46 concepts — 42 approved & locked (UI gate passed) + screens 43 (Phase 10), 44 (Phase 11), 45 (Phase 12 SEO routes) and 46 (Phase 13 PWA) approved on delivery**
 
 Implemented so far (Phases 7–8): screens **12, 13, 14, 15, 16, 17, 22** are live in the
 Next.js app — user shell, dashboard, my matches (with result submission), wallet,
@@ -92,3 +92,9 @@ All concepts follow the CLUTCHNEX premium esports design system.
 | # | Screen | File |
 |---|--------|------|
 | 45 | SEO landing routes — hub + mode pages, one UI for PC & mobile | `design/45-seo-landing-routes.png` |
+
+## Batch 8 — Phase 13 (APPROVED)
+
+| # | Screen | File |
+|---|--------|------|
+| 46 | PWA — install prompt + offline fallback + standalone splash, PC & mobile | `design/46-pwa-install-offline.png` |

@@ -8,7 +8,7 @@ room-credential release, an immutable wallet ledger, manual payment
 verification (JazzCash / EasyPaisa / bank transfer), prize distribution,
 referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
-- 🎨 **UI design: APPROVED & LOCKED** — 45 concept screens in [`design/`](design/)
+- 🎨 **UI design: APPROVED & LOCKED** — 46 concept screens in [`design/`](design/)
   plus the design system spec [`design/DESIGN_SYSTEM_DRAFT.md`](design/DESIGN_SYSTEM_DRAFT.md).
   All UI implements this design; no redesigns without explicit approval.
 - 🔧 **API-first backend** — the same REST API will serve the web app today and a
@@ -30,11 +30,11 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
 ---
 
-## Progress — 13 of 17 phases complete
+## Progress — 14 of 17 phases complete
 
 | # | Phase | Status |
 |---|---|---|
-| 0 | UI design gate (45 screens + design system) | ✅ Approved & locked |
+| 0 | UI design gate (46 screens + design system) | ✅ Approved & locked |
 | 1 | Project setup & scaffolding | ✅ Done (merged, PR #1) |
 | 2 | Database | ✅ Done |
 | 3 | Authentication | ✅ Done |
@@ -47,7 +47,7 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 10 | Financial dashboard | ✅ Done |
 | 11 | Support + WhatsApp + NEXA chatbot | ✅ Done |
 | 12 | SEO + Blog CMS | ✅ Done |
-| 13 | PWA | ⬜ Next |
+| 13 | PWA | ✅ Done |
 | 14 | Security hardening | ⬜ |
 | 15 | Testing | ⬜ |
 | 16 | Deployment | ⬜ |
@@ -325,9 +325,30 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
   admin-override → live-page loop, blog SEO round-trip, noindex) + all five
   previous suites still green; `next build` + `tsc` clean.
 
-### ⬜ Phase 13 — PWA
-Manifest, service worker, app icons, offline fallback, install prompt
-("Install CLUTCHNEX"), standalone mode.
+### ⬜ Phase 13 — PWA → ✅ done
+
+- **Installable standalone app**: `manifest.webmanifest` (standalone display,
+  obsidian theme, start_url/scope `/`, app shortcuts to Tournaments / My
+  Matches / Wallet) + iOS standalone metas and apple-touch-icon.
+- **Real app icons, deterministic**: `frontend/scripts/gen-icons.sh` draws the
+  brand tile with ImageMagick (violet gradient rounded square + white "C" arc)
+  and exports 192 / 512 / **maskable 512** / apple 180 — verified pixel-exact.
+- **Hand-rolled service worker** (zero dependencies, version-busted cache):
+  navigations network-first → cached page → **/offline shell**; hashed static
+  assets cache-first; **`/api/**` never intercepted** (auth, wallets, live
+  tournament state and room credentials always hit the server). Registration
+  is production-gated so dev hot-reload stays intact.
+- **Offline fallback page** (design 46): wifi-off hero, "your wallet and
+  tickets are safe", Try Again / Home — noindex and precached.
+- **Install prompt** (design 46): glass "Install CLUTCHNEX" card via
+  `beforeinstallprompt` (Chrome/Android/desktop) with iOS Safari Add-to-Home-
+  Screen instructions; 14-day dismissal memory; auto-hide when running
+  standalone.
+- **Verified:** `npm run verify:pwa` — 28/28 (manifest fields, exact PNG
+  dimensions parsed from IHDR bytes, SW handlers + `/api/` non-interception +
+  offline precache, head metas, crawl rules, source wiring) against the
+  production build; all six previous suites still green; `next build` clean.
+  The live preview now runs the production server — install it for real.
 
 ### ⬜ Phase 14 — Security hardening
 Upload validation (MIME/size/dimensions), fraud/duplicate detection alerts, audit
