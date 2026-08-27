@@ -56,3 +56,17 @@ export function requireScreenshot(req: Request, res: Response, next: NextFunctio
     return next();
   });
 }
+
+/** Same as above but the file is OPTIONAL (result submissions). */
+export function optionalScreenshot(req: Request, res: Response, next: NextFunction) {
+  upload.single('screenshot')(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) {
+      const msg = err.code === 'LIMIT_FILE_SIZE'
+        ? `Screenshot must be under ${env.MAX_UPLOAD_MB}MB.`
+        : 'Upload failed — please try a different screenshot.';
+      return next(badRequest('VALIDATION_ERROR', msg));
+    }
+    if (err) return next(err);
+    return next();
+  });
+}

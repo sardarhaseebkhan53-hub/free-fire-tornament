@@ -17,7 +17,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "studio": "prisma studio",
     "verify:join": "tsx scripts/verify-join-engine.mts",
-    "verify:wallet": "tsx scripts/verify-wallet.mts"
+    "verify:wallet": "tsx scripts/verify-wallet.mts",
+    "verify:results": "tsx scripts/verify-results.mts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

@@ -42,8 +42,8 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 5 | Tournament engine | ✅ Done |
 | 6 | Teams & matches | ✅ Done |
 | 7 | Wallet & manual payments | ✅ Done |
-| 8 | Results & prize distribution | ⬜ Next |
-| 9 | Admin panel | ⬜ |
+| 8 | Results & prize distribution | ✅ Done |
+| 9 | Admin panel | ⬜ Next |
 | 10 | Financial dashboard | ⬜ |
 | 11 | Support + WhatsApp + NEXA chatbot | ⬜ |
 | 12 | SEO + Blog CMS | ⬜ |
@@ -177,13 +177,37 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
   totals math, screenshot ownership, audits, ledger integrity) + Phase 5 join
   regression green; `next build` clean.
 
-### ⬜ Phase 8 — Results & prize distribution *(next)*
-Player result submission with screenshots, admin verification (verify/reject/
-disqualify), points calculation (placement + kills × rate), winner determination,
-**idempotent** prize distribution (placement + kill-pool with cap rules + MVP),
-prize crediting to winning balances with notifications.
+### ✅ Phase 8 — Results & prize distribution
+- **Player result submission**: `POST /api/matches/:matchId/result` — participants only
+  (solo or via team), completed matches only, one live submission per player per match,
+  optional screenshot upload, audited.
+- **Admin verification API**: pending queue with player/match context, screenshot access
+  (owner or staff), **approve / reject / disqualify** with optional placement/kills
+  override; approval writes `placement + kills × pointsPerKill` (placement table
+  12/9/8/7/…) onto the match participant and updates `PlayerStat` (corrections apply
+  compensated deltas); disqualification excludes the player and reverts prior stats.
+- **Winner determination**: aggregate points per player/team across a tournament's
+  matches (tie-break on kills), public standings endpoint
+  (`/api/public/tournaments/:slug/results`) with credited prizes.
+- **Idempotent prize distribution**: one command generates **placement prizes** from the
+  ranking, a **pro-rata kill pool** capped at its configured budget, and **MVP** for the
+  top rank; team awards split equally across current members. Every award anchors on the
+  unique `(tournament, position)` Winner row — a second run is refused, a crashed run
+  completes without double-crediting. Credited through the immutable ledger with
+  notifications, stat earnings and a full audit entry; tournament marked COMPLETED.
+- **UI (design 13)**: My Matches rebuilt — Upcoming/Live/Completed tabs with counts,
+  rich match cards (entry fee, prize pool, your slot), live room credentials with
+  password reveal/copy, completed cards showing placement/kills/points/earnings,
+  result submission modal (placement + kills + notes + screenshot) with
+  under-review/rejected states, and a final-standings modal with credited prizes.
+- **Infra fix**: the pg pool now recycles idle connections before the dev PGlite
+  server's 120s teardown — no more one-shot failures after idle periods.
+- **Verified:** `npm run verify:results` — 34/34 checks (guards, points math, stat
+  corrections, disqualification, ranking, kill-pool cap, MVP, exact crediting,
+  idempotency, notifications, audits, ledger integrity) + wallet and join suites
+  still green; live e2e through the Next proxy; `next build` clean.
 
-### ⬜ Phase 9 — Admin panel
+### ⬜ Phase 9 — Admin panel *(next)*
 15+ screens: dashboard, users, tournament builder wizard (15 steps incl. profit
 calculator + economic safety), matches, result verification, deposits, withdrawals,
 wallets/balance adjustments (audited), teams, referrals, coupons, notifications,
@@ -259,6 +283,7 @@ npm run dev             # http://localhost:3000
 |---|---|---|
 | backend | `npm run verify:join` | Concurrency/financial test suite for the join engine |
 | backend | `npm run verify:wallet` | Wallet ledger + manual payments test suite |
+| backend | `npm run verify:results` | Results, verification & prize distribution test suite |
 | backend | `npm run db:seed` | Reset demo data |
 | backend | `npm run typecheck` | `tsc --noEmit` |
 | frontend | `npx next build` | Production build check |
@@ -305,4 +330,4 @@ free-fire-tornament/
 └── README.md          # this file
 ```
 
-**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · Phase 7 in review on this branch.
+**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · Phases 7–8 in review on this branch.

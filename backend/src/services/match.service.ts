@@ -99,7 +99,7 @@ export async function myMatches(userId: string) {
       tournament: {
         select: {
           id: true, title: true, slug: true, type: true, map: true, status: true,
-          startTime: true,
+          startTime: true, entryFeePerPlayer: true, prizePool: true,
           matches: {
             orderBy: { matchNumber: 'asc' },
             select: {
@@ -110,7 +110,7 @@ export async function myMatches(userId: string) {
           },
         },
       },
-      team: { select: { name: true, tag: true } },
+      team: { select: { id: true, name: true, tag: true } },
     },
     orderBy: { registeredAt: 'desc' },
   });
@@ -118,36 +118,75 @@ export async function myMatches(userId: string) {
   const now = Date.now();
   const releasedMatchIds: string[] = [];
 
-  const items = regs.map((reg) => ({
-    tournament: {
-      id: reg.tournament.id,
-      title: reg.tournament.title,
-      slug: reg.tournament.slug,
-      type: reg.tournament.type,
-      map: reg.tournament.map,
-      status: reg.tournament.status,
-      startTime: reg.tournament.startTime,
-    },
-    team: reg.team,
-    matches: reg.tournament.matches.map((m) => {
-      const releaseAt = m.credentialsReleaseAt ? new Date(m.credentialsReleaseAt).getTime() : null;
-      const unlocked = releaseAt !== null && releaseAt <= now;
-      if (unlocked && !m.credentialsReleasedAt) releasedMatchIds.push(m.id);
-      return {
-        id: m.id,
-        matchNumber: m.matchNumber,
-        round: m.round,
-        map: m.map,
-        scheduledAt: m.scheduledAt,
-        status: unlocked && m.status === 'SCHEDULED' ? 'CREDENTIALS_RELEASED' : m.status,
-        // Credentials: included ONLY when unlocked. Never otherwise.
-        roomId: unlocked ? m.roomId : null,
-        roomPassword: unlocked ? m.roomPassword : null,
-        credentialsReleaseAt: m.credentialsReleaseAt,
-        releaseInMs: releaseAt !== null ? releaseAt - now : null,
-        unlocked,
-      };
-    }),
+  // Per-tournament extras: my slot number, my result rows, my credited earnings.
+  const items = await Promise.all(regs.map(async (reg) => {
+    const tournament = reg.tournament;
+    const teamId = reg.team?.id ?? null;
+    const matchIds = tournament.matches.map((m) => m.id);
+
+    const [slotNumber, participants, submissions, earningsAgg] = await Promise.all([
+      // Slot = registration order among confirmed players.
+      prisma.tournamentRegistration.count({
+        where: { tournamentId: tournament.id, status: 'CONFIRMED', registeredAt: { lte: reg.registeredAt } },
+      }),
+      prisma.matchParticipant.findMany({
+        where: { matchId: { in: matchIds }, ...(teamId ? { teamId } : { userId }) },
+        select: { matchId: true, placement: true, kills: true, points: true, status: true },
+      }),
+      prisma.resultSubmission.findMany({
+        where: { matchId: { in: matchIds }, submittedById: userId },
+        orderBy: { createdAt: 'desc' },
+        select: { matchId: true, status: true, placement: true, kills: true, notes: true, createdAt: true },
+      }),
+      prisma.winner.aggregate({
+        where: { tournamentId: tournament.id, status: 'CREDITED', ...(teamId ? { teamId } : { userId }) },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const byMatch = (id: string) => participants.find((p) => p.matchId === id) ?? null;
+    const subFor = (id: string) => submissions.find((s) => s.matchId === id) ?? null;
+
+    return {
+      tournament: {
+        id: tournament.id,
+        title: tournament.title,
+        slug: tournament.slug,
+        type: tournament.type,
+        map: tournament.map,
+        status: tournament.status,
+        startTime: tournament.startTime,
+        entryFeePerPlayer: Number(tournament.entryFeePerPlayer),
+        prizePool: Number(tournament.prizePool),
+      },
+      team: reg.team ? { name: reg.team.name, tag: reg.team.tag } : null,
+      slotNumber,
+      myEarnings: Number(earningsAgg._sum.amount ?? 0),
+      matches: tournament.matches.map((m) => {
+        const releaseAt = m.credentialsReleaseAt ? new Date(m.credentialsReleaseAt).getTime() : null;
+        const unlocked = releaseAt !== null && releaseAt <= now;
+        if (unlocked && !m.credentialsReleasedAt) releasedMatchIds.push(m.id);
+        const p = byMatch(m.id);
+        const sub = subFor(m.id);
+        return {
+          id: m.id,
+          matchNumber: m.matchNumber,
+          round: m.round,
+          map: m.map,
+          scheduledAt: m.scheduledAt,
+          status: unlocked && m.status === 'SCHEDULED' ? 'CREDENTIALS_RELEASED' : m.status,
+          // Credentials: included ONLY when unlocked. Never otherwise.
+          roomId: unlocked ? m.roomId : null,
+          roomPassword: unlocked ? m.roomPassword : null,
+          credentialsReleaseAt: m.credentialsReleaseAt,
+          releaseInMs: releaseAt !== null ? releaseAt - now : null,
+          unlocked,
+          // Phase 8 — my result + submission state for completed matches.
+          result: p ? { placement: p.placement, kills: p.kills, points: p.points, status: p.status } : null,
+          mySubmission: sub ? { status: sub.status, placement: sub.placement, kills: sub.kills, note: sub.notes } : null,
+        };
+      }),
+    };
   }));
 
   // Mark releases exactly once (lazy state transition)

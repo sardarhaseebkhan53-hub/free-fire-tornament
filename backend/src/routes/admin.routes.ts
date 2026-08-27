@@ -6,6 +6,10 @@ import { ok } from '../lib/respond';
 import {
   depositListQuerySchema, depositReviewSchema, withdrawalListQuerySchema, withdrawalReviewSchema,
 } from '../validation/wallet.schema';
+import { reviewResultSchema, submissionListQuerySchema } from '../validation/result.schema';
+import {
+  distributePrizes, listSubmissions, reviewResult, tournamentStandings,
+} from '../services/result.service';
 import {
   listDeposits, listWithdrawals, reviewDeposit, reviewWithdrawal,
 } from '../services/payment.service';
@@ -40,4 +44,32 @@ adminRouter.post('/withdrawals/:id/review', async (req, res) => {
     userAgent: req.headers['user-agent']?.slice(0, 200),
   });
   return ok(res, out, `Withdrawal ${out.status.toLowerCase()}.`);
+});
+
+// --- Phase 8 — result verification + prize distribution ----------------------
+
+adminRouter.get('/results', async (req, res) => {
+  const q = submissionListQuerySchema.parse(req.query);
+  return ok(res, await listSubmissions(q));
+});
+
+adminRouter.post('/results/:id/review', async (req, res) => {
+  const { action, note, placement, kills } = reviewResultSchema.parse(req.body);
+  const out = await reviewResult(
+    req.auth!.id, String(req.params.id), action, { note, placement, kills },
+    { ip: req.ip, userAgent: req.headers['user-agent']?.slice(0, 200) },
+  );
+  return ok(res, out, `Result ${out.status.toLowerCase()}.`);
+});
+
+adminRouter.get('/tournaments/:id/results', async (req, res) => {
+  return ok(res, await tournamentStandings(String(req.params.id)));
+});
+
+adminRouter.post('/tournaments/:id/distribute-prizes', async (req, res) => {
+  const out = await distributePrizes(req.auth!.id, String(req.params.id), {
+    ip: req.ip,
+    userAgent: req.headers['user-agent']?.slice(0, 200),
+  });
+  return ok(res, out, `Distributed ${out.totalPaid} PKR across ${out.awards.length} awards.`, 201);
 });
