@@ -41,6 +41,18 @@ export const MODE_LABEL: Record<string, string> = {
   CLASH_SQUAD: 'Clash Squad',
 };
 
+/** Rupee formatter for the user app (design shows ₹ with Indian grouping). */
+export function fmt(n: number | string | null | undefined, decimals = 0): string {
+  return `₹${Number(n ?? 0).toLocaleString('en-IN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+}
+
+export function fmtDate(d: string | Date): string {
+  return new Date(d).toLocaleString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+}
+
 export const STATUS_LABEL: Record<string, string> = {
   REGISTRATION_OPEN: 'Open',
   LIVE: 'Live',

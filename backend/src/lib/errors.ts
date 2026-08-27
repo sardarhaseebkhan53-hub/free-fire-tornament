@@ -2,6 +2,7 @@
 // code that the frontend (and future Flutter app) maps to human text.
 export type ApiErrorCode =
   | 'VALIDATION_ERROR'
+  | 'ECONOMIC_UNSAFE'
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
   | 'NOT_FOUND'

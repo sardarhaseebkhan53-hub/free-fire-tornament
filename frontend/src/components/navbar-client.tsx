@@ -1,9 +1,9 @@
 'use client';
-// Client island: mobile menu toggle + auth-aware actions (login/register or
-// dashboard chip). Access token is read from localStorage (set on login).
+// Client island: auth-aware desktop actions + the design-41 mobile header
+// (logo stays in navbar.tsx; this renders search + bell — no drawer).
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { LogOut, Menu, Wallet, X } from 'lucide-react';
+import { Bell, LogOut, Search, Wallet } from 'lucide-react';
 
 interface Session {
   sub: string;
@@ -24,16 +24,7 @@ function readSession(): Session | null {
   }
 }
 
-const MOBILE_LINKS = [
-  { href: '/tournaments', label: 'Tournaments' },
-  { href: '/leaderboard', label: 'Leaderboard' },
-  { href: '/winners', label: 'Winners' },
-  { href: '/blog', label: 'Blog' },
-  { href: '/support', label: 'Support' },
-];
-
 export function NavbarClient() {
-  const [open, setOpen] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
@@ -54,6 +45,7 @@ export function NavbarClient() {
 
   return (
     <>
+      {/* Desktop actions — design 01 */}
       <div className="hidden items-center gap-2 lg:flex">
         {session ? (
           <>
@@ -86,53 +78,24 @@ export function NavbarClient() {
         )}
       </div>
 
-      {/* Mobile menu button */}
-      <button
-        onClick={() => setOpen(!open)}
-        aria-label="Menu"
-        aria-expanded={open}
-        className="rounded-input border border-line p-2 text-fg-2 lg:hidden"
-      >
-        {open ? <X size={18} /> : <Menu size={18} />}
-      </button>
-
-      {open && (
-        <div className="glass absolute inset-x-0 top-16 border-b border-line bg-base/95 p-4 lg:hidden">
-          <nav className="flex flex-col gap-1" aria-label="Mobile">
-            {MOBILE_LINKS.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                onClick={() => setOpen(false)}
-                className="rounded-input px-3 py-2.5 text-sm font-medium text-fg-2 hover:bg-white/5 hover:text-fg"
-              >
-                {l.label}
-              </Link>
-            ))}
-          </nav>
-          <div className="mt-3 flex gap-2 border-t border-line pt-3">
-            {session ? (
-              <>
-                <Link href="/dashboard" onClick={() => setOpen(false)} className="flex-1 rounded-input bg-accent px-4 py-2.5 text-center text-sm font-bold text-white">
-                  Dashboard
-                </Link>
-                <button onClick={logout} className="rounded-input border border-line px-4 py-2.5 text-sm font-semibold text-fg-2">
-                  Logout
-                </button>
-              </>
-            ) : (
-              <>
-                <Link href="/login" onClick={() => setOpen(false)} className="flex-1 rounded-input border border-line px-4 py-2.5 text-center text-sm font-semibold text-fg">
-                  Login
-                </Link>
-                <Link href="/register" onClick={() => setOpen(false)} className="flex-1 rounded-input bg-accent px-4 py-2.5 text-center text-sm font-bold text-white">
-                  Register
-                </Link>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Mobile header icons — design 41: search + bell */}
+      <div className="flex items-center gap-2 lg:hidden">
+        <Link
+          href="/tournaments"
+          aria-label="Search tournaments"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-2 transition hover:text-fg"
+        >
+          <Search size={16} />
+        </Link>
+        <Link
+          href="/support"
+          aria-label="Updates & support"
+          className="relative flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-2 transition hover:text-fg"
+        >
+          <Bell size={16} />
+          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-danger" />
+        </Link>
+      </div>
     </>
   );
 }

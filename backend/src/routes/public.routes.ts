@@ -42,6 +42,12 @@ publicRouter.get('/tournaments/:slug', async (req, res) => {
   return ok(res, await svc.getTournamentBySlug(slug));
 });
 
+// Final standings + credited winners for a completed tournament (Phase 8).
+publicRouter.get('/tournaments/:slug/results', async (req, res) => {
+  const slug = String(req.params.slug).slice(0, 120);
+  return ok(res, await svc.tournamentResults(slug));
+});
+
 publicRouter.get('/stats/home', async (_req, res) => {
   return ok(res, await svc.homeStats());
 });

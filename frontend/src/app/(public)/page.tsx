@@ -11,6 +11,7 @@ import { money, compact, MODE_LABEL } from '@/lib/format';
 import { SectionHeading, StatCard, Badge, Avatar } from '@/components/ui';
 import { TournamentCard } from '@/components/tournament-card';
 import { FaqList } from '@/components/faq-list';
+import { FeaturedMobile } from '@/components/featured-mobile';
 
 const MODES = [
   { type: 'SOLO', label: 'Solo', desc: 'One player. Pure skill — every kill counts.', icon: Gamepad2 },
@@ -46,11 +47,52 @@ export default async function HomePage() {
   const whatsapp = String(settings?.['platform.whatsappNumber'] ?? '');
   const featured = tournaments?.items ?? [];
   const openCount = featured.filter((t) => t.registrationOpen).length;
+  // Mobile featured card (design 41): first open tournament, else the first listed.
+  const heroCard = featured.find((t) => t.registrationOpen) ?? featured[0] ?? null;
 
   return (
     <>
-      {/* HERO */}
-      <section className="relative overflow-hidden">
+      {/* MOBILE HERO — design 41: compact banner card with art */}
+      <section className="px-4 pt-4 lg:hidden">
+        <div className="relative overflow-hidden rounded-card border border-line">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/art/hero-mobile.png"
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover object-[70%_30%]"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-base via-base/85 to-base/10" />
+          <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-pill bg-danger/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
+            <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-dot" /> Live
+          </span>
+          <div className="relative p-5">
+            <h1 className="font-display text-[2rem] font-bold uppercase italic leading-[1.02] text-fg drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]">
+              The Arena<br />
+              <span className="text-accent drop-shadow-[0_0_18px_rgba(139,92,246,0.6)]">Is Calling</span>
+            </h1>
+            <p className="mt-2.5 max-w-48 text-xs leading-relaxed text-fg-2 drop-shadow">
+              Compete. Conquer. Celebrate.
+              <br />
+              Be the last one standing.
+            </p>
+            <Link
+              href="/register"
+              className="mt-4 inline-flex items-center gap-1.5 rounded-input bg-accent px-5 py-2.5 text-xs font-bold text-white shadow-[0_0_22px_rgba(139,92,246,0.5)] transition hover:bg-accent-strong"
+            >
+              Play Now <span aria-hidden>›</span>
+            </Link>
+          </div>
+        </div>
+        {/* carousel dots — design 41 */}
+        <div className="mt-3 flex justify-center gap-1.5" aria-hidden>
+          <span className="h-1.5 w-4 rounded-pill bg-accent" />
+          <span className="h-1.5 w-1.5 rounded-full bg-white/15" />
+          <span className="h-1.5 w-1.5 rounded-full bg-white/15" />
+        </div>
+      </section>
+
+      {/* DESKTOP HERO — design 01 */}
+      <section className="relative hidden overflow-hidden lg:block">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.18),transparent_55%)]" />
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent" />
         <div className="relative mx-auto max-w-7xl px-4 pb-16 pt-16 text-center sm:px-6 sm:pt-24">
@@ -98,8 +140,37 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* FEATURED TOURNAMENTS */}
-      <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
+      {/* MOBILE FEATURED TOURNAMENT — design 41 */}
+      {heroCard && (
+        <FeaturedMobile
+          t={{
+            slug: heroCard.slug,
+            title: heroCard.title,
+            type: heroCard.type,
+            entryFeePerPlayer: Number(heroCard.entryFeePerPlayer),
+            prizePool: Number(heroCard.prizePool),
+            registeredSlots: heroCard.registeredSlots,
+            maxSlots: heroCard.maxSlots,
+            startsInMs: heroCard.startsInMs,
+            banner: heroCard.banner,
+          }}
+        />
+      )}
+
+      {/* MOBILE STATS */}
+      {stats && (
+        <section className="mx-auto max-w-7xl px-4 pt-6 lg:hidden">
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard label="Total Players" value={compact(stats.totalPlayers)} />
+            <StatCard label="Tournaments" value={compact(stats.totalTournaments)} />
+            <StatCard label="Prize Distributed" value={money(stats.totalPrizeDistributed)} accent />
+            <StatCard label="Live Now" value={String(stats.liveTournaments)} />
+          </div>
+        </section>
+      )}
+
+      {/* FEATURED TOURNAMENTS (desktop — design 01; mobile uses the design-41 card) */}
+      <section className="mx-auto hidden max-w-7xl px-4 py-14 sm:px-6 lg:block">
         <SectionHeading
           kicker="Compete"
           title="Featured Tournaments"

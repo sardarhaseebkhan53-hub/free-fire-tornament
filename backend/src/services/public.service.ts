@@ -282,3 +282,43 @@ export async function publicSettings() {
   for (const r of rows) out[r.key] = r.value;
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 8 — public final standings for a completed tournament
+// ---------------------------------------------------------------------------
+
+import { tournamentStandings } from './result.service';
+
+export async function tournamentResults(slug: string) {
+  const t = await prisma.tournament.findUnique({
+    where: { slug },
+    select: { id: true },
+  });
+  if (!t) return null;
+
+  const { tournament, standings } = await tournamentStandings(t.id);
+  const winners = await prisma.winner.findMany({
+    where: { tournamentId: t.id, status: 'CREDITED' },
+    orderBy: { position: 'asc' },
+    include: {
+      user: { select: { username: true, profile: { select: { freeFireIGN: true } } } },
+      team: { select: { name: true, tag: true } },
+    },
+  });
+
+  return {
+    tournament: {
+      id: tournament.id,
+      title: tournament.title,
+      type: tournament.type,
+      status: tournament.status,
+    },
+    standings: standings.map((s, i) => ({ rank: i + 1, ...s })),
+    winners: winners.map((w) => ({
+      position: w.position,
+      label: w.position >= 200 ? 'MVP' : w.position >= 100 ? 'Kill Pool' : `Position ${w.position}`,
+      amount: Number(w.amount),
+      recipient: w.team?.name ?? w.user?.profile?.freeFireIGN ?? w.user?.username ?? '—',
+    })),
+  };
+}

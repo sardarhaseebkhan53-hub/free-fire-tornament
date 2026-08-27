@@ -159,6 +159,7 @@ async function main() {
     ['wallet.minWithdrawal', 100, 'Minimum withdrawal (PKR)'],
     ['wallet.coinConversionRate', 1, 'Tournament credits per 1 PKR deposited'],
     ['wallet.welcomeBonus', 100, 'One-time bonus for new verified players (PKR)'],
+    ['wallet.depositBonusPercent', 0, 'Bonus credits (coins) as % of every approved deposit'],
     ['wallet.withdrawalFeePercent', 0, 'Withdrawal processing fee (%)'],
     ['payments.processingTimeHours', 24, 'Advertised manual-payment review window'],
     ['tournament.defaultPointsPerKill', 1, 'Default points awarded per kill'],

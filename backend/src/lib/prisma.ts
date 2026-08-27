@@ -14,7 +14,14 @@ const DEFAULT_URL =
 
 function buildClient(): PrismaClient {
   const connectionString = process.env.DATABASE_URL ?? DEFAULT_URL;
-  const adapter = new PrismaPg({ connectionString });
+  const adapter = new PrismaPg({
+    connectionString,
+    // Recycle pooled sockets BEFORE the dev PGlite server's 120s idle teardown,
+    // so the pool never hands out connections the server has already closed.
+    max: Number(connectionString.match(/connection_limit=(\d+)/)?.[1] ?? 5),
+    idleTimeoutMillis: 90_000,
+    connectionTimeoutMillis: 10_000,
+  } as never);
   return new PrismaClient({ adapter });
 }
 
