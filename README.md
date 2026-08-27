@@ -52,8 +52,9 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 15 | Testing | ✅ Done |
 | 16 | Deployment | ✅ Done |
 
-Completed work lives in the merged history (PR #1, PR #2, PR #3, PR #4) plus the
-open Phase 14 branch — one commit per phase, each independently verified.
+Completed work lives in the merged history (PR #1, PR #2, PR #3, PR #4) plus
+[PR #5](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/5)
+(Phases 14–16) — one commit per phase, each independently verified.
 
 ---
 
@@ -589,4 +590,4 @@ free-fire-tornament/
 └── README.md          # this file
 ```
 
-**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · PR #3 (Phases 7–9, merged) · [PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4) (Phases 10–13, merged) · Phase 14 (security hardening) on this branch.
+**Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · PR #3 (Phases 7–9, merged) · [PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4) (Phases 10–13, merged) · [PR #5](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/5) (Phases 14–16: security, testing, deployment).
