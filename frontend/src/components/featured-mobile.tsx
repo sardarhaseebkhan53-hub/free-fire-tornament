@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Crown, Gem, Users } from 'lucide-react';
 import { MODE_LABEL } from '@/lib/format';
 import { useTimeLeft } from '@/lib/client-time';
+import { TournamentImage } from '@/components/tournament-image';
 
 export interface FeaturedTournament {
   slug: string;
@@ -58,10 +59,12 @@ export function FeaturedMobile({ t }: { t: FeaturedTournament }) {
 
       <Link href={`/tournaments/${t.slug}`} className="glass card-hover block overflow-hidden rounded-card">
         <div className="flex gap-4 p-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={t.banner ?? '/art/tournament-default.png'}
-            alt=""
+          <TournamentImage
+            src={t.banner}
+            alt={t.title}
+            label={t.title}
+            priority
+            sizes="(max-width: 640px) 96px, 112px"
             className="h-24 w-24 shrink-0 rounded-card border border-line object-cover sm:h-28 sm:w-28"
           />
           <div className="min-w-0 flex-1">

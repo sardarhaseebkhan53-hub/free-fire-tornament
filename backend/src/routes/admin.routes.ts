@@ -22,6 +22,7 @@ import {
   upsertSeo,
 } from '../services/admin.service';
 import { financeCsv, financeDashboard } from '../services/finance.service';
+import { listAllTransfers } from '../services/transfer.service';
 
 export const adminRouter = Router();
 
@@ -34,6 +35,14 @@ adminRouter.get('/stats', async (_req, res) => ok(res, await adminStats()));
 adminRouter.get('/revenue', async (req, res) => {
   const { days } = revenueQuerySchema.parse(req.query);
   return ok(res, await revenueAnalytics(days));
+});
+
+// Wallet transfers — platform-wide audit view
+adminRouter.get('/transfers', async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const pageSize = Math.min(200, Math.max(5, Number(req.query.pageSize) || 25));
+  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+  return ok(res, await listAllTransfers({ page, pageSize, search }));
 });
 // Phase 10 — financial dashboard (full P&L; deposits never conflated with revenue)
 adminRouter.get('/finance', async (req, res) => {

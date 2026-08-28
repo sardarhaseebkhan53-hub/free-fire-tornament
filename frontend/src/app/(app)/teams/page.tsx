@@ -1,10 +1,14 @@
 'use client';
 // Teams — my teams, pending invites, create team (spec §36).
+// All authed calls go through the shared API client: an expired access token
+// is refreshed transparently (rotating cookie) and only a genuinely dead
+// session falls back to the sign-in screen — never a raw 401 in the console.
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, Shield, Users } from 'lucide-react';
 import { Avatar, EmptyState } from '@/components/ui';
 import { deferLoad } from '@/lib/session';
+import { api, ApiClientError } from '@/lib/client-api';
 
 interface MyTeam {
   role: string;
@@ -20,11 +24,6 @@ interface Invite {
   invitedBy: { username: string };
 }
 
-function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem('cn_access');
-  return token ? { authorization: `Bearer ${token}`, 'content-type': 'application/json' } : { 'content-type': 'application/json' };
-}
-
 export default function TeamsPage() {
   const [teams, setTeams] = useState<MyTeam[] | null>(null);
   const [invites, setInvites] = useState<Invite[]>([]);
@@ -34,15 +33,19 @@ export default function TeamsPage() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
-    const token = localStorage.getItem('cn_access');
-    if (!token) return setAnon(true);
-    const [t, i] = await Promise.all([
-      fetch('/api/backend/teams/my', { headers: authHeaders() }).then((r) => r.json()),
-      fetch('/api/backend/teams/invites/my', { headers: authHeaders() }).then((r) => r.json()),
-    ]);
-    if (!t.success) return setAnon(true);
-    setTeams(t.data);
-    setInvites(i.success ? i.data : []);
+    if (!localStorage.getItem('cn_access')) return setAnon(true);
+    try {
+      const [t, i] = await Promise.all([
+        api<MyTeam[]>('/teams/my'),
+        api<Invite[]>('/teams/invites/my').catch(() => []),
+      ]);
+      setTeams(t);
+      setInvites(i);
+    } catch (e) {
+      // Refresh failed → the session really is gone (or never existed).
+      if (e instanceof ApiClientError && e.status === 401) setAnon(true);
+      else setTeams([]);
+    }
   }, []);
 
   useEffect(() => { deferLoad(load); }, [load]);
@@ -50,20 +53,31 @@ export default function TeamsPage() {
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setMsg(null);
-    const res = await fetch('/api/backend/teams', { method: 'POST', headers: authHeaders(), body: JSON.stringify(form) });
-    const json = await res.json();
-    setBusy(false);
-    if (json.success) {
+    try {
+      const created = await api<{ team?: { name: string } }>('/teams', {
+        method: 'POST', body: form,
+      });
       setMsg({ ok: true, text: `Team ${form.name} created — invite your squad!` });
       setForm({ name: '', tag: '', type: 'SQUAD' });
+      void created;
       load();
-    } else {
-      setMsg({ ok: false, text: json.message ?? 'Could not create team.' });
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) return setAnon(true);
+      setMsg({
+        ok: false,
+        text: err instanceof ApiClientError ? (err.message ?? 'Could not create team.') : 'Could not create team.',
+      });
+    } finally {
+      setBusy(false);
     }
   }
 
   async function respond(inviteId: string, accept: boolean) {
-    await fetch(`/api/backend/teams/invites/${inviteId}/${accept ? 'accept' : 'decline'}`, { method: 'POST', headers: authHeaders() });
+    try {
+      await api(`/teams/invites/${inviteId}/${accept ? 'accept' : 'decline'}`, { method: 'POST' });
+    } catch {
+      /* re-render state comes from the reload below */
+    }
     load();
   }
 

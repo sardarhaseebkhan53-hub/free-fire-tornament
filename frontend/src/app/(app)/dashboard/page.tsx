@@ -13,6 +13,7 @@ import { useNow, useTimeUntil } from '@/lib/client-time';
 import { msToCountdown } from '@/lib/format';
 import { TypeChip } from '@/components/wallet/bits';
 import { Skeleton } from '@/components/ui';
+import { TournamentImage } from '@/components/tournament-image';
 import { fmt } from '@/lib/format';
 
 interface Me {
@@ -22,7 +23,7 @@ interface Me {
   stats: { matchesPlayed: number; wins: number; kills: number; totalPoints: number; earnings: string } | null;
 }
 interface Reg {
-  id: string; status: string; registeredAt: string;
+  id: string; status: string; registeredAt: string; seatNumber: number | null;
   tournament: { id: string; title: string; slug: string; type: string; map: string | null; status: string; startTime: string; banner: string | null };
   team: { name: string; tag: string } | null;
 }
@@ -95,15 +96,18 @@ export default function DashboardPage() {
   }
 
   const w = me.wallet ?? { cashBalance: 0, coinBalance: 0, winningBalance: 0, bonusBalance: 0 };
-  const totalBalance = Number(w.cashBalance) + Number(w.coinBalance) + Number(w.winningBalance) + Number(w.bonusBalance);
+  // ONE primary PKR wallet: the money you can actually use — entries (cash)
+  // plus winnings (withdrawable). No artificial coins on player screens.
+  const availableBalance = Number(w.cashBalance) + Number(w.winningBalance);
   const s = me.stats ?? { matchesPlayed: 0, wins: 0, kills: 0, totalPoints: 0, earnings: '0' };
   const winRate = s.matchesPlayed > 0 ? Math.round((s.wins / s.matchesPlayed) * 1000) / 10 : 0;
 
   const bucketCards = [
-    { label: 'CASH BALANCE', value: w.cashBalance, icon: WalletIcon, tone: 'text-fg', chip: 'bg-success/15 text-success', link: { label: 'Add Money', href: '/wallet/add-money' } },
-    { label: 'TOURNAMENT COINS', value: w.coinBalance, icon: Coins, tone: 'text-fg', chip: 'bg-accent/15 text-accent', link: { label: 'View Details', href: '/wallet' } },
-    { label: 'WINNING BALANCE', value: w.winningBalance, icon: Trophy, tone: 'text-reward', chip: 'bg-reward/15 text-reward', gold: true, link: { label: 'Withdraw', href: '/wallet/withdraw' } },
-    { label: 'BONUS', value: w.bonusBalance, icon: Gift, tone: 'text-success', chip: 'bg-success/15 text-success', link: { label: 'View Details', href: '/wallet' } },
+    { label: 'AVAILABLE BALANCE (PKR)', value: availableBalance, icon: WalletIcon, tone: 'text-fg', chip: 'bg-success/15 text-success', link: { label: 'Add Money', href: '/wallet/add-money' } },
+    { label: 'WINNINGS · WITHDRAWABLE', value: w.winningBalance, icon: Trophy, tone: 'text-reward', chip: 'bg-reward/15 text-reward', gold: true, link: { label: 'Withdraw', href: '/wallet/withdraw' } },
+    ...(Number(w.bonusBalance) > 0
+      ? [{ label: 'BONUS (PKR)', value: w.bonusBalance, icon: Gift, tone: 'text-success', chip: 'bg-success/15 text-success', link: { label: 'View Details', href: '/wallet' } }]
+      : []),
   ];
 
   async function copyInvite() {
@@ -126,9 +130,9 @@ export default function DashboardPage() {
       <div className="mt-4 lg:hidden">
         <div className="relative overflow-hidden rounded-card border border-accent/25 bg-gradient-to-r from-accent/[14%] via-surface to-surface p-5">
           <WalletIcon size={54} className="absolute right-4 top-4 text-accent/40" aria-hidden />
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-fg-3">Wallet Balance</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-fg-3">Available Balance</p>
           <p className="tabular mt-1 font-display text-3xl font-bold text-fg">
-            {fmt(totalBalance)}
+            {fmt(availableBalance)}
           </p>
           <div className="mt-4 flex gap-3">
             <Link href="/wallet/add-money" className="flex flex-1 items-center justify-center gap-1.5 rounded-input bg-accent py-2.5 text-xs font-bold text-white shadow-[0_4px_18px_rgba(139,92,246,0.4)]">
@@ -316,16 +320,25 @@ function UpcomingMatch({ reg }: { reg: Reg }) {
 
   return (
     <div className="mt-4 grid gap-5 sm:grid-cols-[200px_1fr]">
-      <div className="flex h-40 items-center justify-center overflow-hidden rounded-card border border-accent/25 bg-gradient-to-br from-accent/25 via-surface to-base text-center sm:h-auto">
+      <div className="relative flex h-40 items-center justify-center overflow-hidden rounded-card border border-accent/25 bg-gradient-to-br from-accent/25 via-surface to-base text-center sm:h-auto">
         {reg.tournament.banner ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={reg.tournament.banner} alt={reg.tournament.title} className="h-full w-full object-cover" />
+          <TournamentImage
+            src={reg.tournament.banner}
+            alt={reg.tournament.title}
+            label={reg.tournament.title}
+            className="h-full w-full object-cover"
+          />
         ) : (
           <div>
             <Swords size={30} className="mx-auto text-accent" />
             <p className="mt-2 font-display text-lg font-bold uppercase text-fg">{reg.tournament.type.replace('_', ' ')}</p>
             <p className="text-xs text-fg-3">Showdown time</p>
           </div>
+        )}
+        {reg.seatNumber !== null && reg.status === 'CONFIRMED' && (
+          <span className="absolute left-2 top-2 rounded-pill bg-base/80 px-2.5 py-1 text-[10px] font-bold text-accent backdrop-blur">
+            SEAT #{String(reg.seatNumber).padStart(2, '0')}
+          </span>
         )}
       </div>
       <div>

@@ -19,7 +19,8 @@ export type Direction = 'CREDIT' | 'DEBIT';
 export type TxType =
   | 'DEPOSIT' | 'ENTRY_FEE' | 'ENTRY_REFUND' | 'WINNING' | 'WITHDRAWAL'
   | 'WITHDRAWAL_REVERSAL' | 'BONUS_CREDIT' | 'BONUS_DEBIT' | 'REFERRAL_REWARD'
-  | 'COIN_CONVERSION' | 'ADMIN_CREDIT' | 'ADMIN_DEBIT';
+  | 'COIN_CONVERSION' | 'ADMIN_CREDIT' | 'ADMIN_DEBIT'
+  | 'TRANSFER_SENT' | 'TRANSFER_RECEIVED' | 'REFUND';
 
 const COLUMN: Record<Bucket, 'cashBalance' | 'coinBalance' | 'winningBalance' | 'bonusBalance'> = {
   CASH: 'cashBalance',
@@ -152,12 +153,19 @@ export async function walletOverview(userId: string) {
     ]);
   if (!wallet) throw badRequest('NOT_FOUND', 'Wallet not found');
 
+  const cash = num(wallet.cashBalance);
+  const winning = num(wallet.winningBalance);
   return {
     wallet: {
-      cashBalance: num(wallet.cashBalance),
+      cashBalance: cash,
       coinBalance: num(wallet.coinBalance),
-      winningBalance: num(wallet.winningBalance),
+      winningBalance: winning,
       bonusBalance: num(wallet.bonusBalance),
+      // Primary player-facing balance: one PKR number (deposits + winnings).
+      // Buckets remain internally for accounting/withdrawal rules; players
+      // see a single wallet.
+      balance: Math.round((cash + winning) * 100) / 100,
+      withdrawable: winning,
       currency: 'PKR',
     },
     settings: {

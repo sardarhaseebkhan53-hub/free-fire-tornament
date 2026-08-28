@@ -88,10 +88,11 @@ export async function getTournamentBySlug(slug: string) {
       registrations: {
         where: { status: 'CONFIRMED' },
         select: {
+          seatNumber: true,
           user: { select: { username: true, avatar: true } },
           team: { select: { name: true, tag: true } },
         },
-        orderBy: { registeredAt: 'asc' },
+        orderBy: [{ seatNumber: 'asc' }, { registeredAt: 'asc' }],
         take: 48,
       },
     },
@@ -182,7 +183,7 @@ export async function recentWinners(take = 8) {
     take,
     select: {
       position: true, amount: true, creditedAt: true,
-      tournament: { select: { title: true, slug: true, type: true } },
+      tournament: { select: { title: true, slug: true, type: true, banner: true } },
       user: { select: { username: true, avatar: true } },
       team: { select: { name: true, tag: true } },
     },

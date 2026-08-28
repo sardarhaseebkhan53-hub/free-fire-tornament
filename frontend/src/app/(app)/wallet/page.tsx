@@ -1,9 +1,10 @@
 'use client';
-// My Wallet — design 14. Balances, recent ledger activity, coin conversion,
-// minimum-withdrawal and WhatsApp support cards. All values are live API data.
+// My Wallet — design 14 (v2: ONE primary PKR wallet). Available Balance hero,
+// recent ledger activity, send-money, minimum-withdrawal and WhatsApp support
+// cards. All values are live API data; coins/diamonds are gone from player UI.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Coins, Gift, Headset, Plus, ShieldCheck, Trophy, Upload, Wallet as WalletIcon } from 'lucide-react';
+import { ArrowRight, Gift, Headset, Plus, Send, ShieldCheck, Trophy, Upload, Wallet as WalletIcon } from 'lucide-react';
 import { api } from '@/lib/client-api';
 import { CopyChip, StatusPill, TypeChip } from '@/components/wallet/bits';
 import { EmptyState, Skeleton } from '@/components/ui';
@@ -15,8 +16,11 @@ interface Tx {
   amount: number; direction: 'CREDIT' | 'DEBIT'; status: string; createdAt: string;
 }
 interface Overview {
-  wallet: { cashBalance: number; coinBalance: number; winningBalance: number; bonusBalance: number };
-  settings: { minWithdrawal: number; coinConversionRate: number; withdrawalFeePercent: number };
+  wallet: {
+    cashBalance: number; coinBalance: number; winningBalance: number; bonusBalance: number;
+    balance?: number; withdrawable?: number;
+  };
+  settings: { minWithdrawal: number; withdrawalFeePercent: number };
   recentTransactions: Tx[];
 }
 interface PubSettings { 'platform.whatsappNumber'?: string }
@@ -27,10 +31,6 @@ export default function WalletPage() {
   const [loaded, setLoaded] = useState<'loading' | 'ready' | 'error'>('loading');
   const hasSession = useHasSession();
   const state = hasSession === false ? 'anon' : hasSession === null ? 'loading' : loaded;
-  const [convertTo, setConvertTo] = useState(false);
-  const [convertAmount, setConvertAmount] = useState('');
-  const [convertMsg, setConvertMsg] = useState<string | null>(null);
-  const [converting, setConverting] = useState(false);
 
   useEffect(() => {
     if (!hasSession) return;
@@ -43,7 +43,7 @@ export default function WalletPage() {
   }, [hasSession]);
 
   if (state === 'loading') {
-    // Skeleton mirrors the balance hero + bucket grid so the layout holds.
+    // Skeleton mirrors the balance hero + grid so the layout holds.
     return (
       <div className="mx-auto max-w-6xl" aria-busy="true" aria-label="Loading wallet">
         <Skeleton className="h-8 w-40" />
@@ -72,40 +72,25 @@ export default function WalletPage() {
 
   const w = data!.wallet;
   const s = data!.settings;
-  const total = Number(w.cashBalance) + Number(w.coinBalance) + Number(w.winningBalance) + Number(w.bonusBalance);
-  const wa = (pub?.['platform.whatsappNumber'] ?? '+923001234567').replace(/[^\d]/g, '');
+  // ONE primary PKR balance — server-computed when available.
+  const total = typeof w.balance === 'number'
+    ? w.balance
+    : Number(w.cashBalance) + Number(w.winningBalance);
+  const withdrawable = typeof w.withdrawable === 'number' ? w.withdrawable : Number(w.winningBalance);
+  const wa = (pub?.['platform.whatsappNumber'] ?? '+923001234567').replace(/\D/g, '');
 
   const buckets = [
-    { label: 'Cash', value: w.cashBalance, icon: WalletIcon, tone: 'bg-accent/15 text-accent' },
-    { label: 'Coins', value: w.coinBalance, icon: Coins, tone: 'bg-reward/15 text-reward' },
-    { label: 'Winnings', value: w.winningBalance, icon: Trophy, tone: 'bg-reward/15 text-reward' },
+    { label: 'Deposits', value: w.cashBalance, icon: WalletIcon, tone: 'bg-accent/15 text-accent' },
+    { label: 'Winnings', value: withdrawable, icon: Trophy, tone: 'bg-reward/15 text-reward' },
     { label: 'Bonus', value: w.bonusBalance, icon: Gift, tone: 'bg-success/15 text-success' },
   ];
-
-  async function convert() {
-    const amt = Number(convertAmount);
-    if (!Number.isInteger(amt) || amt <= 0) return setConvertMsg('Enter a whole PKR amount.');
-    setConverting(true);
-    setConvertMsg(null);
-    try {
-      const out = await api<{ coinsCredited: number }>('/wallet/coins/convert', { method: 'POST', body: { amount: amt } });
-      setConvertMsg(`✓ ${out.coinsCredited} coins credited to your wallet.`);
-      setConvertAmount('');
-      const fresh = await api<Overview>('/wallet');
-      setData(fresh);
-    } catch (e) {
-      setConvertMsg(e instanceof Error ? e.message : 'Conversion failed.');
-    } finally {
-      setConverting(false);
-    }
-  }
 
   return (
     <div className="mx-auto max-w-6xl">
       <h1 className="font-display text-2xl font-bold text-fg sm:text-3xl">My Wallet</h1>
-      <p className="mt-1 text-sm text-fg-2">Manage your balance, transactions and rewards.</p>
+      <p className="mt-1 text-sm text-fg-2">One PKR wallet — deposits in, entries out, winnings in.</p>
 
-      {/* ---- Total balance hero (design 14) ---- */}
+      {/* ---- Available Balance hero (design 14) ---- */}
       <div className="mt-6 rounded-[20px] bg-gradient-to-r from-accent/70 via-accent/25 to-reward/20 p-[1px] shadow-[0_0_40px_rgba(139,92,246,0.18)]">
         <div className="relative overflow-hidden rounded-[19px] bg-surface px-5 py-6 sm:px-8">
           <div
@@ -115,13 +100,16 @@ export default function WalletPage() {
           />
           <div className="relative flex flex-wrap items-start justify-between gap-6">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-fg-2">Total Balance</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-fg-2">Available Balance · PKR</p>
               <div className="mt-2 flex items-center gap-3">
                 <span className="tabular font-display text-4xl font-bold text-fg sm:text-5xl">{fmt(total)}</span>
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-success/30 bg-success/10 text-success" title="Verified wallet">
                   <ShieldCheck size={15} />
                 </span>
               </div>
+              <p className="mt-2 text-xs text-fg-3">
+                <span className="font-semibold text-reward">{fmt(withdrawable)}</span> of this is winnings and can be withdrawn.
+              </p>
             </div>
             <div className="flex flex-col gap-3">
               <Link
@@ -130,26 +118,34 @@ export default function WalletPage() {
               >
                 <Plus size={16} /> Add Money
               </Link>
-              <Link
-                href="/wallet/withdraw"
-                className="flex items-center justify-center gap-2 rounded-input border border-line bg-white/[3%] px-7 py-3 text-sm font-bold text-fg transition hover:border-accent/40"
-              >
-                <Upload size={16} /> Withdraw
-              </Link>
+              <div className="flex gap-2">
+                <Link
+                  href="/wallet/transfer"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-input border border-line bg-white/[3%] px-4 py-3 text-sm font-bold text-fg transition hover:border-accent/40"
+                >
+                  <Send size={16} /> Send
+                </Link>
+                <Link
+                  href="/wallet/withdraw"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-input border border-line bg-white/[3%] px-4 py-3 text-sm font-bold text-fg transition hover:border-accent/40"
+                >
+                  <Upload size={16} /> Withdraw
+                </Link>
+              </div>
             </div>
           </div>
 
-          <div className="relative mt-6 grid grid-cols-2 gap-3 rounded-card border border-line bg-base/60 p-3 sm:grid-cols-4 sm:gap-0 sm:divide-x sm:divide-line">
+          <div className="relative mt-6 grid grid-cols-1 gap-3 rounded-card border border-line bg-base/60 p-3 sm:grid-cols-3 sm:divide-x sm:divide-line">
             {buckets.map((b) => {
               const Icon = b.icon;
               return (
-                <div key={b.label} className="flex items-center gap-3 px-2 py-1.5 sm:px-4">
-                  <span className={`flex h-10 w-10 items-center justify-center rounded-full ${b.tone}`}>
+                <div key={b.label} className="flex items-center gap-3 px-2 py-1.5 sm:justify-center sm:px-4">
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${b.tone}`}>
                     <Icon size={17} />
                   </span>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs text-fg-2">{b.label}</p>
-                    <p className="tabular font-display text-lg font-bold text-fg">{fmt(b.value)}</p>
+                    <p className="tabular truncate font-display text-lg font-bold text-fg">{fmt(b.value)}</p>
                   </div>
                 </div>
               );
@@ -229,43 +225,19 @@ export default function WalletPage() {
 
       {/* ---- Bottom info cards ---- */}
       <div className="mt-6 grid gap-4 md:grid-cols-3">
-        <div className="glass rounded-card p-5">
+        <Link href="/wallet/transfer" className="glass rounded-card p-5 transition hover:border-accent/40">
           <div className="flex items-start gap-4">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-accent/30 bg-accent/10 text-accent">
-              <Coins size={20} />
+              <Send size={20} />
             </span>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-fg-2">Coin Conversion</p>
-              <p className="mt-0.5 font-display text-lg font-bold text-fg">
-                {fmt(100)} = {100 * s.coinConversionRate} coins
-              </p>
-              <p className="mt-1 text-xs text-fg-3">Convert cash to coins and use them in tournaments.</p>
-              {!convertTo ? (
-                <button onClick={() => setConvertTo(true)} className="mt-2.5 text-xs font-bold text-accent hover:underline">
-                  Convert now →
-                </button>
-              ) : (
-                <div className="mt-2.5 flex gap-2">
-                  <input
-                    value={convertAmount}
-                    onChange={(e) => setConvertAmount(e.target.value.replace(/[^\d]/g, ''))}
-                    placeholder="PKR amount"
-                    inputMode="numeric"
-                    className="w-28 rounded-input border border-line bg-white/[3%] px-2.5 py-1.5 text-xs text-fg outline-none focus:border-accent"
-                  />
-                  <button
-                    onClick={convert}
-                    disabled={converting}
-                    className="rounded-input bg-accent px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
-                  >
-                    {converting ? '…' : 'Convert'}
-                  </button>
-                </div>
-              )}
-              {convertMsg && <p className="mt-1.5 text-[11px] text-fg-2">{convertMsg}</p>}
+              <p className="text-sm font-semibold text-fg-2">Send Money</p>
+              <p className="mt-0.5 font-display text-lg font-bold text-fg">Transfer to a player</p>
+              <p className="mt-1 text-xs text-fg-3">Send PKR to any CLUTCHNEX player by username — instant, audited, secured.</p>
+              <span className="mt-2.5 inline-block text-xs font-bold text-accent hover:underline">Send now →</span>
             </div>
           </div>
-        </div>
+        </Link>
 
         <div className="rounded-card border border-warning/25 bg-warning/[4%] p-5">
           <div className="flex items-start gap-4">
@@ -275,7 +247,7 @@ export default function WalletPage() {
             <div>
               <p className="text-sm font-semibold text-warning">Minimum Withdrawal</p>
               <p className="mt-0.5 font-display text-lg font-bold text-fg">{fmt(s.minWithdrawal)}</p>
-              <p className="mt-1 text-xs text-fg-3">Minimum amount required to withdraw winnings.{s.withdrawalFeePercent > 0 ? ` Processing fee: ${s.withdrawalFeePercent}%.` : ' No processing fee.'}</p>
+              <p className="mt-1 text-xs text-fg-3">Minimum winnings required to withdraw.{s.withdrawalFeePercent > 0 ? ` Processing fee: ${s.withdrawalFeePercent}%.` : ' No processing fee.'}</p>
             </div>
           </div>
         </div>

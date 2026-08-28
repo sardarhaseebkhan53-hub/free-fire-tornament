@@ -7,6 +7,7 @@ import { money, dateOnly, MODE_LABEL } from '@/lib/format';
 import { pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
 import { SectionHeading, Badge, EmptyState } from '@/components/ui';
+import { TournamentImage } from '@/components/tournament-image';
 
 export async function generateMetadata(): Promise<Metadata> {
   return pageMetadata({
@@ -33,13 +34,21 @@ export default async function WinnersPage() {
       {rows.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {rows.map((w, i) => (
-            <div key={i} className="glass flex items-center gap-4 rounded-card p-5">
-              <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${
+            <div key={i} className="glass relative flex items-center gap-4 overflow-hidden rounded-card p-5">
+              {w.tournament.banner && (
+                <TournamentImage
+                  src={w.tournament.banner}
+                  alt=""
+                  label={w.tournament.title}
+                  className="absolute inset-0 h-full w-full object-cover opacity-[12%]"
+                />
+              )}
+              <span className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${
                 w.position === 1 ? 'bg-reward/20 text-reward' : 'bg-accent/15 text-accent'
               }`}>
                 <Trophy size={20} />
               </span>
-              <div className="min-w-0 flex-1">
+              <div className="relative min-w-0 flex-1">
                 <p className="truncate font-display text-base font-bold text-fg">
                   {w.user?.username ?? w.team?.name ?? '—'}
                 </p>
@@ -51,7 +60,7 @@ export default async function WinnersPage() {
                   <span className="text-[11px] text-fg-3">{dateOnly(w.creditedAt)}</span>
                 </div>
               </div>
-              <div className="text-right">
+              <div className="relative text-right">
                 <p className="tabular font-display text-lg font-bold text-reward">{money(w.amount)}</p>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-fg-3">#{w.position} place</p>
               </div>

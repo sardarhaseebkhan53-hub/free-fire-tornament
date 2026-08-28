@@ -186,7 +186,7 @@ export default function MyMatchesPage() {
                           <>
                             <Metric label="ENTRY FEE" value={`PKR ${it.tournament.entryFeePerPlayer.toLocaleString('en-PK')}`} />
                             <Metric label="PRIZE POOL" value={`PKR ${it.tournament.prizePool.toLocaleString('en-PK')}`} gold />
-                            <Metric label="YOUR SLOT" value={`#${it.slotNumber}`} />
+                            <Metric label="SEAT / SLOT" value={`#${String(it.slotNumber).padStart(2, '0')}`} />
                           </>
                         ) : (
                           <>

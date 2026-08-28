@@ -65,6 +65,9 @@ enum WalletTxType {
   COIN_CONVERSION
   ADMIN_CREDIT
   ADMIN_DEBIT
+  TRANSFER_SENT
+  TRANSFER_RECEIVED
+  REFUND
 }
 
 enum WalletTxDirection {
@@ -342,6 +345,8 @@ model User {
   authTokens              AuthToken[]
   stats                   PlayerStat?
   adminBalanceAdjustments WalletTransaction[]      @relation("TxCreatedBy")
+  sentTransfers           WalletTransfer[]         @relation("TransferSender")
+  receivedTransfers       WalletTransfer[]         @relation("TransferRecipient")
 
   @@index([role])
   @@index([status])
@@ -492,6 +497,36 @@ model Withdrawal {
 }
 
 // -----------------------------------------------------------------------------
+// USER-TO-USER WALLET TRANSFERS
+// -----------------------------------------------------------------------------
+
+/// Peer-to-peer PKR transfer between users. Created inside ONE database
+/// transaction that debits the sender and credits the recipient atomically
+/// (both ledger rows + this row land together or not at all). requestId makes
+/// double-submission idempotent per sender.
+model WalletTransfer {
+  id            String   @id @default(cuid())
+  senderId      String
+  sender        User     @relation("TransferSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId   String
+  recipient     User     @relation("TransferRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  amount        Decimal  @db.Decimal(14, 2)
+  note          String?
+  /// Client-generated idempotency key (uuid) — replays return the original row.
+  requestId     String
+  status        String   @default("COMPLETED")
+  senderTxId    String? // TRANSFER_SENT ledger entry
+  recipientTxId String? // TRANSFER_RECEIVED ledger entry
+  createdAt     DateTime @default(now())
+
+  @@unique([senderId, requestId])
+  @@index([senderId, createdAt])
+  @@index([recipientId, createdAt])
+  @@index([createdAt])
+  @@map("wallet_transfers")
+}
+
+// -----------------------------------------------------------------------------
 // TOURNAMENTS
 // -----------------------------------------------------------------------------
 
@@ -557,6 +592,10 @@ model TournamentRegistration {
   status           RegistrationStatus @default(CONFIRMED)
   walletTxId       String? // entry-fee ledger entry
   couponRedemption CouponRedemption?
+  /// Server-assigned seat/slot (1..capacity) — allocated atomically in the join
+  /// transaction. SOLO: one player per seat. Team modes: all members share the
+  /// team's seat. Seat numbers are never reused while the tournament is full.
+  seatNumber       Int?
   registeredAt     DateTime           @default(now())
   cancelledAt      DateTime?
 
@@ -564,6 +603,7 @@ model TournamentRegistration {
   @@index([userId])
   @@index([teamId])
   @@index([status])
+  @@index([tournamentId, seatNumber])
   @@map("tournament_registrations")
 }
 

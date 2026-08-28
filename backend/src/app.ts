@@ -129,7 +129,7 @@ export function createApp() {
   // back as HTML (responses are JSON, and helmet already forbids rendering).
   app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
     // Body-parser rejections arrive as raw HTTP errors.
-    const e = err as { type?: string; status?: number; message?: string };
+    const e = err as { type?: string; status?: number; code?: string; message?: string };
     if (e?.type === 'entity.too.large' || e?.status === 413) {
       return res.status(413).json({
         success: false,
@@ -142,6 +142,16 @@ export function createApp() {
         success: false,
         code: 'VALIDATION_ERROR',
         message: 'Malformed JSON body.',
+      });
+    }
+    // express.static({ fallthrough: false }) forwards ENOENT as a raw error —
+    // a missing file must read as 404, never as a 500. Only raw static errors
+    // (code ENOENT) are matched here; ApiError 404s keep their own message.
+    if (e?.code === 'ENOENT' && e?.status === 404) {
+      return res.status(404).json({
+        success: false,
+        code: 'NOT_FOUND',
+        message: 'File not found',
       });
     }
     if (isProd === false) console.warn(`[error] ${req.method} ${req.path}`, (err as Error)?.message);

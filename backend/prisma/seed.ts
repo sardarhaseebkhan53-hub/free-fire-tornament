@@ -150,6 +150,7 @@ async function main() {
     ['platform.currency', 'PKR', 'Default currency code'],
     ['platform.currencySymbol', 'Rs', 'Currency display symbol'],
     ['platform.whatsappNumber', '+923001234567', 'WhatsApp support destination (configurable)'],
+    ['platform.whatsappCommunity', '', 'WhatsApp community/channel join link (shown separately from support)'],
     ['platform.supportEmail', 'support@clutchnex.gg', 'Support email'],
     ['platform.maintenanceMode', false, 'Maintenance mode switch'],
     ['platform.maintenanceMessage', 'The arena is upgrading. Back soon.', 'Maintenance banner text'],
@@ -157,6 +158,11 @@ async function main() {
     ['wallet.minDeposit', 100, 'Minimum manual deposit (PKR)'],
     ['wallet.maxDeposit', 25000, 'Maximum manual deposit (PKR)'],
     ['wallet.minWithdrawal', 100, 'Minimum withdrawal (PKR)'],
+    ['wallet.transferEnabled', true, 'Allow user-to-user wallet transfers'],
+    ['wallet.transferMin', 10, 'Minimum single transfer amount (PKR)'],
+    ['wallet.transferMax', 25000, 'Maximum single transfer amount (PKR)'],
+    ['wallet.transferDailyLimit', 50000, 'Maximum total amount a user can send per day (PKR)'],
+    ['wallet.transferHighValueThreshold', 10000, 'Transfers at/above this amount raise a fraud alert (PKR)'],
     ['wallet.coinConversionRate', 1, 'Tournament credits per 1 PKR deposited'],
     ['wallet.welcomeBonus', 100, 'One-time bonus for new verified players (PKR)'],
     ['wallet.depositBonusPercent', 0, 'Bonus credits (coins) as % of every approved deposit'],
@@ -433,7 +439,7 @@ async function main() {
       data: {
         title: 'Friday Night Clash — Solo Showdown #8', slug: 'friday-night-clash-solo-8',
         description: 'Weekly solo battle royale on Bermuda. Fast paced, one map, one winner takes the crown.',
-        type: 'SOLO', map: 'Bermuda', status: 'COMPLETED', banner: '/uploads/banners/solo-showdown.jpg',
+        type: 'SOLO', map: 'Bermuda', status: 'COMPLETED', banner: '/art/banners/solo-showdown.jpg',
         entryFeePerPlayer: 50, prizePool: 400, platformFee: 100, maxSlots: 48, registeredSlots: 10,
         minSlotsToStart: 8, numWinners: 3, pointsPerKill: 1,
         startTime: daysAgo(2), registrationDeadline: new Date(daysAgo(2).getTime() - 30 * 60000), endTime: daysAgo(2),
@@ -445,7 +451,7 @@ async function main() {
       data: {
         title: 'Bermuda Royale Monthly — August', slug: 'bermuda-royale-monthly-august',
         description: 'The flagship monthly squad championship. Four-player squads fight for the monthly title and the biggest prize pool of August.',
-        type: 'SQUAD', map: 'Bermuda', status: 'COMPLETED', banner: '/uploads/banners/bermuda-royale.jpg',
+        type: 'SQUAD', map: 'Bermuda', status: 'COMPLETED', banner: '/art/banners/bermuda-royale.jpg',
         entryFeePerPlayer: 50, prizePool: 480, platformFee: 120, maxSlots: 12, registeredSlots: 3,
         minSlotsToStart: 2, numWinners: 3, pointsPerKill: 1, isFeatured: false,
         startTime: daysAgo(5), registrationDeadline: new Date(daysAgo(5).getTime() - 30 * 60000), endTime: daysAgo(5),
@@ -457,7 +463,7 @@ async function main() {
       data: {
         title: 'Karachi Squad Cup Vol. 3', slug: 'karachi-squad-cup-vol-3',
         description: 'High-stakes squad cup with a verified prize pool. Bring your best four.',
-        type: 'SQUAD', map: 'Purgatory', status: 'REGISTRATION_OPEN', banner: '/uploads/banners/karachi-squad-cup.jpg',
+        type: 'SQUAD', map: 'Purgatory', status: 'REGISTRATION_OPEN', banner: '/art/banners/karachi-squad-cup.jpg',
         entryFeePerPlayer: 50, prizePool: 300, platformFee: 100, maxSlots: 24, registeredSlots: 2,
         minSlotsToStart: 6, numWinners: 3, pointsPerKill: 1, isFeatured: true,
         startTime: inHours(48), registrationDeadline: inHours(42),
@@ -469,7 +475,7 @@ async function main() {
       data: {
         title: 'Duo Dominators Weekly #14', slug: 'duo-dominators-weekly-14',
         description: 'Two-player weekly duel on Kalahari. Quick rounds, tight zones.',
-        type: 'DUO', map: 'Kalahari', status: 'REGISTRATION_OPEN', banner: '/uploads/banners/duo-dominators.jpg',
+        type: 'DUO', map: 'Kalahari', status: 'REGISTRATION_OPEN', banner: '/art/banners/duo-dominators.jpg',
         entryFeePerPlayer: 25, prizePool: 75, platformFee: 25, maxSlots: 24, registeredSlots: 2,
         minSlotsToStart: 4, numWinners: 2, pointsPerKill: 1,
         startTime: inHours(26), registrationDeadline: inHours(24),
@@ -481,7 +487,7 @@ async function main() {
       data: {
         title: 'Clash Squad Rumble #12', slug: 'clash-squad-rumble-12',
         description: 'Best-of-3 Clash Squad duel. Two squads enter, one squad clutches.',
-        type: 'CLASH_SQUAD', map: 'Bermuda (CS)', status: 'REGISTRATION_OPEN', banner: '/uploads/banners/cs-rumble.jpg',
+        type: 'CLASH_SQUAD', map: 'Bermuda (CS)', status: 'REGISTRATION_OPEN', banner: '/art/banners/cs-rumble.jpg',
         entryFeePerPlayer: 50, prizePool: 160, platformFee: 40, maxSlots: 2, registeredSlots: 1,
         minSlotsToStart: 2, numWinners: 1, pointsPerKill: 1, isFeatured: true,
         startTime: inHours(5), registrationDeadline: inHours(4),
@@ -493,7 +499,7 @@ async function main() {
       data: {
         title: 'Purgatory Solo Rush', slug: 'purgatory-solo-rush',
         description: 'Cancelled: minimum player count was not reached. All entries refunded 100%.',
-        type: 'SOLO', map: 'Purgatory', status: 'CANCELLED', banner: '/uploads/banners/purgatory-rush.jpg',
+        type: 'SOLO', map: 'Purgatory', status: 'CANCELLED', banner: '/art/banners/purgatory-rush.jpg',
         entryFeePerPlayer: 100, prizePool: 400, platformFee: 100, maxSlots: 48, registeredSlots: 0,
         numWinners: 3, refundPercent: 100,
         startTime: daysAgo(1), registrationDeadline: daysAgo(1),
@@ -515,9 +521,30 @@ async function main() {
   // -------------------------------------------------------------------------
   // 8. Registrations + entry-fee ledger debits
   // -------------------------------------------------------------------------
+  // Seat allocation mirrors the production join engine: one seat per SOLO
+  // registration, one shared seat per team in team modes.
+  const seatCounter = new Map<string, number>();
+  const teamSeat = new Map<string, number>();
+  function nextSeat(tournamentId: string, teamId?: string): number {
+    if (teamId) {
+      const key = `${tournamentId}:${teamId}`;
+      const existing = teamSeat.get(key);
+      if (existing !== undefined) return existing;
+      const seat = (seatCounter.get(tournamentId) ?? 0) + 1;
+      seatCounter.set(tournamentId, seat);
+      teamSeat.set(key, seat);
+      return seat;
+    }
+    const seat = (seatCounter.get(tournamentId) ?? 0) + 1;
+    seatCounter.set(tournamentId, seat);
+    return seat;
+  }
   async function register(t: { id: string }, userId: string, entry: number, teamId?: string, discount = 0, couponId?: string) {
     const reg = await prisma.tournamentRegistration.create({
-      data: { tournamentId: t.id, userId, teamId, entryAmount: entry, discount, couponId, registeredAt: daysAgo(3) },
+      data: {
+        tournamentId: t.id, userId, teamId, entryAmount: entry, discount, couponId,
+        registeredAt: daysAgo(3), seatNumber: nextSeat(t.id, teamId),
+      },
     });
     const tx = await ledger(userId, 'CASH', 'DEBIT', entry, 'ENTRY_FEE', {
       entityType: 'TournamentRegistration', entityId: reg.id,
@@ -933,9 +960,9 @@ async function main() {
 
   await prisma.advertisement.createMany({
     data: [
-      { placement: 'HEADER', name: 'Launch banner — CLUTCHNEX merch', imageUrl: '/uploads/ads/header-banner.jpg', targetUrl: '/blog/how-clutchnex-verifies-manual-payments', isActive: true, impressions: 1240, clicks: 37 },
-      { placement: 'SIDEBAR', name: 'Duo Dominators promo', imageUrl: '/uploads/ads/duo-promo.jpg', targetUrl: '/free-fire-tournaments/duo', isActive: true, impressions: 630, clicks: 19 },
-      { placement: 'INTERSTITIAL', name: 'Interstitial — monthly championship', imageUrl: '/uploads/ads/interstitial.jpg', targetUrl: '/tournaments/bermuda-royale-monthly-august', isActive: false },
+      { placement: 'HEADER', name: 'Launch banner — CLUTCHNEX merch', imageUrl: '/art/banners/header-banner.jpg', targetUrl: '/blog/how-clutchnex-verifies-manual-payments', isActive: true, impressions: 1240, clicks: 37 },
+      { placement: 'SIDEBAR', name: 'Duo Dominators promo', imageUrl: '/art/banners/duo-promo.jpg', targetUrl: '/free-fire-tournaments/duo', isActive: true, impressions: 630, clicks: 19 },
+      { placement: 'INTERSTITIAL', name: 'Interstitial — monthly championship', imageUrl: '/art/banners/interstitial.jpg', targetUrl: '/tournaments/bermuda-royale-monthly-august', isActive: false },
     ],
   });
 

@@ -72,7 +72,9 @@
 
 html {
   color-scheme: dark;
-  scroll-behavior: smooth;
+  /* NOTE: no `scroll-behavior: smooth` here — Next.js manages scroll on route
+     transitions and warns when the html element smooth-scrolls. In-page smooth
+     scrolling is done per-scroll-container via JS (scrollIntoView) instead. */
   /* Safety net against stray horizontal scroll on narrow phones (clip keeps
      position:sticky working, unlike overflow-x:hidden). */
   overflow-x: clip;

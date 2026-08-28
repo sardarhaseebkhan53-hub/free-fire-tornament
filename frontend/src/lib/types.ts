@@ -54,6 +54,7 @@ export interface TournamentDetails extends TournamentSummary {
     credentialsReleaseInMs: number | null;
   }>;
   participants: Array<{
+    seatNumber: number | null;
     user: { username: string; avatar: string | null };
     team: { name: string; tag: string } | null;
   }>;
@@ -77,7 +78,7 @@ export interface WinnerRow {
   position: number;
   amount: string;
   creditedAt: string;
-  tournament: { title: string; slug: string; type: string };
+  tournament: { title: string; slug: string; type: string; banner: string | null };
   user: { username: string; avatar: string | null } | null;
   team: { name: string; tag: string } | null;
 }

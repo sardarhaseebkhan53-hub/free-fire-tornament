@@ -4,6 +4,7 @@ import { apiServerSafe } from '@/lib/api';
 import type { BlogSummary } from '@/lib/types';
 import { dateOnly } from '@/lib/format';
 import { SectionHeading, Badge, EmptyState } from '@/components/ui';
+import { TournamentImage } from '@/components/tournament-image';
 import { pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
 
@@ -36,8 +37,15 @@ export default async function BlogPage() {
               href={`/blog/${p.slug}`}
               className="glass group flex flex-col overflow-hidden rounded-card transition hover:-translate-y-1 hover:border-accent/40"
             >
-              <div className="h-32 bg-gradient-to-br from-info/25 via-elevated to-surface">
-                <div className="flex h-full items-end p-4">
+              <div className="relative h-32 overflow-hidden bg-gradient-to-br from-info/25 via-elevated to-surface">
+                <TournamentImage
+                  src={p.coverImage}
+                  alt={p.title}
+                  label={p.title}
+                  className="absolute inset-0 h-full w-full object-cover opacity-70 transition duration-300 group-hover:scale-[1.03]"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-elevated/80 to-transparent" />
+                <div className="absolute flex h-full items-end p-4">
                   <Badge tone="info">{p.category}</Badge>
                 </div>
               </div>

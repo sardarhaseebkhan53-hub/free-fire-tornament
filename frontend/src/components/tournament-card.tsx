@@ -1,16 +1,21 @@
 // Tournament card — design 01 (desktop grid) + design 41 (mobile horizontal
-// row): banner/type, entry, prize, slots, countdown, join button.
+// row): banner art, type, entry, prize, slots, countdown, join button.
 import Link from 'next/link';
 import { Gem, MapPin, ShieldCheck, Users } from 'lucide-react';
 import type { TournamentSummary } from '@/lib/types';
-import { money, MODE_LABEL, dateTime } from '@/lib/format';
+import { money, MODE_LABEL, dateTime, displayStatus } from '@/lib/format';
 import { Badge } from './ui';
 import { Countdown } from './countdown';
+import { TournamentImage } from './tournament-image';
 
 function statusBadge(t: TournamentSummary) {
-  if (t.status === 'LIVE') return <Badge tone="danger" live>Live</Badge>;
-  if (t.status === 'REGISTRATION_OPEN') return <Badge tone="success">Open</Badge>;
-  if (t.status === 'COMPLETED') return <Badge tone="neutral">Completed</Badge>;
+  const s = displayStatus(t);
+  if (s === 'LIVE') return <Badge tone="danger" live>Live</Badge>;
+  if (s === 'FULL') return <Badge tone="neutral">Full</Badge>;
+  if (s === 'ALMOST_FULL') return <Badge tone="warning">Almost Full</Badge>;
+  if (s === 'REGISTRATION_OPEN') return <Badge tone="success">Open</Badge>;
+  if (s === 'UPCOMING') return <Badge tone="info">Upcoming</Badge>;
+  if (s === 'COMPLETED') return <Badge tone="neutral">Completed</Badge>;
   return <Badge tone="warning">Cancelled</Badge>;
 }
 
@@ -21,9 +26,18 @@ export function TournamentCard({ t }: { t: TournamentSummary }) {
       href={`/tournaments/${t.slug}`}
       className="glass card-hover group flex overflow-hidden rounded-card duration-200 hover:-translate-y-1 sm:flex-col"
     >
-      {/* Banner zone */}
-      <div className="relative h-auto min-h-28 w-24 shrink-0 bg-gradient-to-br from-accent/30 via-elevated to-surface sm:h-28 sm:w-full">
+      {/* Banner zone — tournament art with the approved gradient treatment */}
+      <div className="relative h-auto min-h-28 w-24 shrink-0 overflow-hidden bg-gradient-to-br from-accent/30 via-elevated to-surface sm:h-28 sm:w-full">
+        {t.banner && (
+          <TournamentImage
+            src={t.banner}
+            alt=""
+            label={t.title}
+            className="absolute inset-0 h-full w-full object-cover opacity-55 transition duration-300 group-hover:scale-[1.03] group-hover:opacity-70"
+          />
+        )}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(139,92,246,0.35),transparent_60%)]" />
+        <div className="absolute inset-0 bg-gradient-to-t from-surface/80 via-transparent to-transparent" />
         <div className="absolute left-4 top-4 hidden gap-2 sm:flex">
           <Badge tone="accent">{MODE_LABEL[t.type]}</Badge>
           {statusBadge(t)}
@@ -98,9 +112,13 @@ export function TournamentCard({ t }: { t: TournamentSummary }) {
               </>
             )}
           </div>
-          {t.registrationOpen ? (
+          {t.registrationOpen && t.slotsLeft > 0 ? (
             <span className="rounded-input bg-accent px-4 py-2 text-xs font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition duration-200 group-hover:bg-accent-strong group-hover:shadow-[0_0_22px_rgba(139,92,246,0.55)] group-active:scale-95 sm:px-5">
               Join
+            </span>
+          ) : t.status === 'REGISTRATION_OPEN' && t.slotsLeft <= 0 ? (
+            <span className="rounded-input border border-line bg-white/[3%] px-4 py-2 text-xs font-bold text-fg-3 sm:px-5">
+              Tournament Full
             </span>
           ) : (
             <span className="rounded-input border border-line px-4 py-2 text-xs font-semibold text-fg-3 transition group-hover:border-accent/30 group-hover:text-fg-2 sm:px-5">
