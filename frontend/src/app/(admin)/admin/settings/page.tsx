@@ -15,12 +15,23 @@ export default function AdminSettingsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
-  async function save(key: string) {
+  async function save(key: string, original: Row) {
     setBusy(key);
     try {
+      // Preserve each setting's real type. Never coerce an all-digit string to
+      // a Number — that drops leading zeros (e.g. a WhatsApp number starting
+      // with 0300 would become 300...) and silently breaks the setting.
+      const trimmed = draft.trim();
       let value: unknown = draft;
-      if (/^(\d+|true|false)$/.test(draft.trim())) {
-        value = draft.trim() === 'true' ? true : draft.trim() === 'false' ? false : Number(draft);
+      if (typeof original.value === 'number') {
+        const n = Number(trimmed);
+        value = Number.isFinite(n) ? n : draft;
+      } else if (typeof original.value === 'boolean') {
+        value = trimmed === 'true';
+      } else if (original.value !== null && typeof original.value === 'object') {
+        try { value = JSON.parse(trimmed); } catch { value = draft; }
+      } else {
+        value = trimmed === '' ? '' : draft;
       }
       await api('/admin/settings', { method: 'POST', body: { key, value } });
       setEditing(null);
@@ -67,7 +78,7 @@ export default function AdminSettingsPage() {
                           autoFocus
                           className="w-44 rounded-input border border-accent bg-white/[3%] px-3 py-1.5 text-xs text-fg outline-none"
                         />
-                        <button onClick={() => save(s.key)} disabled={busy === s.key}
+                        <button onClick={() => save(s.key, s)} disabled={busy === s.key}
                           className="inline-flex items-center gap-1 rounded-input bg-accent px-2.5 py-1.5 text-[11px] font-bold text-white disabled:opacity-50">
                           {busy === s.key ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />} Save
                         </button>

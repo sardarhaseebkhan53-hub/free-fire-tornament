@@ -107,6 +107,19 @@ export const createAdSchema = z.object({
 
 export const adToggleSchema = z.object({ isActive: z.boolean() });
 
+export const paymentAccountSchema = z.object({
+  method: z.enum(['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'NAYAPAY', 'SADAPAY']),
+  label: z.string().trim().min(2).max(80),
+  accountName: z.string().trim().min(2).max(120),
+  accountNumber: z.string().trim().min(4).max(64),
+  instructions: z.string().trim().max(500).optional().nullish().default(''),
+  displayOrder: z.coerce.number().int().min(0).max(1000).optional(),
+  isActive: z.boolean().optional(),
+  extra: z.record(z.string(), z.unknown()).optional().nullish(),
+});
+
+export const paymentAccountToggleSchema = z.object({ isActive: z.boolean() });
+
 export const upsertSeoSchema = z.object({
   pageSlug: z.string().trim().min(1).max(80),
   title: z.string().trim().max(160).optional().default(''),

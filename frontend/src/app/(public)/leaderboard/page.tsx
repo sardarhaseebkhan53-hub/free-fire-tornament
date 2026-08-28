@@ -4,6 +4,7 @@ import { apiServerSafe } from '@/lib/api';
 import type { LeaderboardEntry } from '@/lib/types';
 import { money } from '@/lib/format';
 import { SectionHeading, Avatar, EmptyState } from '@/components/ui';
+import { RankBadgeSmall } from '@/components/rank-badge';
 import { pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
 
@@ -79,9 +80,12 @@ export default async function LeaderboardPage({
               <span className="flex min-w-0 items-center gap-3">
                 <Avatar name={r.user.username} size={32} />
                 <span className="min-w-0">
-                  <Link href={`/players/${r.user.username}`} className="block truncate text-sm font-semibold text-fg hover:text-accent">
-                    {r.user.username}
-                  </Link>
+                  <span className="flex items-center gap-2">
+                    <Link href={`/players/${r.user.username}`} className="truncate text-sm font-semibold text-fg hover:text-accent">
+                      {r.user.username}
+                    </Link>
+                    <RankBadgeSmall rankInfo={r.rankInfo} />
+                  </span>
                   <span className="block truncate text-xs text-fg-3">
                     {r.user.profile?.freeFireIGN ?? r.user.profile?.city ?? 'Free Fire player'}
                   </span>

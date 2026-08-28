@@ -3,7 +3,7 @@
 // validated by multer (MIME + size) before these schemas even run.
 import { z } from 'zod';
 
-export const PAYMENT_METHODS = ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER'] as const;
+export const PAYMENT_METHODS = ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'NAYAPAY', 'SADAPAY'] as const;
 
 export const depositSchema = z.object({
   amount: z.coerce

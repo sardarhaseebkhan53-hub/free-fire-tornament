@@ -8,9 +8,10 @@ room-credential release, an immutable wallet ledger, manual payment
 verification (JazzCash / EasyPaisa / bank transfer), prize distribution,
 referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
-- 🎨 **UI design: APPROVED & LOCKED** — 46 concept screens in [`design/`](design/)
-  plus the design system spec [`design/DESIGN_SYSTEM_DRAFT.md`](design/DESIGN_SYSTEM_DRAFT.md).
-  All UI implements this design; no redesigns without explicit approval.
+- 🎨 **UI design: APPROVED & LOCKED** — the implementation follows the locked
+  obsidian/violet glassmorphism design system. Concept mockups were removed from
+  the repo for a clean production tree; the live app renders every surface from
+  actual components.
 - 🔧 **API-first backend** — the same REST API will serve the web app today and a
   future Flutter Android/iOS app without changes.
 - 🌐 **Web + PWA first** — no Docker, no Flutter in this version.
@@ -112,6 +113,37 @@ In-place fixes on top of the locked design — no redesign, no rewrites:
 All backend verify suites (join/wallet/results/finance/support/security/
 pwa/seo), the Vitest suite (now 170 tests incl. a new transfers suite) and
 both production builds are green.
+
+### ZP Battle zone feature & readiness pass (this session)
+
+- **Admin can now see payment & result proof screenshots.** `AuthedImage`
+  routes any `/api/*` proof URL through the browser-safe `/api/backend/*`
+  proxy, so deposit proofs (`/api/wallet/deposits/:id/screenshot`) and match
+  result screenshots (`/api/matches/results/:id/screenshot`) actually load in
+  the admin Deposits / Results panels instead of 404-ing.
+- **ZP Battle ranked ladder.** A live rank tier (Bronze → Silver → Gold →
+  Platinum → Diamond → Master → Grandmaster) is derived on the fly from a
+  player's total points via `src/lib/rank.ts`. It's shown as a badge on the
+  public Leaderboard, the public player profile (with % to next tier) and the
+  player dashboard — no schema change, no drift.
+- **NayaPay + SadaPay payment methods.** Added to the `PaymentMethod` enum +
+  a migration, the wallet validation/deposit/withdrawal services (treated as
+  `03XXXXXXXXX` mobile wallets), the Add Money / Submit Proof / Withdraw
+  screens, and the seed's payment destinations.
+- **Full admin control over payment destinations.** New **Payment Accounts**
+  admin screen (`/admin/payment-accounts`) with create / edit / activate /
+  hide / delete, all audited — the accounts players pay into on Add Money are
+  now entirely admin-managed.
+- **Admin settings edit bug fixed.** Editing a digits-only setting (e.g. the
+  WhatsApp number `03001234567`) no longer coerces it to a JS `Number` (which
+  dropped the leading zero and broke the number); each setting retains its real
+  type (number / boolean / JSON object / string).
+- **UI concept mockups removed.** The 103 MB `design/` mockup + design-system
+  folder was deleted for a clean production tree; app assets (icons, PWA,
+  banners) are kept.
+- **Hardening for scale.** Pagination, DB pool sizing, per-IP/per-user rate
+  limits and indexes were road-tested; the backend build + the 170-test Vitest
+  suite + the production `next build` are all green.
 
 ---
 
@@ -648,7 +680,6 @@ npm run dev             # http://localhost:3000
 ```text
 free-fire-tornament/
 ├── DEPLOYMENT.md      # production deployment guide (no Docker)
-├── design/            # 42 approved screens + locked design system spec
 ├── backend/           # Express 5 + TypeScript + Prisma 7 API
 │   ├── prisma/        # schema, migrations, seed
 │   ├── src/           # routes / services / middleware / validation / lib

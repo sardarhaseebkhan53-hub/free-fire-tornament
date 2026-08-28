@@ -162,6 +162,34 @@ the true source address.
 `PUBLIC_URL` must match the deployed origin, or every canonical URL, Open Graph
 tag and sitemap entry will point somewhere else.
 
+### Deploying on Vercel
+
+The **website** (`frontend/`) is a standard Next.js 16 app and deploys to Vercel
+as-is. It ships a `vercel.json` (region/build config) and a standalone rest of
+the stack works unchanged.
+
+**The API does NOT belong on Vercel serverless functions.** The Express API
+stores payment proofs, ticket attachments and result screenshots on a local
+writable `UPLOAD_DIR` volume and serves `/uploads/*` from that same disk.
+Vercel functions use an **ephemeral** filesystem — files written by one request
+are gone by the next, so deposit/result proofs would break and the in-memory
+login lockout state would reset constantly. Run the API on a long-lived host
+with a persistent volume instead (Render, Railway, Fly.io, a VPS/Caddy setup,
+or EC2), exactly as §1–§4 describe.
+
+Recommended split:
+
+| Piece | Where | Env |
+|---|---|---|
+| Website (`frontend/`, `next build`) | **Vercel** | `BACKEND_URL=https://api.…`, `PUBLIC_URL=https://clutchnex.gg` |
+| API (`backend/`, `npm start`) | Render / Railway / Fly / VPS | everything in §3 + a persistent `UPLOAD_DIR` |
+| Database | Neon / Supabase / RDS | `DATABASE_URL` |
+
+On Vercel, set `BACKEND_URL` to the **public HTTPS** URL of the API (never
+`localhost`), and point `PUBLIC_URL` at the Vercel origin. The browser only ever
+calls the relative `/api/backend/*` proxy and `/uploads/*` rewrite, both of
+which `next.config.ts` routes to `BACKEND_URL`.
+
 ---
 
 ## 6. TLS & reverse proxy

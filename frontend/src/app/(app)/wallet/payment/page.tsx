@@ -12,7 +12,7 @@ import {
 import QRCode from 'qrcode';
 import { api, ApiClientError, getToken } from '@/lib/client-api';
 import { WhatsAppHelp } from '@/components/whatsapp-help';
-import { MethodBrand, type Method } from '@/components/wallet/bits';
+import { MethodBrand, METHOD_LABEL, type Method } from '@/components/wallet/bits';
 import { CopyChip } from '@/components/wallet/bits';
 import { fmt } from '@/lib/format';
 
@@ -50,7 +50,7 @@ function PaymentInner() {
 
   useEffect(() => {
     if (!getToken()) { router.replace('/login?next=/wallet'); return; }
-    if (!amount || !['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER'].includes(method)) {
+    if (!amount || !['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'NAYAPAY', 'SADAPAY'].includes(method)) {
       router.replace('/wallet/add-money');
       return;
     }
@@ -129,7 +129,7 @@ function PaymentInner() {
           </span>
           <h2 className="mt-5 font-display text-xl font-bold text-fg">Payment submitted for verification</h2>
           <p className="mt-2 text-sm text-fg-2">
-            Your {fmt(amount)} {method === 'BANK_TRANSFER' ? 'bank transfer' : method === 'JAZZCASH' ? 'JazzCash' : 'EasyPaisa'} payment
+            Your {fmt(amount)} {METHOD_LABEL[method]} payment
             (TID <span className="font-mono text-fg">{tid}</span>) is now <span className="font-semibold text-warning">pending review</span>.
             Balances update within 30 minutes of approval — you will get a notification.
           </p>
@@ -151,7 +151,7 @@ function PaymentInner() {
               <p className="mt-5 text-xs font-semibold uppercase tracking-wide text-fg-3">Selected Payment Method</p>
               <div className="mt-2 flex items-center gap-3 rounded-input border border-accent/60 bg-accent/[6%] px-4 py-3">
                 <MethodBrand method={method} size={34} />
-                <span className="font-display text-base font-bold text-fg">{method === 'BANK_TRANSFER' ? 'Bank Transfer' : method === 'JAZZCASH' ? 'JazzCash' : 'EasyPaisa'}</span>
+                <span className="font-display text-base font-bold text-fg">{METHOD_LABEL[method]}</span>
                 <span className="ml-auto rounded-pill border border-accent/30 bg-accent/15 px-2.5 py-0.5 text-[11px] font-semibold text-accent">Recommended</span>
               </div>
 
@@ -177,7 +177,7 @@ function PaymentInner() {
               </div>
 
               <div className="mt-6 text-center">
-                <p className="text-xs text-fg-2">Scan to Pay with <span className="font-semibold text-accent">{method === 'BANK_TRANSFER' ? 'your banking app' : method === 'JAZZCASH' ? 'JazzCash' : 'EasyPaisa'}</span></p>
+                <p className="text-xs text-fg-2">Scan to Pay with <span className="font-semibold text-accent">{METHOD_LABEL[method]}</span></p>
                 <div className="mx-auto mt-3 w-fit rounded-card bg-white p-2.5">
                   <canvas ref={qrRef} width={148} height={148} className="block" />
                 </div>

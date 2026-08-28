@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/client-api';
 import { deferLoad, useHasSession } from '@/lib/session';
-import { MethodBrand, StatusPill, type Method } from '@/components/wallet/bits';
+import { MethodBrand, METHOD_LABEL, StatusPill, type Method } from '@/components/wallet/bits';
 import { fmt } from '@/lib/format';
 
 interface Withdrawal {
@@ -26,6 +26,8 @@ interface PubSettings { 'platform.whatsappNumber'?: string }
 const METHODS: Array<{ id: Method; label: string; sub?: string }> = [
   { id: 'JAZZCASH', label: 'JazzCash' },
   { id: 'EASYPAISA', label: 'EasyPaisa' },
+  { id: 'NAYAPAY', label: 'NayaPay' },
+  { id: 'SADAPAY', label: 'SadaPay' },
   { id: 'BANK_TRANSFER', label: 'Bank Transfer', sub: 'Direct to Bank' },
 ];
 
@@ -80,8 +82,8 @@ export default function WithdrawPage() {
     if (amt > winning) return setError('Amount exceeds your available winning balance.');
     if (accountName.trim().length < 2) return setError('Enter the account holder name.');
     const acc = accountNumber.replace(/[\s-]/g, '');
-    if ((method === 'JAZZCASH' || method === 'EASYPAISA') && !/^03\d{9}$/.test(acc)) {
-      return setError(`Enter a valid ${method === 'JAZZCASH' ? 'JazzCash' : 'EasyPaisa'} mobile number (03XXXXXXXXX).`);
+    if (['JAZZCASH', 'EASYPAISA', 'NAYAPAY', 'SADAPAY'].includes(method) && !/^03\d{9}$/.test(acc)) {
+      return setError(`Enter a valid ${METHOD_LABEL[method]} mobile number (03XXXXXXXXX).`);
     }
     if (method === 'BANK_TRANSFER' && !/^[A-Za-z0-9]{8,34}$/.test(acc)) {
       return setError('Enter a valid account number or IBAN.');
