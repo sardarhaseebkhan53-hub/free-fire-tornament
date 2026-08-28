@@ -135,11 +135,11 @@ export default function WalletPage() {
             </div>
           </div>
 
-          <div className="relative mt-6 grid grid-cols-3 gap-3 rounded-card border border-line bg-base/60 p-3">
+          <div className="relative mt-6 grid grid-cols-1 gap-3 rounded-card border border-line bg-base/60 p-3 sm:grid-cols-3 sm:divide-x sm:divide-line">
             {buckets.map((b) => {
               const Icon = b.icon;
               return (
-                <div key={b.label} className="flex items-center gap-3 px-2 py-1.5 sm:px-4">
+                <div key={b.label} className="flex items-center gap-3 px-2 py-1.5 sm:justify-center sm:px-4">
                   <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${b.tone}`}>
                     <Icon size={17} />
                   </span>
