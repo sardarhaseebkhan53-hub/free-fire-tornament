@@ -85,6 +85,8 @@ enum PaymentMethod {
   JAZZCASH
   EASYPAISA
   BANK_TRANSFER
+  NAYAPAY
+  SADAPAY
 }
 
 enum DepositStatus {

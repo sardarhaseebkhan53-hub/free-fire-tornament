@@ -239,6 +239,16 @@ async function main() {
         extra: { bank: 'Meezan Bank', branch: 'Blue Area, Islamabad' },
         instructions: 'IBAN transfer only. Use your CLUTCHNEX username as the transfer reference.',
       },
+      {
+        method: 'NAYAPAY', label: 'NayaPay — 0300 1234567', accountName: 'CLUTCHNEX LTD',
+        accountNumber: '03001234567', displayOrder: 4,
+        instructions: 'Send the exact amount via NayaPay, then submit the transaction ID and a screenshot of the receipt.',
+      },
+      {
+        method: 'SADAPAY', label: 'SadaPay — 0345 7654321', accountName: 'CLUTCHNEX LTD',
+        accountNumber: '03457654321', displayOrder: 5,
+        instructions: 'Send the exact amount via SadaPay, then submit the transaction ID and a screenshot of the receipt.',
+      },
     ],
   });
 

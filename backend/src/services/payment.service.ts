@@ -19,7 +19,11 @@ export const METHOD_LABEL: Record<string, string> = {
   JAZZCASH: 'JazzCash',
   EASYPAISA: 'EasyPaisa',
   BANK_TRANSFER: 'Bank Transfer',
+  NAYAPAY: 'NayaPay',
+  SADAPAY: 'SadaPay',
 };
+/** Methods that read from a Pakistani mobile wallet number (03XXXXXXXXX). */
+const MOBILE_WALLET_METHODS = new Set(['JAZZCASH', 'EASYPAISA', 'NAYAPAY', 'SADAPAY']);
 
 interface Ctx { ip?: string; userAgent?: string }
 
@@ -43,12 +47,124 @@ export async function listActivePaymentAccounts() {
 }
 
 // ---------------------------------------------------------------------------
+// Admin — payment destinations (full control from the admin panel).
+// ---------------------------------------------------------------------------
+
+const PAYMENT_ACCOUNT_SELECT = {
+  id: true, method: true, label: true, accountName: true, accountNumber: true,
+  extra: true, instructions: true, isActive: true, displayOrder: true,
+  createdAt: true, updatedAt: true,
+} as const;
+
+export async function listPaymentAccounts() {
+  return prisma.paymentAccount.findMany({
+    orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+    select: PAYMENT_ACCOUNT_SELECT,
+  });
+}
+
+export interface PaymentAccountInput {
+  method: string;
+  label: string;
+  accountName: string;
+  accountNumber: string;
+  instructions?: string | null;
+  displayOrder?: number;
+  isActive?: boolean;
+  extra?: Record<string, unknown> | null;
+}
+
+export async function createPaymentAccount(adminId: string, input: PaymentAccountInput, ctx: Ctx) {
+  const row = await prisma.paymentAccount.create({
+    data: {
+      method: input.method as never,
+      label: input.label,
+      accountName: input.accountName,
+      accountNumber: input.accountNumber,
+      instructions: input.instructions || null,
+      displayOrder: input.displayOrder ?? 0,
+      isActive: input.isActive ?? true,
+      extra: input.extra ? (input.extra as Prisma.InputJsonValue) : undefined,
+    },
+    select: PAYMENT_ACCOUNT_SELECT,
+  });
+  await prisma.auditLog.create({
+    data: {
+      actorId: adminId, action: 'PAYMENT_ACCOUNT_CREATED', entity: 'PaymentAccount', entityId: row.id,
+      after: { method: row.method, label: row.label },
+      ip: ctx.ip, userAgent: ctx.userAgent,
+    },
+  });
+  return row;
+}
+
+export async function updatePaymentAccount(adminId: string, id: string, input: PaymentAccountInput, ctx: Ctx) {
+  const existing = await prisma.paymentAccount.findUnique({ where: { id } });
+  if (!existing) throw notFound('Payment account not found');
+  const row = await prisma.paymentAccount.update({
+    where: { id },
+    data: {
+      method: input.method as never,
+      label: input.label,
+      accountName: input.accountName,
+      accountNumber: input.accountNumber,
+      instructions: input.instructions || null,
+      displayOrder: input.displayOrder ?? existing.displayOrder,
+      isActive: input.isActive ?? existing.isActive,
+      extra: input.extra !== undefined ? (input.extra as Prisma.InputJsonValue) : undefined,
+    },
+    select: PAYMENT_ACCOUNT_SELECT,
+  });
+  await prisma.auditLog.create({
+    data: {
+      actorId: adminId, action: 'PAYMENT_ACCOUNT_UPDATED', entity: 'PaymentAccount', entityId: id,
+      before: { method: existing.method, label: existing.label },
+      after: { method: row.method, label: row.label },
+      ip: ctx.ip, userAgent: ctx.userAgent,
+    },
+  });
+  return row;
+}
+
+export async function togglePaymentAccount(adminId: string, id: string, isActive: boolean, ctx: Ctx) {
+  const existing = await prisma.paymentAccount.findUnique({ where: { id } });
+  if (!existing) throw notFound('Payment account not found');
+  const row = await prisma.paymentAccount.update({
+    where: { id },
+    data: { isActive },
+    select: PAYMENT_ACCOUNT_SELECT,
+  });
+  await prisma.auditLog.create({
+    data: {
+      actorId: adminId, action: 'PAYMENT_ACCOUNT_TOGGLED', entity: 'PaymentAccount', entityId: id,
+      before: { isActive: existing.isActive }, after: { isActive },
+      ip: ctx.ip, userAgent: ctx.userAgent,
+    },
+  });
+  return row;
+}
+
+export async function deletePaymentAccount(adminId: string, id: string, ctx: Ctx) {
+  const existing = await prisma.paymentAccount.findUnique({ where: { id } });
+  if (!existing) throw notFound('Payment account not found');
+  await prisma.paymentAccount.delete({ where: { id } });
+  await prisma.auditLog.create({
+    data: {
+      actorId: adminId, action: 'PAYMENT_ACCOUNT_DELETED', entity: 'PaymentAccount', entityId: id,
+      before: { method: existing.method, label: existing.label },
+      ip: ctx.ip, userAgent: ctx.userAgent,
+    },
+  });
+  return { id };
+}
+
+// ---------------------------------------------------------------------------
 // Deposits
 // ---------------------------------------------------------------------------
 
 export async function createDeposit(
   userId: string,
-  input: { amount: number; method: 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER'; transactionId: string; senderName: string; senderAccount?: string },
+  input: { amount: number; method: 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER' | 'NAYAPAY' | 'SADAPAY'; transactionId: string; senderName: string; senderAccount?: string },
   screenshotPath: string,
   ctx: Ctx,
   screenshotHash?: string,
@@ -179,7 +295,7 @@ function serializeDeposit(d: {
 
 export async function requestWithdrawal(
   userId: string,
-  input: { amount: number; method: 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER'; accountName: string; accountNumber: string; accountDetails?: string },
+  input: { amount: number; method: 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER' | 'NAYAPAY' | 'SADAPAY'; accountName: string; accountNumber: string; accountDetails?: string },
   ctx: Ctx,
 ) {
   const min = Number(await getSetting('wallet.minWithdrawal', 100));
@@ -187,7 +303,7 @@ export async function requestWithdrawal(
   if (input.amount < min) throw badRequest('VALIDATION_ERROR', `Minimum withdrawal is PKR ${min}.`);
 
   const acc = input.accountNumber.replaceAll(/[\s-]/g, '');
-  if ((input.method === 'JAZZCASH' || input.method === 'EASYPAISA') && !/^03\d{9}$/.test(acc)) {
+  if (MOBILE_WALLET_METHODS.has(input.method) && !/^03\d{9}$/.test(acc)) {
     throw badRequest('VALIDATION_ERROR', `Enter a valid ${METHOD_LABEL[input.method]} mobile number (03XXXXXXXXX).`);
   }
   if (input.method === 'BANK_TRANSFER' && !/^[A-Za-z0-9]{8,34}$/.test(acc)) {

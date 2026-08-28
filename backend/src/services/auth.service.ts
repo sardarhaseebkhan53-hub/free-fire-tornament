@@ -19,6 +19,7 @@ import { getSetting } from './settings.service';
 import { applyWalletTx } from './wallet.service';
 import { fireLoginAbuse, fireRefreshReuse, fireRegistrationFraud } from './fraud.service';
 import { audit } from '../lib/security';
+import { rankFor } from '../lib/rank';
 
 /** bcrypt cost — 12 is the current OWASP floor for bcryptjs (≈250ms/hash). */
 const BCRYPT_ROUNDS = 12;
@@ -348,7 +349,8 @@ export async function me(userId: string) {
     },
   });
   if (!user) throw unauthorized('UNAUTHORIZED', 'Account no longer exists.');
-  return user;
+  // ZP Battle "Skill-Based Ranking" — derive the player's live tier.
+  return { ...user, rankInfo: rankFor(user.stats?.totalPoints ?? 0) };
 }
 
 // ---------------------------------------------------------------------------

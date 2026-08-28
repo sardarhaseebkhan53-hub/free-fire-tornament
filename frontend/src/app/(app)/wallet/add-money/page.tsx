@@ -20,6 +20,8 @@ const QUICK = [100, 250, 500, 1000, 2500];
 const METHODS: Array<{ id: Method; title: string; sub: string; recommended?: boolean }> = [
   { id: 'JAZZCASH', title: 'JazzCash', sub: 'Pay securely using JazzCash wallet', recommended: true },
   { id: 'EASYPAISA', title: 'EasyPaisa', sub: 'Pay securely using EasyPaisa wallet' },
+  { id: 'NAYAPAY', title: 'NayaPay', sub: 'Pay instantly using your NayaPay account' },
+  { id: 'SADAPAY', title: 'SadaPay', sub: 'Pay instantly using your SadaPay account' },
   { id: 'BANK_TRANSFER', title: 'Bank Transfer', sub: 'Direct bank transfer to our account' },
 ];
 

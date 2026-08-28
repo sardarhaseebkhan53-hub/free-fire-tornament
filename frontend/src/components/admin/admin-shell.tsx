@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  ArrowUpRight, BarChart3, FileText, Headphones,
+  ArrowUpRight, BarChart3, CreditCard, FileText, Headphones,
   Home, LayoutDashboard, Loader2, Megaphone, Search, Send, Settings, Shield, ShieldAlert,
   ScrollText, Swords, TrendingUp, Trophy, Upload, UserRound, Users, Wallet, XCircle,
 } from 'lucide-react';
@@ -20,6 +20,7 @@ const NAV = [
   { href: '/admin/matches', label: 'Matches', icon: Swords },
   { href: '/admin/results', label: 'Results', icon: BarChart3 },
   { href: '/admin/deposits', label: 'Deposits', icon: Wallet },
+  { href: '/admin/payment-accounts', label: 'Payment Accounts', icon: CreditCard },
   { href: '/admin/withdrawals', label: 'Withdrawals', icon: Upload },
   { href: '/admin/transfers', label: 'Transfers', icon: Send },
   { href: '/admin/finance', label: 'Financials', icon: TrendingUp },

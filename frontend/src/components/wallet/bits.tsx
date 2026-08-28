@@ -6,12 +6,14 @@ import {
   Gift, Landmark, RefreshCcw, Smartphone, Trophy, Wallet as WalletIcon,
 } from 'lucide-react';
 
-export type Method = 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER';
+export type Method = 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER' | 'NAYAPAY' | 'SADAPAY';
 
 export const METHOD_LABEL: Record<Method, string> = {
   JAZZCASH: 'JazzCash',
   EASYPAISA: 'EasyPaisa',
   BANK_TRANSFER: 'Bank Transfer',
+  NAYAPAY: 'NayaPay',
+  SADAPAY: 'SadaPay',
 };
 
 /** Brand chip — colour block + wordmark, like the payment cards in design 15/22. */
@@ -35,6 +37,27 @@ export function MethodBrand({ method, size = 40 }: { method: Method; size?: numb
       >
         <span className="font-display font-bold italic">easy</span>
         <span className="font-display font-bold">paisa</span>
+      </span>
+    );
+  }
+  if (method === 'NAYAPAY') {
+    return (
+      <span
+        className="flex shrink-0 items-center justify-center rounded-input bg-[#5E1EE0] text-white"
+        style={{ width: size, height: size, fontSize: small ? 8 : 10 }}
+      >
+        naya
+      </span>
+    );
+  }
+  if (method === 'SADAPAY') {
+    return (
+      <span
+        className="flex shrink-0 flex-col items-center justify-center rounded-input bg-[#00C2A8] leading-none text-white"
+        style={{ width: size, height: size, fontSize: small ? 8 : 10 }}
+      >
+        <span className="font-display font-bold">Sada</span>
+        <span className="font-display font-bold">Pay</span>
       </span>
     );
   }

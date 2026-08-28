@@ -7,6 +7,7 @@ import { Prisma } from '../../generated/prisma';
 import { prisma } from '../lib/prisma';
 import { notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
+import { rankFor, rankCatalog } from '../lib/rank';
 
 // ---------------------------------------------------------------------------
 export interface TournamentListQuery {
@@ -170,8 +171,11 @@ export async function leaderboard(opts: { period?: 'all' | 'weekly' | 'monthly';
   ]);
 
   return {
-    items: items.map((s, i) => ({ ...s, rank: (page - 1) * limit + i + 1 })),
+    items: items.map((s, i) => ({ ...s, rank: (page - 1) * limit + i + 1, rankInfo: rankFor(s.totalPoints) })),
     page, limit, total, pages: Math.ceil(total / limit),
+    // ZP Battle "Skill-Based Ranking" — a live tier + progress toward the
+    // next tier for each row. Computed on the fly; no schema change needed.
+    catalog: rankCatalog(),
   };
 }
 
@@ -258,6 +262,7 @@ export async function getPublicPlayer(username: string) {
   const stats = user.stats;
   const winRate =
     stats && stats.matchesPlayed > 0 ? Math.round((stats.wins / stats.matchesPlayed) * 100) : 0;
+  const points = stats?.totalPoints ?? 0;
   return {
     username: user.username,
     avatar: user.avatar,
@@ -265,6 +270,7 @@ export async function getPublicPlayer(username: string) {
     freeFireIGN: user.profile?.freeFireIGN ?? null,
     city: user.profile?.city ?? null,
     bio: user.profile?.bio ?? null,
+    rankInfo: rankFor(points),
     stats: stats
       ? { ...stats, winRate }
       : { matchesPlayed: 0, wins: 0, kills: 0, totalPoints: 0, earnings: 0, winRate: 0 },

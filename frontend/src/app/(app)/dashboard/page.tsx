@@ -14,13 +14,16 @@ import { msToCountdown } from '@/lib/format';
 import { TypeChip } from '@/components/wallet/bits';
 import { Skeleton } from '@/components/ui';
 import { TournamentImage } from '@/components/tournament-image';
+import { RankBadge } from '@/components/rank-badge';
 import { fmt } from '@/lib/format';
+import type { RankInfo } from '@/lib/types';
 
 interface Me {
   username: string; isVerified: boolean; referralCode: string;
   profile: { fullName: string; freeFireIGN: string | null; freeFireUID: string | null } | null;
   wallet: { cashBalance: number; coinBalance: number; winningBalance: number; bonusBalance: number } | null;
   stats: { matchesPlayed: number; wins: number; kills: number; totalPoints: number; earnings: string } | null;
+  rankInfo?: RankInfo;
 }
 interface Reg {
   id: string; status: string; registeredAt: string; seatNumber: number | null;
@@ -124,6 +127,7 @@ export default function DashboardPage() {
       <h1 className="font-display text-2xl font-bold text-fg sm:text-3xl">
         Welcome back, <span className="text-accent">{me.profile?.freeFireIGN ?? me.username}</span>{' '}
         {me.isVerified && <Crown size={20} className="mb-1 inline text-reward" />}
+        {me.rankInfo && <RankBadge rankInfo={me.rankInfo} small />}
       </h1>
 
       {/* MOBILE — design 42: wallet balance card + quick actions */}

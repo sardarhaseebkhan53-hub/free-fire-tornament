@@ -4,6 +4,8 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import { pageMetadata } from '@/lib/seo';
+import { RankBadge } from '@/components/rank-badge';
+import type { RankInfo } from '@/lib/types';
 import type { Metadata } from 'next';
 
 export async function generateMetadata({ params }: { params: Promise<{ username: string }> }): Promise<Metadata> {
@@ -25,6 +27,7 @@ interface PublicPlayer {
   freeFireIGN: string | null;
   city: string | null;
   bio: string | null;
+  rankInfo?: RankInfo;
   stats: {
     matchesPlayed: number;
     wins: number;
@@ -57,6 +60,16 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
         <p className="mt-1 text-sm text-fg-2">
           {p.freeFireIGN ?? 'Free Fire player'} {p.city ? `· ${p.city}` : ''}
         </p>
+        {p.rankInfo && (
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <RankBadge rankInfo={p.rankInfo} />
+            {p.rankInfo.nextLabel && (
+              <span className="text-[11px] text-fg-3">
+                {p.rankInfo.progress}% to {p.rankInfo.nextLabel}
+              </span>
+            )}
+          </div>
+        )}
         {p.bio && <p className="mx-auto mt-3 max-w-md text-sm text-fg-3">{p.bio}</p>}
 
         <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-5">

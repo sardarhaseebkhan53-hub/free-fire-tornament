@@ -60,6 +60,16 @@ export interface TournamentDetails extends TournamentSummary {
   }>;
 }
 
+/** ZP Battle "Skill-Based Ranking" — a live tier derived from total points. */
+export interface RankInfo {
+  tier: string;
+  label: string;
+  color: string;
+  icon: string;
+  nextLabel: string | null;
+  progress: number;
+}
+
 export interface LeaderboardEntry {
   rank: number;
   matchesPlayed: number;
@@ -67,6 +77,7 @@ export interface LeaderboardEntry {
   kills: number;
   totalPoints: number;
   earnings: string;
+  rankInfo?: RankInfo;
   user: {
     username: string;
     avatar: string | null;

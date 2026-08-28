@@ -280,22 +280,57 @@ export function Donut({ parts, label }: { parts: Array<{ label: string; value: n
   );
 }
 
-/** Authenticated image loader — fetches an authed endpoint and object-URLs it. */
+/**
+ * Normalize an authenticated image src so it always reaches the API through
+ * the browser-safe `/api/backend/*` proxy. Backend services return absolute
+ * API paths like `/api/wallet/deposits/:id/screenshot`, which the Next.js app
+ * does not route — only `/api/backend/*` is proxied. Callers that already pass
+ * a `/api/backend/...` path (e.g. ticket attachments) are left untouched.
+ */
+function normalizeAuthedSrc(src: string): string {
+  if (!src) return src;
+  if (src.startsWith('/api/backend')) return src;
+  if (src.startsWith('/api/')) return `/api/backend${src}`;
+  return src;
+}
+
+/** Authenticated image loader — fetches an authed endpoint and object-URLs it.
+ * Refreshes an expired access token once on a 401, exactly like the API client. */
 export function AuthedImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const resolved = normalizeAuthedSrc(src);
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let revoke: string | null = null;
-    const token = localStorage.getItem('cn_access');
-    fetch(src, { headers: { authorization: `Bearer ${token ?? ''}` } })
-      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
-      .then((b) => {
-        revoke = URL.createObjectURL(b);
-        setUrl(revoke);
-      })
-      .catch(() => setFailed(true));
-    return () => { if (revoke) URL.revokeObjectURL(revoke); };
-  }, [src]);
+    let cancelled = false;
+    async function load() {
+      const token = localStorage.getItem('cn_access');
+      let res = await fetch(resolved, { headers: { authorization: `Bearer ${token ?? ''}` } });
+      if (res.status === 401 && token) {
+        // Access token expired → rotate via refresh cookie, then retry once.
+        const refreshed = await fetch('/api/backend/auth/refresh', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'x-clutchnex-client': 'web' },
+        });
+        if (refreshed.ok) {
+          const rj = (await refreshed.json()) as { success: boolean; data?: { accessToken: string } };
+          if (rj.success && rj.data?.accessToken) {
+            localStorage.setItem('cn_access', rj.data.accessToken);
+            res = await fetch(resolved, { headers: { authorization: `Bearer ${rj.data.accessToken}` } });
+          }
+        }
+      }
+      if (!res.ok) throw new Error(String(res.status));
+      const blob = await res.blob();
+      if (cancelled) return;
+      revoke = URL.createObjectURL(blob);
+      setUrl(revoke);
+      setFailed(false);
+    }
+    load().catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; if (revoke) URL.revokeObjectURL(revoke); };
+  }, [resolved]);
   if (failed) return <div className={`flex items-center justify-center rounded-card border border-line text-xs text-fg-3 ${className ?? ''}`}>No screenshot</div>;
   if (!url) return <div className={`animate-pulse rounded-card bg-white/[4%] ${className ?? ''}`} />;
   // eslint-disable-next-line @next/next/no-img-element

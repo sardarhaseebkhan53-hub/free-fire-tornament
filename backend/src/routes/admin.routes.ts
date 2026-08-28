@@ -10,7 +10,7 @@ import {
   fraudReviewSchema, matchListQuerySchema,
   matchStatusSchema, revenueQuerySchema, financeQuerySchema, settingUpdateSchema, ticketListQuerySchema,
   ticketReplySchema, tournamentStatusSchema, upsertSeoSchema, userListQuerySchema,
-  userStatusSchema, blogStatusSchema,
+  userStatusSchema, blogStatusSchema, paymentAccountSchema, paymentAccountToggleSchema,
 } from '../validation/admin.schema';
 import { listFraudAlerts, reviewFraudAlert } from '../services/fraud.service';
 import { adminWriteLimiter } from '../middleware/rateLimit';
@@ -93,7 +93,11 @@ adminRouter.post('/matches/:id/status', async (req, res) => {
 // Payments review (Phase 7 services)
 import { depositListQuerySchema, depositReviewSchema, withdrawalListQuerySchema, withdrawalReviewSchema } from '../validation/wallet.schema';
 import { reviewResultSchema, submissionListQuerySchema } from '../validation/result.schema';
-import { listDeposits, listWithdrawals, reviewDeposit, reviewWithdrawal } from '../services/payment.service';
+import {
+  listDeposits, listWithdrawals, reviewDeposit, reviewWithdrawal,
+  listPaymentAccounts, createPaymentAccount, updatePaymentAccount,
+  togglePaymentAccount, deletePaymentAccount,
+} from '../services/payment.service';
 import { distributePrizes, listSubmissions, reviewResult, tournamentStandings } from '../services/result.service';
 
 adminRouter.get('/deposits', async (req, res) => {
@@ -112,6 +116,24 @@ adminRouter.post('/withdrawals/:id/review', async (req, res) => {
   const { action, note, paidReference } = withdrawalReviewSchema.parse(req.body);
   const out = await reviewWithdrawal(req.auth!.id, String(req.params.id), action, note, paidReference, ctxOf(req));
   return ok(res, out, `Withdrawal ${out.status.toLowerCase()}.`);
+});
+// Payment destinations — the Add Money accounts players pay into. Admin controls
+// them all (create / edit / toggle / delete), every change audited.
+adminRouter.get('/payment-accounts', async (_req, res) => ok(res, await listPaymentAccounts()));
+adminRouter.post('/payment-accounts', adminWriteLimiter, async (req, res) => {
+  const input = paymentAccountSchema.parse(req.body);
+  return ok(res, await createPaymentAccount(req.auth!.id, input, ctxOf(req)), 'Payment account created.');
+});
+adminRouter.put('/payment-accounts/:id', adminWriteLimiter, async (req, res) => {
+  const input = paymentAccountSchema.parse(req.body);
+  return ok(res, await updatePaymentAccount(req.auth!.id, String(req.params.id), input, ctxOf(req)), 'Payment account updated.');
+});
+adminRouter.post('/payment-accounts/:id/toggle', adminWriteLimiter, async (req, res) => {
+  const { isActive } = paymentAccountToggleSchema.parse(req.body);
+  return ok(res, await togglePaymentAccount(req.auth!.id, String(req.params.id), isActive, ctxOf(req)), 'Payment account updated.');
+});
+adminRouter.delete('/payment-accounts/:id', adminWriteLimiter, async (req, res) => {
+  return ok(res, await deletePaymentAccount(req.auth!.id, String(req.params.id), ctxOf(req)), 'Payment account deleted.');
 });
 
 // Results verification (Phase 8 services)
