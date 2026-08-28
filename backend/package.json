@@ -4,9 +4,12 @@
   "private": true,
   "description": "CLUTCHNEX Free Fire esports tournament platform — API-first backend (Express + Prisma + PostgreSQL)",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "npm run db:generate && tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -15,7 +18,8 @@
     "db:dev": "node scripts/dev-db.mjs",
     "db:generate": "node scripts/db-generate.mjs",
     "db:push": "prisma db push",
-    "db:migrate": "prisma migrate deploy",
+    "db:migrate": "node scripts/migrate-deploy.mjs",
+    "db:migrate:cli": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "studio": "prisma studio",

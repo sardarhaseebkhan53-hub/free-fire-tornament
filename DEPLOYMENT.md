@@ -9,6 +9,56 @@ serverless-ish host that can run a long-lived Node process.
 
 ---
 
+## 0. Quick deploy — Vercel (web) + Railway (API)
+
+The repo ships a [`railway.yaml`](railway.yaml), so both services build with
+zero manual command entry.
+
+**1 — Database.** Create a managed PostgreSQL (Neon, Supabase, Railway's
+Postgres plugin…) and copy the `postgresql://…` connection string.
+
+**2 — Railway (API + optional web).** New Project → *Deploy from GitHub* →
+pick this repo. Railway reads `railway.yaml` and creates:
+
+| Service | Source | Build | Start |
+|---|---|---|---|
+| `api` | `backend/` | `npm ci && npm run build` | `npm run db:migrate && npm start` |
+| `web` | `frontend/` | `npm ci && npm run build` | `npm start` |
+
+Then set environment variables (Railway dashboard → service → Variables):
+
+- `api`: `NODE_ENV=production`, `PORT=4000`, `DATABASE_URL`,
+  `JWT_ACCESS_SECRET` + `JWT_REFRESH_SECRET` (two different
+  `openssl rand -hex 64` outputs), `CLIENT_ORIGIN`, `PUBLIC_URL`,
+  `EMAIL_PROVIDER` (`smtp`/`resend`/`postmark` — **not** `log`),
+  `EMAIL_FROM` — full table in §3. The production guards in §3 refuse to
+  boot on missing placeholders, and the error names the exact variable.
+  If you attach the Railway Postgres plugin, `DATABASE_URL` is filled
+  automatically.
+- `web`: `BACKEND_URL` = the `api` service's public HTTPS URL,
+  `PUBLIC_URL` = the `web` service's public HTTPS URL.
+
+**3 — Vercel (web, recommended over the Railway `web` service).** New Project
+→ import the repo → **set the root directory to `frontend`** → add
+`BACKEND_URL` and `PUBLIC_URL` → Deploy. `frontend/vercel.json` handles the
+rest (`npm ci` + `next build`).
+
+> ⚠️ If you deploy the **repository root** to Vercel instead of `frontend/`,
+> Vercel finds no framework and the deploy fails. The framework detection
+> needs to point at the `frontend/` subdirectory (Root Directory field).
+
+**4 — Smoke test.**
+
+```bash
+curl -sf $API_URL/api/health          # → {"success":true,…}
+curl -sf $WEB_URL/ | grep -q CLUTCHNEX
+```
+
+Everything else in this document is the detailed reference behind those
+steps.
+
+---
+
 ## 1. Requirements
 
 | Component | Version / notes |
@@ -119,11 +169,24 @@ which variable failed and how to fix it.
 ```bash
 cd backend
 npm ci
-npm run db:generate
-npm run build          # tsc -p tsconfig.build.json → dist/index.js
+npm run build          # generates the Prisma client, then tsc → dist/index.js
 npm run db:migrate
 npm start              # node dist/index.js
 ```
+
+`npm run build` **always generates the Prisma client first**
+(`npm run db:generate && tsc -p tsconfig.build.json`). The client lives in
+`backend/generated/` and is git-ignored, so a fresh checkout (CI, Railway,
+Render…) has no client until this runs — skipping it is the classic cause of
+a wall of `TS2307: Cannot find module '../../generated/prisma'` build errors.
+You can still run `npm run db:generate` by hand; the build just no longer
+depends on you remembering to.
+
+`npm run db:migrate` is resilient: it runs `prisma migrate deploy` and, if
+the engine download is blocked by the network, transparently applies the same
+migration files through the offline SQL applier. Either way it is idempotent
+and forward-only — safe to run on every boot (that's what `railway.yaml`
+does).
 
 Sanity check:
 
@@ -164,9 +227,28 @@ tag and sitemap entry will point somewhere else.
 
 ### Deploying on Vercel
 
-The **website** (`frontend/`) is a standard Next.js 16 app and deploys to Vercel
-as-is. It ships a `vercel.json` (region/build config) and a standalone rest of
-the stack works unchanged.
+The **website** (`frontend/`) is a standard Next.js 16 app and deploys to
+Vercel. When you import the repo, set **Root Directory = `frontend`** —
+deploying the repository root fails because the framework (and
+`package.json`) lives in the subdirectory. `frontend/vercel.json` installs
+with `npm ci` (lockfile-faithful — `npm install` is the usual source of
+`ERESOLVE`/`E404` "multiple errors" on Vercel when the lockfile drifts) and
+builds with `next build`.
+
+Set exactly two environment variables on Vercel:
+
+| Variable | Value |
+|---|---|
+| `BACKEND_URL` | the API's public HTTPS URL (never `localhost`) |
+| `PUBLIC_URL` | the Vercel origin of the site |
+
+Both are read **at request time**, not baked in: the browser only ever calls
+the relative `/api/backend/*` proxy, and `/uploads/*` is proxied by the
+`src/app/uploads/[...path]/route.ts` route handler (deliberately NOT a
+`next.config.ts` rewrite — rewrite destinations are frozen at build time, so
+a missing or changed `BACKEND_URL` would silently keep pointing at
+localhost). Changing `BACKEND_URL` on Vercel takes effect on the next deploy
+without re-baking anything.
 
 **The API does NOT belong on Vercel serverless functions.** The Express API
 stores payment proofs, ticket attachments and result screenshots on a local
@@ -185,10 +267,34 @@ Recommended split:
 | API (`backend/`, `npm start`) | Render / Railway / Fly / VPS | everything in §3 + a persistent `UPLOAD_DIR` |
 | Database | Neon / Supabase / RDS | `DATABASE_URL` |
 
-On Vercel, set `BACKEND_URL` to the **public HTTPS** URL of the API (never
-`localhost`), and point `PUBLIC_URL` at the Vercel origin. The browser only ever
-calls the relative `/api/backend/*` proxy and `/uploads/*` rewrite, both of
-which `next.config.ts` routes to `BACKEND_URL`.
+### Deploying on Railway
+
+The repo root ships a [`railway.yaml`](railway.yaml) — deploy the repo and
+Railway creates both services (`api` from `backend/`, `web` from `frontend/`)
+with the correct commands:
+
+- **`api`** — build `npm ci && npm run build` (the build generates the Prisma
+  client automatically — see §4); start `npm run db:migrate && npm start`
+  (migrations run on every boot; idempotent and forward-only).
+- **`web`** — build `npm ci && npm run build`; start `npm start`
+  (`next start` binds `0.0.0.0:$PORT`).
+
+Environment variables per service:
+
+| Service | Variables |
+|---|---|
+| `api` | everything in §3 — `NODE_ENV=production`, `PORT=4000`, `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `CLIENT_ORIGIN`, `PUBLIC_URL`, `EMAIL_PROVIDER` ≠ `log`, `EMAIL_FROM`, … |
+| `web` | `BACKEND_URL` (public HTTPS URL of the `api` service), `PUBLIC_URL` (its own origin) |
+
+- **Postgres:** add the Railway PostgreSQL plugin to the `api` service and
+  `DATABASE_URL` is filled for you; any managed Postgres also works — just
+  paste the connection string as `DATABASE_URL`.
+- **Uploads:** Railway's disk is ephemeral. Attach a Volume to the `api`
+  service (mounted at `/data`) and set `UPLOAD_DIR=/data/uploads`, or payment
+  proofs and result screenshots will vanish on every redeploy (§7).
+- **Boot failures are informative, not random:** with `NODE_ENV=production`
+  the API refuses to start on placeholder/missing secrets and tells you
+  exactly which variable to fix (§3). Read the first line of the deploy log.
 
 ---
 
