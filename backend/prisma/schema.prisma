@@ -17,8 +17,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // Prisma 7: connection URL lives in prisma.config.ts (CLI) and is passed
-  // via a driver adapter at runtime (see src/lib/prisma.ts). Never hardcoded here.
+  // Prisma 7: connection URLs live OUTSIDE the schema (adding `url =` /
+  // `directUrl =` here is a Prisma ≤6 pattern and fails Prisma 7 validation):
+  //   • CLI (migrations, studio)  → prisma.config.ts reads DIRECT_URL
+  //     (unpooled Neon host) and falls back to DATABASE_URL.
+  //   • Runtime (API traffic)     → src/lib/prisma.ts passes DATABASE_URL
+  //     (pooled `-pooler…` Neon host) to the @prisma/adapter-pg driver adapter.
+  // Keep both strings in .env — never hardcoded here.
 }
 
 // -----------------------------------------------------------------------------

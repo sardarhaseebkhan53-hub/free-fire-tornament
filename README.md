@@ -611,10 +611,14 @@ npm run dev             # http://localhost:3000
 
 | Role | Login | Password |
 |---|---|---|
-| Super admin | `admin@clutchnex.gg` | `ChangeMe-Admin123` |
+| Super admin (permanent) | `sardarghaseeb777@gmail.com` / `sardarghaseeb` | `sardar9003202@` |
 | Admin | `ops@clutchnex.gg` | `OpsAdmin@123` |
 | Moderator | `mod@clutchnex.gg` | `ModPass@123` |
 | Players | `<username>@example.com` (e.g. `areeb_ff`) | `Player@123` |
+
+The super-admin is PERMANENT and identical in every environment — dev seed
+(`db:seed`) and the production-safe upserter (`db:seed:admin`) both create the
+same account, and `db:seed:admin` re-syncs its password hash on every run.
 
 ### Useful scripts
 
@@ -631,6 +635,7 @@ npm run dev             # http://localhost:3000
 | backend | `npm test` | Vitest suite (127 tests) — boots its own embedded PostgreSQL |
 | backend | `npm run build` | Production build → `dist/index.js` (server only) |
 | backend | `npm run db:seed` | Reset demo data |
+| backend | `npm run db:seed:admin` | Upsert permanent super-admin (production-safe) |
 | backend | `npm run typecheck` | `tsc --noEmit` |
 | frontend | `npx next build` | Production build check |
 

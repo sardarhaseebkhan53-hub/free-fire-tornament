@@ -255,15 +255,19 @@ async function main() {
   // -------------------------------------------------------------------------
   // 3. Staff accounts
   // -------------------------------------------------------------------------
-  const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'ChangeMe-Admin123';
+  // PERMANENT super-admin — identical to prisma/admin-seed.ts (production).
+  // One identity everywhere: dev, staging and prod logins never drift.
+  const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'sardar9003202@';
+  const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'sardarghaseeb777@gmail.com';
+  const ADMIN_USERNAME = process.env.SEED_ADMIN_USERNAME ?? 'sardarghaseeb';
   const superAdmin = await prisma.user.create({
     data: {
-      username: process.env.SEED_ADMIN_USERNAME ?? 'clutchadmin',
-      email: process.env.SEED_ADMIN_EMAIL ?? 'admin@clutchnex.gg',
+      username: ADMIN_USERNAME,
+      email: ADMIN_EMAIL,
       passwordHash: bcrypt.hashSync(ADMIN_PASSWORD, 10),
       role: 'SUPER_ADMIN', status: 'ACTIVE', isVerified: true, verifiedAt: daysAgo(60),
       referralCode: 'CLUTCH-ROOT01', lastLoginAt: hoursAgo(3),
-      profile: { create: { fullName: 'Clutch Admin', country: 'Pakistan', city: 'Islamabad' } },
+      profile: { create: { fullName: 'Sardar Ghaseeb', country: 'Pakistan', city: 'Islamabad' } },
       wallet: { create: {} },
     },
   });
@@ -1033,7 +1037,8 @@ async function main() {
   const txs = await prisma.walletTransaction.count();
   const regs = await prisma.tournamentRegistration.count();
   console.log(`✅ Seed complete: ${users} users, ${txs} ledger entries, ${regs} registrations.`);
-  console.log('   Staff logins: admin@clutchnex.gg / ops@clutchnex.gg / mod@clutchnex.gg');
+  console.log(`   Super-admin (permanent): ${ADMIN_EMAIL} / ${ADMIN_USERNAME}`);
+  console.log('   Demo staff: ops@clutchnex.gg / mod@clutchnex.gg');
   console.log('   Players: username@example.com — password Player@123 (DEV ONLY)');
 }
 

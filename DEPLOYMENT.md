@@ -15,21 +15,23 @@ The repo ships a [`railway.yaml`](railway.yaml), so both services build with
 zero manual command entry.
 
 **1 — Database.** Create a managed PostgreSQL (Neon, Supabase, Railway's
-Postgres plugin…) and copy the `postgresql://…` connection string.
+Postgres plugin…) and copy **two** `postgresql://…` connection strings:
+the **pooled** one for `DATABASE_URL` and the **direct** one for `DIRECT_URL`
+(§2 — on Neon the pooled host contains `-pooler`).
 
 **2 — Railway (API + optional web).** New Project → *Deploy from GitHub* →
 pick this repo. Railway reads `railway.yaml` and creates:
 
 | Service | Source | Build | Start |
 |---|---|---|---|
-| `api` | `backend/` | `npm ci && npm run build` | `npm run db:migrate && npm start` |
+| `api` | `backend/` | `npm ci && npm run build` | `npm run db:migrate && npm run db:seed:admin && npm start` |
 | `web` | `frontend/` | `npm ci && npm run build` | `npm start` |
 
 Then set environment variables (Railway dashboard → service → Variables):
 
-- `api`: `NODE_ENV=production`, `PORT=4000`, `DATABASE_URL`,
-  `JWT_ACCESS_SECRET` + `JWT_REFRESH_SECRET` (two different
-  `openssl rand -hex 64` outputs), `CLIENT_ORIGIN`, `PUBLIC_URL`,
+- `api`: `NODE_ENV=production`, `PORT=4000`, `DATABASE_URL` (pooled),
+  `DIRECT_URL` (direct), `JWT_ACCESS_SECRET` + `JWT_REFRESH_SECRET` (two
+  different `openssl rand -hex 64` outputs), `CLIENT_ORIGIN`, `PUBLIC_URL`,
   `EMAIL_PROVIDER` (`smtp`/`resend`/`postmark` — **not** `log`),
   `EMAIL_FROM` — full table in §3. The production guards in §3 refuse to
   boot on missing placeholders, and the error names the exact variable.
@@ -78,24 +80,52 @@ the only piece of cross-instance state) or accept per-instance lockouts.
 ## 2. Database
 
 1. Create a database and a role with DDL rights (migrations create tables).
-2. Copy the connection string. Prisma reads it from `DATABASE_URL` both at
-   **CLI time** (`prisma.config.ts`) and at **runtime** (through the
-   `@prisma/adapter-pg` driver adapter — see `backend/src/lib/prisma.ts`).
+2. Copy **two** connection strings. In production the API keeps them separate:
+
+| Variable | Used by | Must be |
+|---|---|---|
+| `DATABASE_URL` | **Runtime** API traffic (`backend/src/lib/prisma.ts`, driver adapter) | The **pooled** endpoint |
+| `DIRECT_URL` | **Prisma CLI** only — `migrate deploy/dev`, `studio` (`backend/prisma.config.ts`) | The **direct** (unpooled) endpoint |
+
+This is the Prisma 7 equivalent of the classic schema block
+`url = env("DATABASE_URL")` + `directUrl = env("DIRECT_URL")`: Prisma 7 moved
+the URLs out of `schema.prisma` (which keeps only `provider = "postgresql"`)
+into `prisma.config.ts` (CLI) and the `@prisma/adapter-pg` adapter (runtime).
+
+**Neon** (`ep-empty-fire-aeiut8pg`): open the project → *Connection Details*
+→ copy the string once with **Pooled connection ON** (host contains
+`-pooler…`) and once with it **OFF**:
 
 ```
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require&connection_limit=10"
+DATABASE_URL="postgresql://USER:PASSWORD@ep-empty-fire-aeiut8pg-pooler.REGION.aws.neon.tech/neondb?sslmode=require&connection_limit=10"
+DIRECT_URL="postgresql://USER:PASSWORD@ep-empty-fire-aeiut8pg.REGION.aws.neon.tech/neondb?sslmode=require"
 ```
+
+Why both:
+
+- **Runtime must go through the pooler.** PgBouncer multiplexes thousands of
+  API clients over a handful of real Postgres connections. That is what lets
+  one or two Railway instances absorb **1,000–2,000 concurrent users** without
+  hitting the connection cap; direct connections crash under that load.
+- **Migrations must bypass the pooler.** `prisma migrate` relies on session
+  state and advisory locks that PgBouncer's transaction mode breaks, so every
+  CLI command reads `DIRECT_URL` first (`prisma.config.ts` falls back to
+  `DATABASE_URL` when `DIRECT_URL` is unset).
 
 Guidance:
 
-- **`connection_limit`** sizes the API's pool. Set it so that
-  `instances × connection_limit` stays under your plan's connection cap
-  (Neon/Supabase free tiers are often 20–60). `5–10` per instance is plenty.
+- **`connection_limit`** sizes the API's per-process pool (default 10 against
+  a pooled endpoint). Keep `instances × connection_limit` under your plan's
+  cap; on the Neon *pooler* the ceiling is 10,000, so 2 instances × 10 is
+  trivially safe while PgBouncer does the multiplexing.
 - **`sslmode=require`** on every managed provider except a same-VPC RDS you
-  control.
+  control (the runtime adapter enforces TLS for any non-localhost host).
 - Poolers: use the **session** mode if your provider offers a choice
   (PgBouncer `transaction` mode is fine too — the API only uses transactions
   that stay on one connection).
+- The API **refuses to boot** in production when `DATABASE_URL` points at
+  `localhost`/`127.0.0.1` — that misconfiguration is the source of the
+  infamous `P1001: Can't reach database server at 127.0.0.1:5432`.
 
 Apply the schema with the migration files in `backend/prisma/migrations`:
 
@@ -103,11 +133,30 @@ Apply the schema with the migration files in `backend/prisma/migrations`:
 cd backend
 npm ci
 npm run db:generate          # writes the client to backend/generated/
-npm run db:migrate           # = prisma migrate deploy (idempotent, forward-only)
+npm run db:migrate           # = prisma migrate deploy (idempotent, forward-only; uses DIRECT_URL)
+npm run db:seed:admin        # upserts the permanent super-admin (safe in production)
 ```
 
 `db:migrate` never edits or resets data. **Never** run `npm run db:seed` in
 production — it refuses (`NODE_ENV=production`) and it truncates tables.
+
+### Permanent super-admin
+
+`backend/prisma/admin-seed.ts` (`npm run db:seed:admin`) is idempotent and
+production-safe: it upserts the platform owner's account by email, forces
+`SUPER_ADMIN` / `ACTIVE`, and **re-bakes the bcrypt hash from
+`SEED_ADMIN_PASSWORD` on every run** — so an `.env` change can never leave a
+stale hash behind (the classic "login fails after .env update"). Railway runs
+it on every boot (see the `api` start command in `railway.yaml`).
+
+| | |
+|---|---|
+| Email | value of `SEED_ADMIN_EMAIL` (default `sardarghaseeb777@gmail.com`) |
+| Username | value of `SEED_ADMIN_USERNAME` (default `sardarghaseeb`) |
+| Password | value of `SEED_ADMIN_PASSWORD` (default `sardar9003202@`) |
+
+Keep these three variables identical across environments (they are the
+permanent credentials and are also the defaults in `backend/.env.example`).
 
 ---
 
@@ -120,11 +169,15 @@ environment UI — they are read once at boot by `src/lib/env.ts`).
 |---|---|---|---|
 | `NODE_ENV` | ✅ | `production` | Turns on HSTS and the startup guards below |
 | `PORT` | ✅ | `4000` | The API binds `0.0.0.0:$PORT` |
-| `DATABASE_URL` | ✅ | `postgresql://…` | Must be a `postgres(ql)://` URL in production |
+| `DATABASE_URL` | ✅ | `postgresql://…-pooler…` | Pooled endpoint. Must be a `postgres(ql)://` URL in production; a localhost host is refused (P1001 guard) |
+| `DIRECT_URL` | on Neon | `postgresql://…` (no `-pooler`) | Direct endpoint, read by the Prisma CLI for migrations; falls back to `DATABASE_URL` |
 | `JWT_ACCESS_SECRET` | ✅ | `openssl rand -hex 64` | ≥32 chars, high entropy |
 | `JWT_REFRESH_SECRET` | ✅ | `openssl rand -hex 64` | **Different** from the access secret |
 | `JWT_ACCESS_TTL` | | `15m` | Access-token lifetime |
 | `JWT_REFRESH_TTL_DAYS` | | `7` | Rotating refresh-cookie lifetime |
+| `SEED_ADMIN_EMAIL` | | `sardarghaseeb777@gmail.com` | Permanent super-admin (upserted by `db:seed:admin` on every boot) |
+| `SEED_ADMIN_PASSWORD` | | `sardar9003202@` | Permanent password — the stored hash is re-baked from this on every boot |
+| `SEED_ADMIN_USERNAME` | | `sardarghaseeb` | Permanent username |
 | `CLIENT_ORIGIN` | ✅ | `https://clutchnex.gg` | CORS is pinned to exactly this origin |
 | `PUBLIC_URL` | ✅ | `https://clutchnex.gg` | Canonical URLs, sitemap, email links |
 | `MAX_UPLOAD_MB` | | `5` | Payment-proof size cap |
@@ -153,7 +206,9 @@ In `NODE_ENV=production` the API **refuses to boot** if:
 - a JWT secret is empty, a shipped placeholder (`change-me-…`, `dev-only-…`),
   shorter than 32 characters, or low-entropy;
 - the two JWT secrets are identical;
-- `DATABASE_URL` is not a PostgreSQL URL;
+- `DATABASE_URL` is not a PostgreSQL URL, or points at `localhost`/`127.0.0.1`
+  (nothing listens there inside the container — that guard turns the confusing
+  `P1001: Can't reach database server at 127.0.0.1:5432` into a named fix);
 - `PUBLIC_URL` or `CLIENT_ORIGIN` is not `https://`;
 - `EMAIL_PROVIDER` is still `log` (verification and reset mail would go nowhere);
 - `EMAIL_FROM` does not contain a real address.
@@ -171,8 +226,14 @@ cd backend
 npm ci
 npm run build          # generates the Prisma client, then tsc → dist/index.js
 npm run db:migrate
+npm run db:seed:admin  # upserts the permanent super-admin (idempotent)
 npm start              # node dist/index.js
 ```
+
+On Windows PowerShell do **not** chain commands with `&&` (it is not a valid
+statement separator there — `The token '&&' is not a valid statement
+separator`). Run them one at a time (`npm ci`, then `npm run build`, …) or
+use the npm scripts, which never need separators.
 
 `npm run build` **always generates the Prisma client first**
 (`npm run db:generate && tsc -p tsconfig.build.json`). The client lives in
@@ -182,11 +243,17 @@ a wall of `TS2307: Cannot find module '../../generated/prisma'` build errors.
 You can still run `npm run db:generate` by hand; the build just no longer
 depends on you remembering to.
 
+`npm start` is self-healing: a `prestart` hook (`scripts/ensure-build.mjs`)
+detects a missing `dist/index.js` — the result of running `npm start` before
+`npm run build` (`Error: Cannot find module '.../dist/index.js'`) — and runs
+the build automatically instead of crashing.
+
 `npm run db:migrate` is resilient: it runs `prisma migrate deploy` and, if
 the engine download is blocked by the network, transparently applies the same
 migration files through the offline SQL applier. Either way it is idempotent
 and forward-only — safe to run on every boot (that's what `railway.yaml`
-does).
+does). It reads `DIRECT_URL` (falling back to `DATABASE_URL`) so migrations
+bypass PgBouncer.
 
 Sanity check:
 
@@ -274,8 +341,10 @@ Railway creates both services (`api` from `backend/`, `web` from `frontend/`)
 with the correct commands:
 
 - **`api`** — build `npm ci && npm run build` (the build generates the Prisma
-  client automatically — see §4); start `npm run db:migrate && npm start`
-  (migrations run on every boot; idempotent and forward-only).
+  client automatically — see §4); start `npm run db:migrate && npm run
+  db:seed:admin && npm start` (migrations run on every boot — idempotent and
+  forward-only — and the permanent super-admin is upserted with its hash
+  re-synced to `SEED_ADMIN_PASSWORD`).
 - **`web`** — build `npm ci && npm run build`; start `npm start`
   (`next start` binds `0.0.0.0:$PORT`).
 
@@ -283,12 +352,14 @@ Environment variables per service:
 
 | Service | Variables |
 |---|---|
-| `api` | everything in §3 — `NODE_ENV=production`, `PORT=4000`, `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `CLIENT_ORIGIN`, `PUBLIC_URL`, `EMAIL_PROVIDER` ≠ `log`, `EMAIL_FROM`, … |
+| `api` | everything in §3 — `NODE_ENV=production`, `PORT=4000`, `DATABASE_URL` (**pooled**), `DIRECT_URL` (**direct**), `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `CLIENT_ORIGIN`, `PUBLIC_URL`, `EMAIL_PROVIDER` ≠ `log`, `EMAIL_FROM`, `SEED_ADMIN_EMAIL/PASSWORD/USERNAME`, … |
 | `web` | `BACKEND_URL` (public HTTPS URL of the `api` service), `PUBLIC_URL` (its own origin) |
 
-- **Postgres:** add the Railway PostgreSQL plugin to the `api` service and
-  `DATABASE_URL` is filled for you; any managed Postgres also works — just
-  paste the connection string as `DATABASE_URL`.
+- **Postgres:** for the 1,000–2,000 concurrent-user target use **Neon with
+  the split of §2**: `DATABASE_URL` = pooled (`-pooler`) host,
+  `DIRECT_URL` = direct host, both with `sslmode=require`. The Railway
+  PostgreSQL plugin also works — `DATABASE_URL` is filled for you (add
+  `DIRECT_URL` = the same string unless the plugin exposes a pooler host).
 - **Uploads:** Railway's disk is ephemeral. Attach a Volume to the `api`
   service (mounted at `/data`) and set `UPLOAD_DIR=/data/uploads`, or payment
   proofs and result screenshots will vanish on every redeploy (§7).
@@ -367,12 +438,15 @@ owner-or-staff routes.
 cd backend && npm ci && npm run db:generate && npm run build
 npm run typecheck && npm test                 # 127 tests, boots its own DB
 npm run db:migrate
+npm run db:seed:admin
 
 # Website
 cd ../frontend && npm ci && npm run build
 
 # Smoke
 curl -sf $API/api/health
+curl -s  $API/api/auth/login -H 'content-type: application/json' \
+  -d '{"identifier":"sardarghaseeb777@gmail.com","password":"sardar9003202@"}' | grep -q accessToken
 curl -sf https://your-origin/            | grep -q CLUTCHNEX
 curl -s  https://your-origin/robots.txt  | grep -q Sitemap
 ```

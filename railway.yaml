@@ -12,10 +12,14 @@
 # service in the Railway dashboard (or with `railway variables set`):
 #
 #   api service — the full list lives in DEPLOYMENT.md §3:
-#     NODE_ENV=production, PORT=4000, DATABASE_URL, JWT_ACCESS_SECRET,
-#     JWT_REFRESH_SECRET, CLIENT_ORIGIN, PUBLIC_URL, EMAIL_PROVIDER,
-#     EMAIL_FROM, …  (DATABASE_URL is filled automatically if you add the
-#     Railway PostgreSQL plugin to the api service)
+#     NODE_ENV=production, PORT=4000,
+#     DATABASE_URL  = Neon POOLED url (host contains `-pooler`), sslmode=require
+#     DIRECT_URL    = Neon DIRECT url (no `-pooler`) — used by migrations only
+#     JWT_ACCESS_SECRET + JWT_REFRESH_SECRET (two different
+#     `openssl rand -hex 64` outputs), CLIENT_ORIGIN, PUBLIC_URL,
+#     EMAIL_PROVIDER (smtp/resend/postmark — **not** log), EMAIL_FROM,
+#     SEED_ADMIN_EMAIL/PASSWORD/USERNAME (permanent super-admin, upserted on
+#     every boot by db:seed:admin — see prisma/admin-seed.ts).
 #
 #   web service — only two:
 #     BACKEND_URL  = the public URL of the api service (https://…)
@@ -36,8 +40,13 @@ services:
       # the build step or `tsc` fails with 100+ "Cannot find module" errors.
       buildCommand: npm ci && npm run build
     deploy:
-      # Migrations are idempotent and forward-only; run them on every boot.
-      startCommand: npm run db:migrate && npm start
+      # On every boot: apply migrations (DIRECT_URL), guarantee the permanent
+      # super-admin exists (idempotent upsert), then start the API.
+      # If the build step was ever skipped, `npm start`'s prestart hook builds
+      # automatically instead of crashing with "Cannot find module dist/index.js".
+      startCommand: npm run db:migrate && npm run db:seed:admin && npm start
+      healthcheckPath: /api/health
+      healthcheckTimeout: 100
       restartPolicyType: ON_FAILURE
       restartPolicyMaxRetries: 10
 
