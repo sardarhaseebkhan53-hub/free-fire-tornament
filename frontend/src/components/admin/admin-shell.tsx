@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   ArrowUpRight, BarChart3, FileText, Headphones,
-  Home, LayoutDashboard, Loader2, Megaphone, Search, Settings, Shield, ShieldAlert,
+  Home, LayoutDashboard, Loader2, Megaphone, Search, Send, Settings, Shield, ShieldAlert,
   ScrollText, Swords, TrendingUp, Trophy, Upload, UserRound, Users, Wallet, XCircle,
 } from 'lucide-react';
 import { api } from '@/lib/client-api';
@@ -21,6 +21,7 @@ const NAV = [
   { href: '/admin/results', label: 'Results', icon: BarChart3 },
   { href: '/admin/deposits', label: 'Deposits', icon: Wallet },
   { href: '/admin/withdrawals', label: 'Withdrawals', icon: Upload },
+  { href: '/admin/transfers', label: 'Transfers', icon: Send },
   { href: '/admin/finance', label: 'Financials', icon: TrendingUp },
   { href: '/admin/revenue', label: 'Revenue', icon: BarChart3 },
   { href: '/admin/support', label: 'Support', icon: Headphones },

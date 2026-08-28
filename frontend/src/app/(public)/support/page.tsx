@@ -1,7 +1,7 @@
 // Support center — FAQs + ticket + WhatsApp escalation (tickets UI is wired
 // in Phase 11; here users get every real, working support channel).
 import Link from 'next/link';
-import { LifeBuoy, MessageCircle, Ticket } from 'lucide-react';
+import { LifeBuoy, MessageCircle, Ticket, Users } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import type { Faq } from '@/lib/types';
 import { SectionHeading } from '@/components/ui';
@@ -24,6 +24,7 @@ export default async function SupportPage() {
     apiServerSafe<Record<string, unknown>>('/public/settings/public'),
   ]);
   const whatsapp = String(settings?.['platform.whatsappNumber'] ?? '');
+  const community = String(settings?.['platform.whatsappCommunity'] ?? '');
   const email = String(settings?.['platform.supportEmail'] ?? 'support@clutchnex.gg');
 
   return (
@@ -36,7 +37,7 @@ export default async function SupportPage() {
         sub="Payments, tournaments, withdrawals, teams — whatever it is, there is a fast path to a human."
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         {whatsapp && (
           <a
             href={`https://wa.me/${whatsapp.replace(/\D/g, '')}`}
@@ -45,8 +46,20 @@ export default async function SupportPage() {
             className="glass rounded-card p-6 transition hover:border-success/40"
           >
             <MessageCircle size={22} className="text-success" />
-            <h2 className="mt-3 font-display text-base font-bold text-fg">WhatsApp</h2>
-            <p className="mt-1 text-sm text-fg-2">Fastest — chat with support now.</p>
+            <h2 className="mt-3 font-display text-base font-bold text-fg">WhatsApp Support</h2>
+            <p className="mt-1 text-sm text-fg-2">Chat with Support — fastest for payments, withdrawals and account help.</p>
+          </a>
+        )}
+        {community && (
+          <a
+            href={community}
+            target="_blank"
+            rel="noreferrer"
+            className="glass rounded-card p-6 transition hover:border-reward/40"
+          >
+            <Users size={22} className="text-reward" />
+            <h2 className="mt-3 font-display text-base font-bold text-fg">WhatsApp Community</h2>
+            <p className="mt-1 text-sm text-fg-2">Join the WhatsApp Channel — announcements, schedules and community chat.</p>
           </a>
         )}
         <Link href="/support/tickets" className="glass rounded-card p-6 transition hover:border-accent/40">

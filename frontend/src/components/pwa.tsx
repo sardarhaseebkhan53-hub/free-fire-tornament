@@ -2,7 +2,7 @@
 // PWA runtime (Phase 13, design 46): service-worker registration + the
 // "Install CLUTCHNEX" prompt (beforeinstallprompt on Chrome/Android, A2HS
 // instructions on iOS Safari). Dismissals are remembered for 14 days.
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Download, Share, Smartphone, X } from 'lucide-react';
 
 const DISMISS_KEY = 'cn_install_dismissed_at';
@@ -40,6 +40,7 @@ function useInstallPrompt() {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [appInstalled, setAppInstalled] = useState(false);
   const [dismissedNow, setDismissedNow] = useState(false);
+  const promptInFlight = useRef(false);
 
   const standalone = useSyncExternalStore(noopSubscribe, isStandalone, () => false);
   const isIos = useSyncExternalStore(
@@ -60,6 +61,8 @@ function useInstallPrompt() {
     if (standalone) return;
 
     const onPrompt = (e: Event) => {
+      // Capture the native prompt for our custom button. The event is stored,
+      // never dropped: the button only appears while a prompt is available.
       e.preventDefault();
       setDeferred(e as BeforeInstallPromptEvent);
     };
@@ -75,11 +78,32 @@ function useInstallPrompt() {
     };
   }, [standalone]);
 
-  return { deferred, installed, dismissed, isIos, setDismissed: setDismissedNow };
+  /**
+   * Show the stored prompt exactly once. The native event can only be
+   * prompted a single time, so afterwards the stored event is cleared —
+   * re-clicking can never throw an InvalidStateError.
+   */
+  async function runPrompt(): Promise<boolean> {
+    if (!deferred || promptInFlight.current) return false;
+    promptInFlight.current = true;
+    try {
+      await deferred.prompt();
+      const choice = await deferred.userChoice;
+      setDeferred(null);
+      return choice.outcome === 'accepted';
+    } catch {
+      setDeferred(null);
+      return false;
+    } finally {
+      promptInFlight.current = false;
+    }
+  }
+
+  return { deferred, installed, dismissed, isIos, setDismissed: setDismissedNow, runPrompt };
 }
 
 export function InstallBanner() {
-  const { deferred, installed, dismissed, isIos, setDismissed } = useInstallPrompt();
+  const { deferred, installed, dismissed, isIos, setDismissed, runPrompt } = useInstallPrompt();
   const [visible, setVisible] = useState(false);
 
   // Give the page a beat before sliding the banner in.
@@ -97,9 +121,8 @@ export function InstallBanner() {
 
   async function install() {
     if (!deferred) return;
-    await deferred.prompt();
-    const choice = await deferred.userChoice;
-    if (choice.outcome === 'accepted') dismiss();
+    const accepted = await runPrompt();
+    if (accepted) dismiss();
   }
 
   return (
@@ -179,7 +202,7 @@ export function InstallButton({
   label?: string;
   className?: string;
 }) {
-  const { deferred, installed, isIos } = useInstallPrompt();
+  const { deferred, installed, isIos, runPrompt } = useInstallPrompt();
   const [howTo, setHowTo] = useState(false);
 
   const base =
@@ -191,8 +214,9 @@ export function InstallButton({
 
   async function onClick() {
     if (deferred) {
-      await deferred.prompt();
-      await deferred.userChoice;
+      // runPrompt clears the stored event afterwards — safe against
+      // double-clicks and repeated prompt() calls.
+      await runPrompt();
       return;
     }
     setHowTo(true);

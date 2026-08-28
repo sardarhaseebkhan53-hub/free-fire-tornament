@@ -59,6 +59,62 @@ Completed work lives in the merged history (PR #1, PR #2, PR #3, PR #4) plus
 
 ---
 
+## Polish & hardening change set (this branch)
+
+In-place fixes on top of the locked design — no redesign, no rewrites:
+
+- **Console error fixes.** The 404 on `/uploads/banners/cs-rumble.jpg` is gone:
+  seeded banners now point at bundled original art (`/art/banners/*.jpg`),
+  every image surface renders through the new reusable `TournamentImage`
+  component (loading shimmer → error fallback → branded gradient placeholder,
+  never a broken icon), and `/uploads/*` is proxied to the API so admin
+  uploads render on the same origin. Missing static files now return a clean
+  404 (previously 500). `scroll-behavior: smooth` was removed from `<html>`
+  (Next.js route-transition warning); in-page smooth scrolling is JS-driven.
+  The stale CSS/image-preload warning went away with the 404 fix.
+- **401 `/teams/my` root cause fixed.** Several client components bypassed the
+  shared API client, so an expired 15-minute access token produced raw 401s
+  instead of a transparent refresh. Teams, join-tournament, notifications and
+  tickets now go through `client-api` (refresh-once-then-sign-in), the
+  notification bell never polls while signed out, and SOLO registration never
+  calls `/teams/my` at all (solo = no team).
+- **PWA install.** The deferred `beforeinstallprompt` is stored, prompted
+  exactly once per event, and cleared after the user choice resolves — no
+  `InvalidStateError` on double-click, banner only shows when installable.
+- **48-seat allocation.** `tournament_registrations.seatNumber` is assigned
+  atomically inside the join transaction via `UPDATE … RETURNING` (two racers
+  can never share a seat; team modes share the team's seat). Seats surface on
+  the join receipt, dashboard, My Matches, and the public participants grid;
+  cards show Almost Full / Full states and the detail CTA locks at capacity.
+- **One PKR wallet (player-facing).** Coins/diamonds UI removed from every
+  player screen — dashboard, wallet, add-money, payment and withdraw pages now
+  show a single **Available Balance (PKR)** (server-computed `balance` =
+  cash + winnings, `withdrawable` = winnings). Backend buckets and ledger
+  remain untouched (admin accounting, withdrawal rules).
+- **User-to-user transfers.** New `WalletTransfer` model + `POST/GET
+  /api/wallet/transfers` + admin `/api/admin/transfers` review page. One DB
+  transaction: debit sender, credit recipient, transfer row, audit, both
+  notifications — all or nothing. Client-generated `requestId` makes replays
+  idempotent; min/max/daily limits and the high-value fraud alert are
+  admin-configurable settings; self-transfer/unknown recipients/overdraws are
+  refused server-side. Ledger types `TRANSFER_SENT` / `TRANSFER_RECEIVED` /
+  `REFUND` added to the immutable ledger enum.
+- **WhatsApp.** `platform.whatsappCommunity` setting separates *WhatsApp
+  Support* from *WhatsApp Community* across the support center, footer and
+  wallet help cards — each with its own destination, nothing duplicated.
+- **NEXA chatbot.** New intents for transfers, seats/capacity, game modes and
+  teams; coin references removed from deposit/withdrawal answers; guardrails
+  unchanged (NEXA still cannot touch money, results or credentials).
+- **Tournament detail page.** Banner art, consistent status badges (Open /
+  Almost Full / Full / Upcoming / Live), remaining-seat summary and a seat
+  grid for participants.
+
+All backend verify suites (join/wallet/results/finance/support/security/
+pwa/seo), the Vitest suite (now 170 tests incl. a new transfers suite) and
+both production builds are green.
+
+---
+
 ## Phase details
 
 ### ✅ Phase 0 — UI design gate

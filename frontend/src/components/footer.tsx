@@ -1,11 +1,12 @@
 // Footer — spec §49: brand, links, legal, WhatsApp support.
 import Link from 'next/link';
-import { Camera, MessageCircle, Music2, PlayCircle, ThumbsUp } from 'lucide-react';
+import { Camera, MessageCircle, Music2, PlayCircle, ThumbsUp, Users } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 
 export async function Footer() {
   const settings = await apiServerSafe<Record<string, unknown>>('/public/settings/public');
   const whatsapp = String(settings?.['platform.whatsappNumber'] ?? '');
+  const community = String(settings?.['platform.whatsappCommunity'] ?? '');
   const waHref = whatsapp ? `https://wa.me/${whatsapp.replace(/\D/g, '')}` : '#';
 
   return (
@@ -22,14 +23,26 @@ export async function Footer() {
             Pakistan&apos;s premium Free Fire tournament platform — verified prize pools,
             transparent fees, fair play.
           </p>
-          <a
-            href={waHref}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-4 inline-flex items-center gap-2 rounded-input bg-success/15 px-4 py-2 text-sm font-semibold text-success transition hover:bg-success/25"
-          >
-            <MessageCircle size={15} /> WhatsApp Support
-          </a>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <a
+              href={waHref}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-input bg-success/15 px-4 py-2 text-sm font-semibold text-success transition hover:bg-success/25"
+            >
+              <MessageCircle size={15} /> WhatsApp Support
+            </a>
+            {community && (
+              <a
+                href={community}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-input bg-reward/15 px-4 py-2 text-sm font-semibold text-reward transition hover:bg-reward/25"
+              >
+                <Users size={15} /> WhatsApp Community
+              </a>
+            )}
+          </div>
 
           {/* Social — design v2 §Footer */}
           <div className="mt-5 flex items-center gap-2">

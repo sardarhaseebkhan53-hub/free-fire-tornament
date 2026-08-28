@@ -25,7 +25,7 @@ const STEPS = [
   { n: 1, title: 'Submitted', body: 'We receive your payment proof submission.', icon: FileCheck2, tone: 'text-accent border-accent/40 bg-accent/10' },
   { n: 2, title: 'Pending Review', body: 'Our team verifies your payment manually.', icon: Clock3, tone: 'text-warning border-warning/40 bg-warning/10' },
   { n: 3, title: 'Approved', body: 'Payment is approved after successful verification.', icon: ShieldCheck, tone: 'text-info border-info/40 bg-info/10' },
-  { n: 4, title: 'Coins Credited', body: 'Coins are added to your CLUTCHNEX wallet.', icon: CheckCircle2, tone: 'text-success border-success/40 bg-success/10' },
+  { n: 4, title: 'Balance Credited', body: 'PKR is added to your CLUTCHNEX wallet.', icon: CheckCircle2, tone: 'text-success border-success/40 bg-success/10' },
 ];
 
 function PaymentInner() {

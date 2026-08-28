@@ -124,11 +124,13 @@ export async function myMatches(userId: string) {
     const teamId = reg.team?.id ?? null;
     const matchIds = tournament.matches.map((m) => m.id);
 
-    const [slotNumber, participants, submissions, earningsAgg] = await Promise.all([
-      // Slot = registration order among confirmed players.
-      prisma.tournamentRegistration.count({
-        where: { tournamentId: tournament.id, status: 'CONFIRMED', registeredAt: { lte: reg.registeredAt } },
-      }),
+    const [slotFallback, participants, submissions, earningsAgg] = await Promise.all([
+      // Legacy rows predating seatNumber: fall back to registration order.
+      reg.seatNumber === null
+        ? prisma.tournamentRegistration.count({
+            where: { tournamentId: tournament.id, status: 'CONFIRMED', registeredAt: { lte: reg.registeredAt } },
+          })
+        : Promise.resolve(0),
       prisma.matchParticipant.findMany({
         where: { matchId: { in: matchIds }, ...(teamId ? { teamId } : { userId }) },
         select: { matchId: true, placement: true, kills: true, points: true, status: true },
@@ -143,6 +145,9 @@ export async function myMatches(userId: string) {
         _sum: { amount: true },
       }),
     ]);
+
+    // Seat number assigned atomically at join time (authoritative).
+    const slotNumber = reg.seatNumber ?? slotFallback;
 
     const byMatch = (id: string) => participants.find((p) => p.matchId === id) ?? null;
     const subFor = (id: string) => submissions.find((s) => s.matchId === id) ?? null;

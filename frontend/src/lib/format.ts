@@ -60,3 +60,29 @@ export const STATUS_LABEL: Record<string, string> = {
   CANCELLED: 'Cancelled',
   DRAFT: 'Draft',
 };
+
+/**
+ * Player-facing tournament state (spec §Status): derives UPCOMING / ALMOST
+ * FULL / FULL from slot math so cards and detail pages stay consistent.
+ */
+export type DisplayStatus =
+  | 'UPCOMING' | 'REGISTRATION_OPEN' | 'ALMOST_FULL' | 'FULL'
+  | 'LIVE' | 'COMPLETED' | 'CANCELLED';
+
+export function displayStatus(t: {
+  status: string;
+  registrationOpen: boolean;
+  slotsLeft: number;
+  startsInMs: number;
+}): DisplayStatus {
+  if (t.status === 'LIVE') return 'LIVE';
+  if (t.status === 'COMPLETED') return 'COMPLETED';
+  if (t.status === 'CANCELLED') return 'CANCELLED';
+  if (t.status === 'REGISTRATION_OPEN') {
+    if (t.slotsLeft <= 0) return 'FULL';
+    if (!t.registrationOpen && t.startsInMs > 0) return 'UPCOMING';
+    if (t.slotsLeft <= 5) return 'ALMOST_FULL';
+    return 'REGISTRATION_OPEN';
+  }
+  return 'UPCOMING';
+}

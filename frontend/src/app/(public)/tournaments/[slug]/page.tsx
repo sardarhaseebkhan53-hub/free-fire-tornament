@@ -5,10 +5,11 @@ import { notFound } from 'next/navigation';
 import { Clock, MapPin, ShieldCheck, Skull, Star, Users } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import type { TournamentDetails } from '@/lib/types';
-import { money, MODE_LABEL, STATUS_LABEL, dateTime } from '@/lib/format';
+import { money, MODE_LABEL, STATUS_LABEL, dateTime, displayStatus } from '@/lib/format';
 import { Badge, Avatar } from '@/components/ui';
 import { Countdown, CountdownUntil } from '@/components/countdown';
 import { JoinTournament } from '@/components/join-tournament';
+import { TournamentImage } from '@/components/tournament-image';
 import { JsonLd, breadcrumbJsonLd, eventJsonLd, pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
 
@@ -54,13 +55,26 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       />
       {/* Header */}
       <div className="relative overflow-hidden rounded-card border border-line bg-gradient-to-br from-accent/25 via-elevated to-surface p-6 sm:p-10">
+        {t.banner && (
+          <TournamentImage
+            src={t.banner}
+            alt={t.title}
+            label={t.title}
+            className="absolute inset-0 h-full w-full object-cover opacity-40"
+          />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-elevated via-elevated/60 to-elevated/30" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_75%_15%,rgba(139,92,246,0.35),transparent_55%)]" />
         <div className="relative">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone="accent">{MODE_LABEL[t.type]}</Badge>
-            <Badge tone={t.status === 'REGISTRATION_OPEN' ? 'success' : t.status === 'LIVE' ? 'danger' : 'neutral'} live={t.status === 'LIVE'}>
-              {STATUS_LABEL[t.status] ?? t.status}
-            </Badge>
+            {(() => {
+              const s = displayStatus(t);
+              const tone = s === 'LIVE' ? 'danger' : s === 'REGISTRATION_OPEN' ? 'success' : s === 'ALMOST_FULL' ? 'warning' : 'neutral';
+              return <Badge tone={tone as 'danger' | 'success' | 'warning' | 'neutral'} live={s === 'LIVE'}>
+                {s === 'REGISTRATION_OPEN' ? 'Registration Open' : s === 'ALMOST_FULL' ? 'Almost Full' : s === 'UPCOMING' ? 'Upcoming' : STATUS_LABEL[t.status] ?? s}
+              </Badge>;
+            })()}
             {t.isVerified && (
               <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
                 <ShieldCheck size={13} /> Verified tournament
@@ -180,13 +194,27 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             </div>
           </section>
 
-          {/* Participants */}
+          {/* Participants — seat grid (spec: 48-seat allocation) */}
           <section className="glass rounded-card p-6">
             <h2 className="font-display text-lg font-bold text-fg">Registered {t.type === 'SOLO' ? 'Players' : 'Teams'}</h2>
+            <p className="mt-1 text-xs text-fg-3">
+              {t.slotsLeft > 0
+                ? <>Seats {t.registeredSlots} of {t.maxSlots} occupied · <strong className="text-warning">{t.slotsLeft} remaining</strong></>
+                : <>All {t.maxSlots} seats are occupied — tournament is full.</>}
+            </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {t.participants.map((p, i) => (
-                <span key={i} className="inline-flex items-center gap-2 rounded-pill border border-line bg-white/[3%] py-1 pl-1 pr-3 text-xs font-semibold text-fg-2">
-                  <Avatar name={p.team?.name ?? p.user.username} size={22} />
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-2 rounded-pill border border-line bg-white/[3%] py-1 pl-1 pr-3 text-xs font-semibold text-fg-2"
+                  title={p.seatNumber !== null ? `Seat #${p.seatNumber}` : undefined}
+                >
+                  <span className="flex items-center gap-1.5 rounded-pill bg-base/70 pl-1 pr-0.5">
+                    <Avatar name={p.team?.name ?? p.user.username} size={22} />
+                    <span className="tabular px-0.5 font-bold text-accent">
+                      {p.seatNumber !== null ? String(p.seatNumber).padStart(2, '0') : '··'}
+                    </span>
+                  </span>
                   {p.team ? `${p.team.name} [${p.team.tag}]` : p.user.username}
                 </span>
               ))}
@@ -203,7 +231,8 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               <div className="flex justify-between"><dt className="text-fg-2">Entry / player</dt><dd className="tabular font-semibold text-fg">{money(t.entryFeePerPlayer)}</dd></div>
               {t.teamSize > 1 && <div className="flex justify-between"><dt className="text-fg-2">Entry / team ({t.teamSize})</dt><dd className="tabular font-semibold text-fg">{money(t.entryFeePerTeam)}</dd></div>}
               <div className="flex justify-between"><dt className="text-fg-2">Prize pool</dt><dd className="tabular font-semibold text-reward">{money(t.prizePool)}</dd></div>
-              <div className="flex justify-between"><dt className="text-fg-2">Slots</dt><dd className="tabular font-semibold text-fg">{t.registeredSlots}/{t.maxSlots}</dd></div>
+              <div className="flex justify-between"><dt className="text-fg-2">Seats</dt><dd className="tabular font-semibold text-fg">{t.registeredSlots}/{t.maxSlots}</dd></div>
+              <div className="flex justify-between"><dt className="text-fg-2">Remaining</dt><dd className={`tabular font-semibold ${t.slotsLeft > 0 ? 'text-success' : 'text-danger'}`}>{t.slotsLeft > 0 ? t.slotsLeft : 'FULL'}</dd></div>
               <div className="flex justify-between"><dt className="text-fg-2">Winners paid</dt><dd className="tabular font-semibold text-fg">Top {t.numWinners}</dd></div>
               <div className="flex justify-between"><dt className="text-fg-2">Points / kill</dt><dd className="tabular font-semibold text-fg">{t.pointsPerKill}</dd></div>
               <div className="flex justify-between"><dt className="text-fg-2">Refund on cancel</dt><dd className="tabular font-semibold text-success">{Number(t.refundPercent)}%</dd></div>
@@ -216,6 +245,8 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 entryPerTeam={t.entryFeePerTeam}
                 teamSize={t.teamSize}
                 registrationOpen={t.registrationOpen}
+                slotsLeft={t.slotsLeft}
+                maxSlots={t.maxSlots}
               />
             </div>
           </div>

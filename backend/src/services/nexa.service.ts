@@ -101,15 +101,36 @@ const RULES: Rule[] = [
     intent: 'deposit_how',
     patterns: [/(how|kaise).{0,24}(add|deposit|load|top\s*up).{0,16}(money|cash|funds|wallet)?/i, /add\s*money/i, /payment\s*methods?/i, /(jazzcash|easypaisa)/i],
     answer: () =>
-      'Open Wallet → Add Money, pick an amount, then pay via JazzCash, EasyPaisa or bank transfer to the account shown on the payment page. Submit the transaction ID + a screenshot and staff verify it — usually within 24h. Welcome-bonus and coins conversion are there too.',
+      'Open Wallet → Add Money, pick an amount, then pay via JazzCash, EasyPaisa or bank transfer to the account shown on the payment page. Submit the transaction ID + a screenshot and staff verify it manually — usually within 24h. Your single PKR wallet is credited only after approval.',
     quickReplies: ['Where is my deposit?', 'Minimum deposit?'],
   },
   {
     intent: 'withdrawal',
     patterns: [/withdraw/i, /(cash\s*out)/i, /payout/i, /winnings.{0,16}(kab|nikal|get|take)/i],
     answer: () =>
-      'Winnings withdraw from Wallet → Withdraw: choose an amount and method, then staff process the chain (Approved → Processing → Paid) with a payout reference. Only your winning balance is withdrawable; cash pays entries and coins buy cosmetics — that rule keeps the prize pools honest.',
+      'Winnings withdraw from Wallet → Withdraw: choose an amount and method, then staff process the chain (Approved → Processing → Paid) with a payout reference. Only your winnings are withdrawable; deposited PKR stays in your wallet for entries — that rule keeps the prize pools honest.',
     quickReplies: ['How long do withdrawals take?', 'Why only winnings?'],
+  },
+  {
+    intent: 'transfer',
+    patterns: [/(send|transfer).{0,20}(money|pkr|cash|rupees|wallet)/i, /paisa.{0,16}(bhej|send)/i, /transfer.{0,16}(to|friend|player)/i, /send.{0,16}(to|friend|player)/i],
+    answer: () =>
+      'Use Wallet → Send Money: enter the player\u2019s username, amount and an optional note. Transfers are instant, atomic and audited — the sender is debited and the receiver credited in one locked transaction, and transfers are final, so double-check the username.',
+    quickReplies: ['How do I add money?', 'Where is my deposit?'],
+  },
+  {
+    intent: 'seats',
+    patterns: [/seat/i, /slot/i, /48/i, /capacity/i, /full/i],
+    answer: () =>
+      'Tournaments run a 48-seat system: every registration takes the next free seat atomically, so two players can never get the same seat. Your seat number is on the join confirmation, in My Matches and on your dashboard. When all seats are taken the tournament shows FULL and no more entries are accepted.',
+    quickReplies: ['How do I join a tournament?', 'What modes are there?'],
+  },
+  {
+    intent: 'modes',
+    patterns: [/modes?/i, /(solo|duo|squad|clash\s*squad)/i, /types?\s*of\s*tournament/i],
+    answer: () =>
+      'CLUTCHNEX runs four modes. SOLO: you play alone, no team needed. DUO: you and one partner (invite them, no 4-player squad required). SQUAD: a full 4-player team, registered by the captain. CLASH SQUAD: the configured team structure — check each tournament\u2019s rules for its exact size and format.',
+    quickReplies: ['How do I join a tournament?', 'How do teams work?'],
   },
   {
     intent: 'join_tournament',
@@ -117,6 +138,13 @@ const RULES: Rule[] = [
     answer: () =>
       'Pick a tournament on the Tournaments page, check the entry fee and prize split, then Join. Solo pays from your cash balance instantly; in Duo/Squad modes the captain registers the team and every member pays their own share. Slots are first-come — the join is atomic, so no double charges.',
     quickReplies: ['What modes are there?', 'Can I get a refund?'],
+  },
+  {
+    intent: 'teams',
+    patterns: [/team/i, /squad/i, /duo/i, /captain/i, /invite/i],
+    answer: () =>
+      'For DUO and SQUAD tournaments you need a team: create one under Teams, invite your partner or squadmates by username, and once everyone accepts, the captain registers the whole team. SOLO tournaments need no team at all — you join directly. You can hold one duo and one squad team at a time.',
+    quickReplies: ['What modes are there?', 'How do I join a tournament?'],
   },
   {
     intent: 'refund',

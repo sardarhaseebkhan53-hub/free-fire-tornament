@@ -1,14 +1,19 @@
 'use client';
 import Link from 'next/link';
 // Join tournament flow — talks to the race-safe join engine.
-// Solo: direct join (+ optional coupon). Team modes: captain picks their team.
+// Solo: direct join (+ optional coupon) — NO team, NO /teams/my call.
+// Team modes: captain picks their eligible team. All authed calls go through
+// the shared API client, so an expired access token is transparently
+// refreshed (rotating cookie) and a genuinely signed-out user is sent to
+// login instead of being blocked by a stale 401.
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { money } from '@/lib/format';
+import { api, ApiClientError } from '@/lib/client-api';
 
 const FRIENDLY: Record<string, string> = {
-  INSUFFICIENT_BALANCE: 'Not enough cash balance — you or a team member needs to add money first.',
+  INSUFFICIENT_BALANCE: 'Not enough PKR balance — you or a team member needs to add money first.',
   TOURNAMENT_FULL: 'This tournament just filled up.',
   TOURNAMENT_CLOSED: 'Registration is closed for this tournament.',
   ALREADY_REGISTERED: 'Already registered for this tournament.',
@@ -21,11 +26,18 @@ interface MyTeam {
   role: string;
 }
 
+interface JoinReceipt {
+  totalPaid: number;
+  balance: string | null;
+  seatNumber: number | null;
+  match: { round: number; matchNumber: number; map: string | null; scheduledAt: string } | null;
+}
+
 export function JoinTournament({
-  slug, type, entryPerPlayer, entryPerTeam, teamSize, registrationOpen,
+  slug, type, entryPerPlayer, entryPerTeam, teamSize, registrationOpen, slotsLeft, maxSlots,
 }: {
   slug: string; type: string; entryPerPlayer: number; entryPerTeam: number;
-  teamSize: number; registrationOpen: boolean;
+  teamSize: number; registrationOpen: boolean; slotsLeft: number; maxSlots: number;
 }) {
   const router = useRouter();
   const [stage, setStage] = useState<'idle' | 'confirm' | 'busy' | 'done'>('idle');
@@ -33,25 +45,36 @@ export function JoinTournament({
   const [teams, setTeams] = useState<MyTeam[] | null>(null);
   const [teamId, setTeamId] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [receipt, setReceipt] = useState<{ totalPaid: number; balance: string | null } | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
+  const [receipt, setReceipt] = useState<JoinReceipt | null>(null);
 
-  // Load the player's eligible teams for team modes
+  // Load the player's eligible teams for TEAM MODES ONLY. SOLO registration
+  // never calls /teams/my — it is not a prerequisite (spec: solo = no team).
   useEffect(() => {
     if (teamSize === 1 || stage !== 'confirm') return;
-    const token = localStorage.getItem('cn_access');
-    if (!token) return;
-    fetch('/api/backend/teams/my', { headers: { authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((json) => {
-        if (!json.success) return setTeams([]);
+    let cancelled = false;
+    api<MyTeam[]>('/teams/my')
+      .then((data) => {
+        if (cancelled) return;
         const need = type === 'DUO' ? 'DUO' : 'SQUAD';
-        const eligible = (json.data as MyTeam[]).filter(
+        const eligible = (data ?? []).filter(
           (t) => t.team.type === need && t.role === 'CAPTAIN' && t.team.members.length === teamSize,
         );
         setTeams(eligible);
         if (eligible.length > 0) setTeamId(eligible[0].team.id);
       })
-      .catch(() => setTeams([]));
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        if (e instanceof ApiClientError && e.status === 401) {
+          // Refresh failed — the session really is gone. Prompt sign-in
+          // instead of showing a misleading "no team" state.
+          setTeams([]);
+          setNeedsLogin(true);
+        } else {
+          setTeams([]);
+        }
+      });
+    return () => { cancelled = true; };
   }, [stage, teamSize, type]);
 
   if (!registrationOpen) return null;
@@ -59,6 +82,7 @@ export function JoinTournament({
   function start() {
     const token = localStorage.getItem('cn_access');
     if (!token) return router.push(`/login?next=/tournaments/${slug}`);
+    setNeedsLogin(false);
     setError(null);
     setStage('confirm');
   }
@@ -73,25 +97,36 @@ export function JoinTournament({
     setStage('busy');
     setError(null);
     try {
-      const res = await fetch('/api/backend/tournaments/join', {
+      const out = await api<{
+        totalPaid: number;
+        cashBalanceAfter: string | null;
+        seatNumber: number | null;
+        match: { round: number; matchNumber: number; map: string | null; scheduledAt: string } | null;
+      }>('/tournaments/join', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify({
+        body: {
           tournamentSlug: slug,
           couponCode: coupon || undefined,
           teamId: teamSize > 1 ? teamId : undefined,
-        }),
+        },
       });
-      const json = await res.json();
-      if (json.success) {
-        setReceipt({ totalPaid: json.data.totalPaid, balance: json.data.cashBalanceAfter });
-        setStage('done');
-      } else {
-        setError(FRIENDLY[json.code] ?? json.message ?? 'Could not join right now.');
-        setStage('confirm');
+      setReceipt({
+        totalPaid: out.totalPaid,
+        balance: out.cashBalanceAfter,
+        seatNumber: out.seatNumber,
+        match: out.match,
+      });
+      setStage('done');
+    } catch (e) {
+      if (e instanceof ApiClientError && e.status === 401) {
+        router.push(`/login?next=/tournaments/${slug}`);
+        return;
       }
-    } catch {
-      setError('Could not reach the server. Please try again.');
+      if (e instanceof ApiClientError) {
+        setError(FRIENDLY[e.code] ?? e.message ?? 'Could not join right now.');
+      } else {
+        setError('Could not reach the server. Please try again.');
+      }
       setStage('confirm');
     }
   }
@@ -103,9 +138,20 @@ export function JoinTournament({
           <ShieldCheck size={16} /> You are in! Entry of {money(receipt.totalPaid)} confirmed.
         </p>
         <p className="mt-1 text-xs text-fg-2">
+          {receipt.seatNumber !== null && (
+            <>
+              Your assigned {teamSize > 1 ? 'team ' : ''}position is{' '}
+              <strong className="text-fg">#{String(receipt.seatNumber).padStart(2, '0')}</strong>
+              {receipt.match && (
+                <> · {receipt.match.map ? `${receipt.match.map} · ` : ''}Match {receipt.match.matchNumber}
+                  {receipt.match.round > 1 ? ` · Round ${receipt.match.round}` : ''}</>
+              )}
+              {' · '}
+            </>
+          )}
           Room details unlock 30 minutes before start — see{' '}
           <a href="/matches" className="font-semibold text-accent">My Matches</a>
-          {receipt.balance ? ` · cash balance now ${money(receipt.balance)}` : ''}.
+          {receipt.balance ? ` · PKR balance now ${money(receipt.balance)}` : ''}.
         </p>
       </div>
     );
@@ -121,7 +167,13 @@ export function JoinTournament({
         </dl>
 
         {teamSize > 1 ? (
-          teams === null ? (
+          needsLogin ? (
+            <div className="mt-3 rounded-input border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
+              Your session expired.{' '}
+              <Link href={`/login?next=/tournaments/${slug}`} className="font-semibold underline">Sign in again</Link>{' '}
+              to register your team.
+            </div>
+          ) : teams === null ? (
             <p className="mt-3 flex items-center gap-2 text-xs text-fg-3"><Loader2 size={13} className="animate-spin" /> Loading your teams…</p>
           ) : teams.length === 0 ? (
             <div className="mt-3 rounded-input border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
@@ -172,12 +224,24 @@ export function JoinTournament({
     );
   }
 
+  if (slotsLeft <= 0) {
+    return (
+      <button
+        disabled
+        className="w-full rounded-input border border-line bg-white/[3%] px-8 py-3.5 text-sm font-bold text-fg-3"
+      >
+        TOURNAMENT FULL — {maxSlots}/{maxSlots} seats taken
+      </button>
+    );
+  }
+
   return (
     <button
       onClick={start}
       className="w-full rounded-input bg-accent px-8 py-3.5 text-sm font-bold text-white shadow-[0_0_28px_rgba(139,92,246,0.45)] transition hover:bg-accent-strong"
     >
       JOIN TOURNAMENT — {money(teamSize > 1 ? entryPerTeam : entryPerPlayer)}
+      {slotsLeft <= 5 && <span className="ml-2 rounded-pill bg-white/20 px-2 py-0.5 text-[10px] uppercase">only {slotsLeft} left</span>}
     </button>
   );
 }

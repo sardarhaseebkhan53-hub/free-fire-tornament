@@ -168,17 +168,21 @@ async function runJoin(
       }
     }
 
-    // 2. Atomic slot guard — conditional UPDATE fails under concurrency
-    const guard = await tx.tournament.updateMany({
-      where: {
-        id: t.id,
-        status: 'REGISTRATION_OPEN',
-        registrationDeadline: { gt: new Date() },
-        registeredSlots: { lt: t.maxSlots },
-      },
-      data: { registeredSlots: { increment: 1 } },
-    });
-    if (guard.count === 0) {
+    // 2. Atomic slot guard + seat assignment — a single conditional UPDATE.
+    // `UPDATE ... RETURNING` is serialized by the row lock, so every
+    // successful join receives the exact next seat number; two concurrent
+    // joins can never observe the same value. Seat = the slot number the
+    // player/team now occupies (1..maxSlots).
+    const seatRows = await tx.$queryRaw<Array<{ registeredSlots: number }>>`
+      UPDATE "tournaments"
+      SET "registeredSlots" = "registeredSlots" + 1
+      WHERE "id" = ${t.id}
+        AND "status" = 'REGISTRATION_OPEN'
+        AND "registrationDeadline" > now()
+        AND "registeredSlots" < "maxSlots"
+      RETURNING "registeredSlots"
+    `;
+    if (seatRows.length === 0) {
       // Distinguish full vs closed: re-read latest state outside the race
       const latest = await tx.tournament.findUnique({ where: { id: t.id }, select: { maxSlots: true, registeredSlots: true, status: true } });
       if (latest && latest.registeredSlots >= latest.maxSlots) {
@@ -186,6 +190,7 @@ async function runJoin(
       }
       throw badRequest('TOURNAMENT_CLOSED', 'Registration just closed.');
     }
+    const seatNumber = seatRows[0]!.registeredSlots;
 
     // 3. Coupon (applies to the joining player's share)
     let discount = 0;
@@ -255,6 +260,7 @@ async function runJoin(
           discount: new Prisma.Decimal(isJoiner ? discount : 0),
           couponId: isJoiner ? couponId : undefined,
           walletTxId: ledgerEntry.id,
+          seatNumber,
         },
       });
       await tx.wallet.update({ where: { userId: pid }, data: { cashBalance: new Prisma.Decimal(after) } });
@@ -269,8 +275,8 @@ async function runJoin(
         data: {
           userId: pid, type: 'TOURNAMENT_JOINED',
           title: `You joined ${t.title}`,
-          body: `Entry ${currency} ${payable} deducted. Room details unlock 30 minutes before start — see My Matches.`,
-          data: { tournamentId: t.id, slug: t.slug },
+          body: `Entry ${currency} ${payable} deducted. Your ${teamSize > 1 ? 'team ' : ''}seat is #${seatNumber}. Room details unlock 30 minutes before start — see My Matches.`,
+          data: { tournamentId: t.id, slug: t.slug, seatNumber },
         },
       });
 
@@ -287,12 +293,20 @@ async function runJoin(
     });
 
     const walletAfter = await tx.wallet.findUnique({ where: { userId }, select: { cashBalance: true } });
+    const firstMatch = await tx.match.findFirst({
+      where: { tournamentId: t.id },
+      orderBy: [{ round: 'asc' }, { matchNumber: 'asc' }],
+      select: { round: true, matchNumber: true, map: true, scheduledAt: true },
+    });
     return {
       tournament: { id: t.id, title: t.title, slug: t.slug, startTime: t.startTime },
       registeredPlayers: registrations.length,
       totalPaid: Math.round(registrations.reduce((s, r) => s + Number(r.entryAmount), 0) * 100) / 100,
       discount,
       cashBalanceAfter: walletAfter?.cashBalance ?? null,
+      seatNumber,
+      assignedSlot: seatNumber,
+      match: firstMatch,
     };
   }, TX_OPTS);
 }

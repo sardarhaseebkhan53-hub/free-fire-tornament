@@ -10,11 +10,13 @@ import { requireScreenshot, resolveUploadPath } from '../lib/upload';
 import { coinConvertLimiter, depositLimiter, withdrawalLimiter } from '../middleware/rateLimit';
 import { reqContext, uploadResponseHeaders } from '../lib/security';
 import {
-  convertCoinsSchema, depositSchema, transactionsQuerySchema, withdrawalSchema,
+  convertCoinsSchema, depositSchema, transactionsQuerySchema, transferListQuerySchema,
+  transferSchema, withdrawalSchema,
 } from '../validation/wallet.schema';
 import {
   convertCashToCoins, listTransactions, transactionsCsv, walletOverview,
 } from '../services/wallet.service';
+import { createTransfer, myTransfers } from '../services/transfer.service';
 import {
   cancelWithdrawal, createDeposit, getDepositScreenshotPath, listActivePaymentAccounts,
   listMyDeposits, listMyWithdrawals, requestWithdrawal,
@@ -113,4 +115,17 @@ walletRouter.post('/coins/convert', requireAuth, coinConvertLimiter, async (req,
   const { amount } = convertCoinsSchema.parse(req.body);
   const out = await convertCashToCoins(req.auth!.id, amount);
   return ok(res, out, `${out.coinsCredited} coins credited.`);
+});
+
+// --- User-to-user transfers (atomic, idempotent, server-side only) ------------
+
+walletRouter.post('/transfers', requireAuth, withdrawalLimiter, async (req, res) => {
+  const input = transferSchema.parse(req.body);
+  const out = await createTransfer(req.auth!.id, input, ctxOf(req));
+  return ok(res, out, out.replayed ? 'Transfer already processed.' : 'Transfer complete.', 201);
+});
+
+walletRouter.get('/transfers', requireAuth, async (req, res) => {
+  const q = transferListQuerySchema.parse(req.query);
+  return ok(res, await myTransfers(req.auth!.id, q.page, q.pageSize));
 });

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { primeSoundOnGesture, playDing, isSoundEnabled, setSoundEnabled } from '@/lib/sound';
 import { deferLoad } from '@/lib/session';
+import { api, ApiClientError } from '@/lib/client-api';
 
 interface Notif {
   id: string;
@@ -70,19 +71,21 @@ export function NotificationsBell({ variant = 'user' }: { variant?: 'user' | 'ad
   }, []);
 
   const pollUnread = useCallback(async () => {
+    // Signed-out visitors never trigger an authenticated request — no 401 spam.
+    if (!localStorage.getItem('cn_access')) return;
     try {
-      const r = await fetch('/api/backend/notifications/unread-count', {
-        headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` },
-      });
-      const j = await r.json();
-      if (!j.success) return;
-      const n = j.data.unread as number;
+      const j = await api<{ unread: number }>('/notifications/unread-count');
+      const n = j.unread;
       // First successful poll is the baseline (no sound for old items); after
       // that, any INCREASE means something new arrived → admin chime.
       if (variant === 'admin' && prevUnread.current !== null && n > prevUnread.current) playDing();
       prevUnread.current = n;
       setUnread(n);
-    } catch { /* offline — retry on next tick */ }
+    } catch (e) {
+      // Session expired beyond refresh → stop poking the API. The bell just
+      // stays quiet until the user signs in again.
+      if (e instanceof ApiClientError && e.status === 401) setUnread(0);
+    }
   }, [variant]);
 
   useEffect(() => {
@@ -92,13 +95,11 @@ export function NotificationsBell({ variant = 'user' }: { variant?: 'user' | 'ad
   }, [pollUnread, variant]);
 
   const loadList = useCallback(async () => {
+    if (!localStorage.getItem('cn_access')) return;
     setLoading(true);
     try {
-      const r = await fetch('/api/backend/notifications?pageSize=15', {
-        headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` },
-      });
-      const j = await r.json();
-      if (j.success) setItems((j.data as ListResp).items);
+      const j = await api<ListResp>('/notifications?pageSize=15');
+      setItems(j.items);
     } catch { /* keep old items */ } finally {
       setLoading(false);
     }
@@ -118,11 +119,7 @@ export function NotificationsBell({ variant = 'user' }: { variant?: 'user' | 'ad
     setUnread(0);
     setItems((prev) => prev?.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })) ?? prev);
     try {
-      await fetch('/api/backend/notifications/read', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` },
-        body: JSON.stringify({ all: true }),
-      });
+      await api('/notifications/read', { method: 'POST', body: { all: true } });
     } catch { /* optimistic */ }
   }
 

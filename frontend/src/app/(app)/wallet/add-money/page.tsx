@@ -1,7 +1,7 @@
 'use client';
 // Add Money — design 15. Step 1 (amount) + step 2 (method); step 3 continues
 // to /wallet/payment where the manual payment proof is submitted.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, Clock, Loader2, Lock, ShieldCheck } from 'lucide-react';
@@ -38,10 +38,7 @@ export default function AddMoneyPage() {
   }, [router]);
 
   const amt = Number(amount || 0);
-  const coins = useMemo(
-    () => (data ? Math.floor(amt * data.settings.coinConversionRate * 100) / 100 : amt),
-    [amt, data],
-  );
+  // Deposits credit the single PKR wallet directly — no artificial coins.
   const bonus = data ? Math.floor(amt * data.settings.depositBonusPercent) / 100 : 0;
   const wa = (pub?.['platform.whatsappNumber'] ?? '+923001234567').replace(/[^\d]/g, '');
 
@@ -119,15 +116,15 @@ export default function AddMoneyPage() {
 
             {/* You will receive */}
             <div className="rounded-card border border-line bg-gradient-to-b from-accent/[8%] to-transparent p-5 text-center">
-              <p className="text-xs font-semibold uppercase tracking-wide text-fg-2">You will receive</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-fg-2">Your wallet will be credited (after approval)</p>
               <div className="mt-3 flex items-center justify-center gap-3">
                 <span className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-reward to-[#d29020] font-display text-xl font-bold text-white shadow-[0_0_24px_rgba(245,185,66,0.4)]">
-                  C
+                  ₨
                 </span>
                 <div className="text-left">
-                  <p className="tabular font-display text-3xl font-bold text-accent">{coins.toLocaleString('en-PK')}</p>
-                  <p className="text-xs font-semibold text-fg-2">Tournament Coins</p>
-                  {bonus > 0 && <p className="text-xs font-bold text-success">+ {bonus.toLocaleString('en-PK')} Bonus</p>}
+                  <p className="tabular font-display text-3xl font-bold text-accent">{amt.toLocaleString('en-PK')}</p>
+                  <p className="text-xs font-semibold text-fg-2">PKR — one wallet, real money</p>
+                  {bonus > 0 && <p className="text-xs font-bold text-success">+ {bonus.toLocaleString('en-PK')} deposit bonus</p>}
                 </div>
               </div>
             </div>

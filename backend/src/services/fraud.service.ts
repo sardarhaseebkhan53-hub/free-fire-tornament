@@ -38,6 +38,7 @@ export const FRAUD_KINDS = {
   REPEATED_JOIN_FAILURES: 'REPEATED_JOIN_FAILURES',
   COUPON_ABUSE: 'COUPON_ABUSE',
   IDENTICAL_RESULT_CLAIMS: 'IDENTICAL_RESULT_CLAIMS',
+  HIGH_VALUE_TRANSFER: 'HIGH_VALUE_TRANSFER',
 } as const;
 
 export type FraudKind = (typeof FRAUD_KINDS)[keyof typeof FRAUD_KINDS];
@@ -58,6 +59,7 @@ export const FRAUD_KIND_LABEL: Record<string, string> = {
   REPEATED_JOIN_FAILURES: 'Player keeps hitting full/closed tournaments',
   COUPON_ABUSE: 'Repeated invalid coupon attempts — possible code guessing',
   IDENTICAL_RESULT_CLAIMS: 'Two players submitted identical match results',
+  HIGH_VALUE_TRANSFER: 'Wallet transfer at/above the high-value threshold',
 };
 
 interface Ctx {

@@ -127,7 +127,7 @@ export default function WithdrawPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-fg-2">Available for withdrawal</p>
         <p className="tabular mt-1 font-display text-4xl font-bold text-reward sm:text-5xl">{fmt(winning)}</p>
         <p className="mt-4 flex items-center gap-2 rounded-input border border-line bg-base/60 px-3.5 py-2.5 text-xs text-fg-2 sm:inline-flex">
-          <span className="text-info">ⓘ</span> Winning balance only — deposits and coins are not withdrawable.
+          <span className="text-info">ⓘ</span> Winnings only — deposited PKR is not withdrawable.
         </p>
         <span className="absolute right-8 top-1/2 hidden -translate-y-1/2 sm:block" aria-hidden>
           <span className="flex h-20 w-20 items-center justify-center rounded-2xl border border-reward/30 bg-reward/10 text-reward shadow-[0_0_40px_rgba(245,185,66,0.25)]">
@@ -266,7 +266,7 @@ export default function WithdrawPage() {
               <ShieldAlert size={15} /> Important Note
             </p>
             <p className="mt-1.5 text-xs leading-relaxed text-fg-2">
-              You can only withdraw your winning balance. Deposits and coins purchased are non-withdrawable.
+              You can only withdraw your winnings. Deposited PKR is non-withdrawable.
             </p>
           </div>
         </div>
