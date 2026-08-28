@@ -1,0 +1,53 @@
+# =============================================================================
+# Railway declarative config — one project, two services:
+#
+#   api : Express 5 + Prisma 7 backend   (source: backend/)
+#   web : Next.js 16 frontend           (source: frontend/)
+#
+# Push this repo to GitHub, then in Railway: New Project → Deploy from GitHub
+# → pick this repo. Railway reads this file and creates both services with
+# the build/start commands below — no manual command entry needed.
+#
+# Env vars are NOT set here (secrets don't belong in git). Set them per
+# service in the Railway dashboard (or with `railway variables set`):
+#
+#   api service — the full list lives in DEPLOYMENT.md §3:
+#     NODE_ENV=production, PORT=4000, DATABASE_URL, JWT_ACCESS_SECRET,
+#     JWT_REFRESH_SECRET, CLIENT_ORIGIN, PUBLIC_URL, EMAIL_PROVIDER,
+#     EMAIL_FROM, …  (DATABASE_URL is filled automatically if you add the
+#     Railway PostgreSQL plugin to the api service)
+#
+#   web service — only two:
+#     BACKEND_URL  = the public URL of the api service (https://…)
+#     PUBLIC_URL   = the public URL of the web service (https://…)
+#
+# Note: the API stores payment proofs under UPLOAD_DIR. Railway's disk is
+# ephemeral by default — attach a Volume (mounted at /data) in the api
+# service's settings and set UPLOAD_DIR=/data/uploads to keep uploads across
+# deploys (DEPLOYMENT.md §7).
+# =============================================================================
+services:
+  - name: api
+    src: backend
+    build:
+      builder: NPM
+      # `npm run build` generates the Prisma client first — the client lives
+      # in backend/generated/ and is git-ignored, so it must be created in
+      # the build step or `tsc` fails with 100+ "Cannot find module" errors.
+      buildCommand: npm ci && npm run build
+    deploy:
+      # Migrations are idempotent and forward-only; run them on every boot.
+      startCommand: npm run db:migrate && npm start
+      restartPolicyType: ON_FAILURE
+      restartPolicyMaxRetries: 10
+
+  - name: web
+    src: frontend
+    build:
+      builder: NPM
+      buildCommand: npm ci && npm run build
+    deploy:
+      # `next start` binds 0.0.0.0 and uses Railway's $PORT.
+      startCommand: npm start
+      restartPolicyType: ON_FAILURE
+      restartPolicyMaxRetries: 10

@@ -13,9 +13,10 @@ build/
 .env.*.local
 backend/.env
 
-# Dev database (embedded PGlite) & uploads
+# Dev database (embedded PGlite) & API upload storage (runtime files only —
+# scoped to backend/ so frontend/src/app/uploads/ (the proxy route) is NOT ignored)
 pgdata/
-uploads/
+backend/uploads/
 
 # Test database + test upload scratch (Vitest boots its own PGlite on :55432)
 .test-pgdata/

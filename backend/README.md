@@ -31,6 +31,31 @@ Copy `.env.example` to `.env` first if you want to override defaults.
 > offline. Apply migrations with `node scripts/apply-migrations-offline.mjs`
 > instead of `npm run db:migrate:dev`.
 
+## Deploying (Railway / Render / Fly / VPS)
+
+Full guide: [root `DEPLOYMENT.md`](../DEPLOYMENT.md) — §0 is a step-by-step
+quick start for **Vercel (web) + Railway (API)**. The short version:
+
+```bash
+npm ci
+npm run build        # generates the Prisma client, then compiles to dist/
+npm run db:migrate   # idempotent, forward-only — safe on every boot
+npm start            # node dist/index.js, binds 0.0.0.0:$PORT
+```
+
+- **`npm run build` always generates the Prisma client first.** The client
+  lives in `generated/` (git-ignored) — a fresh checkout without that step
+  fails `tsc` with ~100 `Cannot find module '../../generated/prisma'`
+  errors, the most common deploy failure for this repo.
+- **`npm run db:migrate`** runs `prisma migrate deploy` and falls back to
+  the offline SQL applier if the engine download is blocked.
+- The repo root's `railway.yaml` wires exactly these commands into a Railway
+  `api` service — no manual build/start command entry needed.
+- In `NODE_ENV=production` the API **refuses to boot** on placeholder or
+  missing secrets (JWT, email, origins) and names the offending variable in
+  the first line of the log. That's the deploy failing on purpose, not a
+  bug — fix the variable it names.
+
 ## Scripts
 
 | Script                | What it does                                            |
