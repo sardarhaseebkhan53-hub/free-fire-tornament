@@ -39,20 +39,41 @@ quick start for **Vercel (web) + Railway (API)**. The short version:
 ```bash
 npm ci
 npm run build        # generates the Prisma client, then compiles to dist/
-npm run db:migrate   # idempotent, forward-only — safe on every boot
+npm run db:migrate   # idempotent, forward-only — safe on every boot (uses DIRECT_URL)
+npm run db:seed:admin # upserts the permanent super-admin — safe on every boot
 npm start            # node dist/index.js, binds 0.0.0.0:$PORT
 ```
 
+On Windows PowerShell, run these one at a time — `&&` is not a valid
+statement separator there.
+
+- **Connection split (Neon / managed Postgres).** `DATABASE_URL` = **pooled**
+  endpoint (host contains `-pooler`) for runtime API traffic — it absorbs
+  1,000–2,000 concurrent users via PgBouncer. `DIRECT_URL` = **direct**
+  (unpooled) endpoint, read by `prisma.config.ts` for migrations and studio.
+  Both with `sslmode=require`. The runtime adapter enforces TLS for any
+  non-localhost host.
 - **`npm run build` always generates the Prisma client first.** The client
   lives in `generated/` (git-ignored) — a fresh checkout without that step
   fails `tsc` with ~100 `Cannot find module '../../generated/prisma'`
   errors, the most common deploy failure for this repo.
+- **`npm start` is self-healing** — a `prestart` hook (`scripts/ensure-build.mjs`)
+  builds automatically when `dist/index.js` is missing instead of crashing
+  with `Error: Cannot find module '.../dist/index.js'`.
 - **`npm run db:migrate`** runs `prisma migrate deploy` and falls back to
   the offline SQL applier if the engine download is blocked.
+- **`npm run db:seed:admin`** (prisma/admin-seed.ts) upserts the permanent
+  super-admin (`SEED_ADMIN_EMAIL`/`SEED_ADMIN_USERNAME`, default
+  `sardarghaseeb777@gmail.com` / `sardarghaseeb`) and re-bakes the password
+  hash from `SEED_ADMIN_PASSWORD` on every run — so the owner login can never
+  desync after an `.env` change. Unlike `db:seed` it touches nothing else and
+  is production-safe.
 - The repo root's `railway.yaml` wires exactly these commands into a Railway
   `api` service — no manual build/start command entry needed.
 - In `NODE_ENV=production` the API **refuses to boot** on placeholder or
-  missing secrets (JWT, email, origins) and names the offending variable in
+  missing secrets (JWT, email, origins), a localhost `DATABASE_URL` (the
+  source of `P1001: Can't reach database server at 127.0.0.1:5432`), or an
+  `http://` `PUBLIC_URL`/`CLIENT_ORIGIN`, and names the offending variable in
   the first line of the log. That's the deploy failing on purpose, not a
   bug — fix the variable it names.
 
@@ -70,6 +91,7 @@ npm start            # node dist/index.js, binds 0.0.0.0:$PORT
 | `npm run db:migrate:dev` | `prisma migrate dev` (dev, creates migrations)       |
 | `npm run db:push`     | `prisma db push` (prototyping, no migration files)      |
 | `npm run db:seed`     | Seed the demo dataset                                   |
+| `npm run db:seed:admin` | Upsert the permanent super-admin (production-safe)    |
 | `npm run studio`      | Prisma Studio                                           |
 | `npm run verify:finance` | Financial dashboard suite (P&L truth, CSV, RBAC)     |
 | `npm run verify:support` | Support tickets + NEXA guardrails suite (Phase 11)  |
@@ -99,10 +121,15 @@ npm start            # node dist/index.js, binds 0.0.0.0:$PORT
 
 | Account class | Login                          | Password (dev default) |
 | ------------- | ------------------------------ | ---------------------- |
-| Super admin   | `admin@clutchnex.gg`           | `ChangeMe-Admin123`    |
+| Super admin (permanent) | `sardarghaseeb777@gmail.com` / `sardarghaseeb` | `sardar9003202@` |
 | Admin         | `ops@clutchnex.gg`             | `OpsAdmin@123`         |
 | Moderator     | `mod@clutchnex.gg`             | `ModPass@123`          |
 | Players       | `<username>@example.com`       | `Player@123`           |
+
+The super-admin credentials are PERMANENT and identical in every environment:
+`prisma/seed.ts` (dev) and `prisma/admin-seed.ts` (production) both create the
+same account from `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` /
+`SEED_ADMIN_USERNAME`.
 
 The seed covers every lifecycle state: completed/open/cancelled/draft
 tournaments, verified matches with results and winners, credited prizes,

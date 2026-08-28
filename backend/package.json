@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "npm run db:generate && tsc -p tsconfig.build.json",
+    "prestart": "node scripts/ensure-build.mjs",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -22,6 +23,7 @@
     "db:migrate:cli": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:admin": "tsx prisma/admin-seed.ts",
     "studio": "prisma studio",
     "verify:join": "tsx scripts/verify-join-engine.mts",
     "verify:wallet": "tsx scripts/verify-wallet.mts",
