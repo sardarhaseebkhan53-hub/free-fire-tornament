@@ -49,6 +49,8 @@ function signToken(sub: string, username: string, role = 'USER'): string {
   return jwt.sign({ sub, role, username }, ACCESS_SECRET, { expiresIn: '15m' });
 }
 
+let uidSeq = 0;
+
 async function createUser(db: pg.Client, username: string, cash: number): Promise<string> {
   const r = await db.query(
     `INSERT INTO users (id, username, email, "passwordHash", role, status, "isVerified", "referralCode", "createdAt", "updatedAt")
@@ -58,6 +60,14 @@ async function createUser(db: pg.Client, username: string, cash: number): Promis
   );
   const id = r.rows[0].id as string;
   await db.query(`INSERT INTO wallets (id, "userId", "cashBalance", "createdAt", "updatedAt") VALUES (gen_random_uuid()::text, $1, $2, now(), now())`, [id, cash]);
+  // The join engine now requires a saved Free Fire identity for SOLO/team joins;
+  // the harness predates that check, so each racer gets a unique 10-digit UID.
+  const ffUid = String(1_000_000_000 + ++uidSeq);
+  await db.query(
+    `INSERT INTO user_profiles (id, "userId", "fullName", "freeFireUID", "freeFireIGN", "showPublicProfile", "createdAt", "updatedAt")
+     VALUES (gen_random_uuid()::text, $1, $2, $3, $2, true, now(), now())`,
+    [id, username, ffUid],
+  );
   return id;
 }
 

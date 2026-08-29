@@ -3,7 +3,7 @@
 // Room-style data table + direct result entry + Draft→Review→Confirm→Publish.
 'use client';
 import { useEffect, useState } from 'react';
-import { Check, Download, Loader2, Lock, Search, ShieldCheck } from 'lucide-react';
+import { Check, Download, Loader2, Lock, Search, ShieldCheck, X } from 'lucide-react';
 import { Modal, Pill } from '@/components/admin/kit';
 import { api, apiGet, downloadProtectedFile } from '@/lib/client-api';
 
@@ -35,6 +35,7 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
   const [search, setSearch] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [showSetup, setShowSetup] = useState(false);
+  const [activeRow, setActiveRow] = useState<TableParticipant | null>(null);
 
   async function load() {
     setLoading(true);
@@ -59,7 +60,7 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
   const visible = (data?.rows ?? []).filter((r) =>
     !search || `${r.playerOrTeam} ${r.ign ?? ''} ${r.uid ?? ''} ${r.username ?? ''}`.toLowerCase().includes(search.toLowerCase()));
 
-  async function saveRow(p: TableParticipant, patch: Partial<TableParticipant>, save = true) {
+  async function saveRow(p: TableParticipant, patch: Partial<TableParticipant>, save = true): Promise<boolean> {
     setBusy(true);
     try {
       await api(`/admin/matches/${matchId}/results/row`, {
@@ -80,8 +81,10 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
       });
       setMsg(`Saved result for ${p.playerOrTeam}.`);
       if (save) await refresh(); else await load();
+      return true;
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Save failed');
+      return false;
     } finally {
       setBusy(false);
     }
@@ -164,7 +167,8 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
               <span className="text-[11px] text-fg-3">Placement table: [{data.scoring.placementTable.join(', ')}] · {data.scoring.pointsPerKill} pts/kill · Score = placement + kills + bonus − penalty</span>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Desktop (≥768px): full-width data table. */}
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[1080px] text-left text-xs">
                 <thead>
                   <tr className="border-b border-line text-[10px] uppercase tracking-wide text-fg-3">
@@ -181,6 +185,25 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile (<768px): cards, actions behind a per-row sheet (spec: cards,
+                never horizontal scroll on small screens). */}
+            <div className="space-y-2.5 md:hidden">
+              {visible.map((p) => (
+                <ResultRowCard key={p.participantId} p={p} preview={previewScore} onEdit={() => setActiveRow(p)} />
+              ))}
+              {visible.length === 0 && <p className="py-8 text-center text-fg-3">No rows match.</p>}
+            </div>
+
+            {activeRow && (
+              <ResultRowSheet
+                p={activeRow}
+                busy={busy}
+                preview={previewScore}
+                onSave={saveRow}
+                onClose={() => setActiveRow(null)}
+              />
+            )}
           </>
         )}
       </div>
@@ -280,7 +303,7 @@ export function WorkflowBtn({ children, onClick, disabled, gold }: { children: R
 export function ResultRowEditor({ p, busy, preview, onSave }: {
   p: TableParticipant; busy: boolean;
   preview: (p: TableParticipant, patch: { position?: number; kills?: number; bonus?: number; penalty?: number }) => number;
-  onSave: (p: TableParticipant, patch: Partial<TableParticipant>) => Promise<void>;
+  onSave: (p: TableParticipant, patch: Partial<TableParticipant>) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState<Partial<TableParticipant>>({});
   const merged = { ...p, ...draft };
@@ -343,6 +366,146 @@ export function ResultRowEditor({ p, busy, preview, onSave }: {
         </div>
       </td>
     </tr>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mobile card + per-row result sheet (spec: cards, not horizontal scroll)
+// ---------------------------------------------------------------------------
+
+type PreviewFn = (p: TableParticipant, patch: { position?: number; kills?: number; bonus?: number; penalty?: number }) => number;
+
+/** Shared draft-state hook for the desktop row editor and the mobile sheet. */
+function useResultDraft(p: TableParticipant) {
+  const [draft, setDraft] = useState<Partial<TableParticipant>>({});
+  const merged = { ...p, ...draft };
+  const set = (k: keyof TableParticipant, v: unknown) => setDraft((d) => ({ ...d, [k]: v }));
+  return { draft, merged, set };
+}
+
+const resultInput = 'w-full rounded-input border border-line bg-white/[3%] px-2 py-2 text-center text-sm text-fg outline-none focus:border-accent [color-scheme:dark]';
+
+/** Collapsed per-row card for <768px — summary of the same fields the desktop
+ *  table shows, with the editing actions behind a bottom sheet. */
+function ResultRowCard({ p, preview, onEdit }: { p: TableParticipant; preview: PreviewFn; onEdit: () => void }) {
+  const score = preview(p, {});
+  return (
+    <div className="rounded-card border border-line bg-white/[2%] p-3">
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-input bg-white/[4%] font-display text-sm font-bold text-fg">
+          {p.slot !== null ? String(p.slot).padStart(2, '0') : '··'}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-fg">{p.playerOrTeam}</p>
+          <p className="truncate text-[11px] text-fg-3">
+            {p.ign ?? '—'}{p.team ? ` · ${p.team}` : ''} · UID {p.uid ?? '—'} · Reg {p.registrationId ? `#${p.registrationId.slice(-6)}` : '—'}
+          </p>
+        </div>
+        <Pill status={p.payment === 'PAID' ? 'APPROVED' : 'PENDING'} label={p.payment} />
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-2">
+        <span>Score <strong className="tabular text-fg">{score ?? '—'}</strong></span>
+        <span>Prize <strong className="tabular text-reward">{p.prize ?? '—'}</strong></span>
+        <span className={p.ready ? 'font-bold text-success' : 'text-fg-3'}>{p.ready ? 'READY' : 'NOT READY'}</span>
+        <span className="text-fg-3">{p.status}{p.absent ? ' · ABSENT' : ''}</span>
+      </div>
+      <button
+        onClick={onEdit}
+        className="mt-2.5 w-full rounded-input border border-line py-1.5 text-[11px] font-bold text-fg-2 transition hover:border-accent hover:text-accent"
+      >
+        Edit result
+      </button>
+    </div>
+  );
+}
+
+/** Bottom sheet with the full result editor for one participant (mobile). */
+function ResultRowSheet({ p, busy, preview, onSave, onClose }: {
+  p: TableParticipant; busy: boolean; preview: PreviewFn;
+  onSave: (p: TableParticipant, patch: Partial<TableParticipant>) => Promise<boolean>;
+  onClose: () => void;
+}) {
+  const { draft, merged, set } = useResultDraft(p);
+  const [saving, setSaving] = useState(false);
+  const score = preview(p, {
+    position: draft.placement ?? undefined,
+    kills: draft.kills ?? undefined,
+    bonus: draft.bonus ?? undefined,
+    penalty: draft.penalty ?? undefined,
+  });
+
+  async function save() {
+    setSaving(true);
+    const ok = await onSave(p, draft);
+    setSaving(false);
+    if (ok) onClose();
+  }
+
+  return (
+    <div className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label={`Edit result for ${p.playerOrTeam}`}>
+      <div
+        className="animate-fade-up max-h-[85vh] w-full overflow-y-auto rounded-t-[20px] border border-line bg-surface p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="font-display text-base font-bold text-fg">
+            {p.slot !== null ? `#${String(p.slot).padStart(2, '0')} ` : ''}{p.playerOrTeam}
+          </h3>
+          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-input border border-line text-fg-3 hover:text-fg" aria-label="Close">
+            <X size={15} />
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-fg-3">{p.ign ?? '—'}{p.team ? ` · ${p.team}` : ''} · UID {p.uid ?? '—'}</p>
+
+        <div className="mt-4 grid grid-cols-2 gap-2.5">
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Position</span>
+            <input type="number" min={1} value={draft.placement ?? p.placement ?? ''} onChange={(e) => set('placement', e.target.value === '' ? null : Number(e.target.value))} className={resultInput} />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Kills</span>
+            <input type="number" min={0} value={draft.kills ?? p.kills ?? ''} onChange={(e) => set('kills', e.target.value === '' ? null : Number(e.target.value))} className={resultInput} />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Bonus</span>
+            <input type="number" min={0} value={draft.bonus ?? p.bonus ?? ''} onChange={(e) => set('bonus', e.target.value === '' ? null : Number(e.target.value))} className={resultInput} />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Penalty</span>
+            <input type="number" min={0} value={draft.penalty ?? p.penalty ?? ''} onChange={(e) => set('penalty', e.target.value === '' ? null : Number(e.target.value))} className={`${resultInput} border-danger/30 text-danger`} />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Prize (PKR)</span>
+            <input type="number" min={0} value={draft.prize ?? p.prize ?? ''} onChange={(e) => set('prize', e.target.value === '' ? null : Number(e.target.value))} className={`${resultInput} text-reward`} />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Status</span>
+            <select value={merged.status} onChange={(e) => set('status', e.target.value)} className="w-full rounded-input border border-line bg-white/[3%] px-2 py-2 text-sm text-fg-2 outline-none [color-scheme:dark]">
+              <option value="REGISTERED">REGISTERED</option>
+              <option value="PLAYED">PLAYED</option>
+              <option value="DISQUALIFIED">DISQUALIFIED</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button onClick={() => set('ready', !(draft.ready ?? p.ready))}
+            className={`rounded-pill px-3 py-1.5 text-[11px] font-bold ${(draft.ready ?? p.ready) ? 'bg-success/15 text-success' : 'bg-white/5 text-fg-3'}`}>
+            {(draft.ready ?? p.ready) ? 'READY' : 'MARK READY'}
+          </button>
+          <button onClick={() => set('absent', !(draft.absent ?? p.absent))}
+            className={`rounded-pill px-3 py-1.5 text-[11px] font-bold ${(draft.absent ?? p.absent) ? 'bg-danger/15 text-danger' : 'bg-white/5 text-fg-3'}`}>
+            {(draft.absent ?? p.absent) ? 'ABSENT (undo)' : 'MARK ABSENT'}
+          </button>
+          <span className="ml-auto text-xs text-fg-2">Final score <strong className="tabular text-fg">{score ?? '—'}</strong></span>
+        </div>
+
+        <button onClick={save} disabled={busy || saving}
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-input bg-accent py-3 text-sm font-bold text-white disabled:opacity-50">
+          {(busy || saving) ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Save result
+        </button>
+      </div>
+    </div>
   );
 }
 

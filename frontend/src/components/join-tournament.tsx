@@ -35,9 +35,11 @@ interface JoinReceipt {
 
 export function JoinTournament({
   slug, type, entryPerPlayer, entryPerTeam, teamSize, registrationOpen, slotsLeft, maxSlots,
+  allowIndependentDuo = false,
 }: {
   slug: string; type: string; entryPerPlayer: number; entryPerTeam: number;
   teamSize: number; registrationOpen: boolean; slotsLeft: number; maxSlots: number;
+  allowIndependentDuo?: boolean;
 }) {
   const router = useRouter();
   const [stage, setStage] = useState<'idle' | 'confirm' | 'busy' | 'done'>('idle');
@@ -47,6 +49,32 @@ export function JoinTournament({
   const [error, setError] = useState<string | null>(null);
   const [needsLogin, setNeedsLogin] = useState(false);
   const [receipt, setReceipt] = useState<JoinReceipt | null>(null);
+  // Independent DUO (spec §Modes): a player can register solo and be paired by
+  // an admin later. Gated by the platform setting surfaced on the details API.
+  const independentDuo = type === 'DUO' && teamSize === 2 && allowIndependentDuo === true;
+  const [joinMode, setJoinMode] = useState<'team' | 'solo'>('team');
+  const [uid, setUid] = useState('');
+  const [ign, setIgn] = useState('');
+  // "Team" path = a full team registers together (the only path for SQUAD, and
+  // the default for DUO). "Solo" path = SOLO always, plus independent DUO when
+  // the player opts to register alone and be paired by an admin later.
+  const usingTeam = teamSize > 1 && !(independentDuo && joinMode === 'solo');
+
+  // Independent DUO: prefill the player's saved Free Fire identity so the solo
+  // path falls back to the profile exactly like the backend does at join time.
+  useEffect(() => {
+    if (!independentDuo || stage !== 'confirm') return;
+    setJoinMode('team');
+    let cancelled = false;
+    api<{ profile: { freeFireUID: string | null; freeFireIGN: string | null } | null }>('/auth/me')
+      .then((me) => {
+        if (cancelled) return;
+        setUid(me.profile?.freeFireUID ?? '');
+        setIgn(me.profile?.freeFireIGN ?? '');
+      })
+      .catch(() => { /* prefill is best-effort; empty fields fall back to the profile server-side */ });
+    return () => { cancelled = true; };
+  }, [independentDuo, stage]);
 
   // Load the player's eligible teams for TEAM MODES ONLY. SOLO registration
   // never calls /teams/my — it is not a prerequisite (spec: solo = no team).
@@ -90,9 +118,17 @@ export function JoinTournament({
   async function confirm() {
     const token = localStorage.getItem('cn_access');
     if (!token) return router.push(`/login?next=/tournaments/${slug}`);
-    if (teamSize > 1 && !teamId) {
+    if (usingTeam && !teamId) {
       setError('Pick your team — only full squads/duos led by you can register.');
       return;
+    }
+    if (!usingTeam && independentDuo && joinMode === 'solo') {
+      // Backend falls back to the saved profile when these are blank, but a
+      // player without a saved UID/IGN gets a clearer prompt here.
+      if ((uid.trim() && !/^\d{5,15}$/.test(uid.trim())) || (ign.trim() && (ign.trim().length < 2 || ign.trim().length > 24))) {
+        setError('Free Fire UID must be 5–15 digits and your nickname 2–24 characters.');
+        return;
+      }
     }
     setStage('busy');
     setError(null);
@@ -107,7 +143,9 @@ export function JoinTournament({
         body: {
           tournamentSlug: slug,
           couponCode: coupon || undefined,
-          teamId: teamSize > 1 ? teamId : undefined,
+          teamId: usingTeam ? teamId : undefined,
+          freeFireUID: !usingTeam ? uid.trim() || undefined : undefined,
+          freeFireIGN: !usingTeam ? ign.trim() || undefined : undefined,
         },
       });
       setReceipt({
@@ -166,7 +204,20 @@ export function JoinTournament({
           {teamSize > 1 && <div className="flex justify-between"><dt className="text-fg-2">Team total ({teamSize} players, each pays their share)</dt><dd className="tabular font-semibold text-fg">{money(entryPerTeam)}</dd></div>}
         </dl>
 
-        {teamSize > 1 ? (
+        {independentDuo && (
+          <div className="mt-3 flex gap-1 rounded-input border border-line bg-white/[3%] p-1" role="tablist" aria-label="Registration mode">
+            <button type="button" onClick={() => setJoinMode('team')} disabled={stage === 'busy'}
+              className={`flex-1 rounded-[8px] px-2 py-1.5 text-xs font-bold transition ${joinMode === 'team' ? 'bg-accent text-white' : 'text-fg-2 hover:text-fg'}`}>
+              Register my duo
+            </button>
+            <button type="button" onClick={() => setJoinMode('solo')} disabled={stage === 'busy'}
+              className={`flex-1 rounded-[8px] px-2 py-1.5 text-xs font-bold transition ${joinMode === 'solo' ? 'bg-accent text-white' : 'text-fg-2 hover:text-fg'}`}>
+              Register solo · paired by admin
+            </button>
+          </div>
+        )}
+
+        {usingTeam ? (
           needsLogin ? (
             <div className="mt-3 rounded-input border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
               Your session expired.{' '}
@@ -197,13 +248,44 @@ export function JoinTournament({
             </label>
           )
         ) : (
-          <input
-            value={coupon}
-            onChange={(e) => setCoupon(e.target.value.toUpperCase())}
-            placeholder="Coupon code (optional)"
-            className="mt-3 w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
-            aria-label="Coupon code"
-          />
+          <>
+            {independentDuo && (
+              <>
+                <p className="mt-3 text-xs text-fg-3">
+                  You&apos;ll be seated on your own; an admin pairs you with another solo registrant before the match.
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-fg-3">Free Fire UID</span>
+                    <input
+                      value={uid}
+                      onChange={(e) => setUid(e.target.value.replace(/\D/g, '').slice(0, 15))}
+                      inputMode="numeric"
+                      placeholder="e.g. 5231879640"
+                      className="w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-fg-3">Free Fire IGN</span>
+                    <input
+                      value={ign}
+                      onChange={(e) => setIgn(e.target.value.slice(0, 24))}
+                      maxLength={24}
+                      placeholder="In-game name"
+                      className="w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
+                    />
+                  </label>
+                </div>
+              </>
+            )}
+            <input
+              value={coupon}
+              onChange={(e) => setCoupon(e.target.value.toUpperCase())}
+              placeholder="Coupon code (optional)"
+              className="mt-3 w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
+              aria-label="Coupon code"
+            />
+          </>
         )}
 
         {error && <p role="alert" className="mt-3 rounded-input border border-danger/30 bg-danger/10 px-3 py-2.5 text-xs font-medium text-danger">{error}</p>}
@@ -214,7 +296,7 @@ export function JoinTournament({
             className="flex flex-1 items-center justify-center gap-2 rounded-input bg-accent px-4 py-3 text-sm font-bold text-white transition hover:bg-accent-strong disabled:opacity-60"
           >
             {stage === 'busy' && <Loader2 size={15} className="animate-spin" />}
-            Join — {money(teamSize > 1 ? entryPerPlayer : entryPerPlayer)} / player
+            {usingTeam ? 'Join team' : 'Join solo'} — {money(entryPerPlayer)} / player
           </button>
           <button onClick={() => setStage('idle')} disabled={stage === 'busy'} className="rounded-input border border-line px-4 text-sm font-semibold text-fg-2 hover:text-fg">
             Back

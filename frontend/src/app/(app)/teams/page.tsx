@@ -31,6 +31,7 @@ export default function TeamsPage() {
   const [form, setForm] = useState({ name: '', tag: '', type: 'SQUAD' });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [joinCode, setJoinCode] = useState('');
 
   const load = useCallback(async () => {
     if (!localStorage.getItem('cn_access')) return setAnon(true);
@@ -79,6 +80,26 @@ export default function TeamsPage() {
       /* re-render state comes from the reload below */
     }
     load();
+  }
+
+  async function joinByCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!joinCode.trim()) return;
+    setBusy(true); setMsg(null);
+    try {
+      const out = await api<{ name: string; tag: string }>('/teams/join', { method: 'POST', body: { code: joinCode.trim() } });
+      setMsg({ ok: true, text: `Joined ${out.name} [${out.tag}] — welcome to the team!` });
+      setJoinCode('');
+      load();
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 401) return setAnon(true);
+      setMsg({
+        ok: false,
+        text: err instanceof ApiClientError ? (err.message ?? 'Could not join that team.') : 'Could not join that team.',
+      });
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (anon) {
@@ -146,6 +167,23 @@ export default function TeamsPage() {
             ))}
           </div>
         )}
+      </section>
+
+      {/* Join by code */}
+      <section className="mt-10">
+        <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.15em] text-fg-3">Join with a code</h2>
+        <form onSubmit={joinByCode} className="glass flex max-w-lg flex-wrap items-center gap-2 rounded-card p-5">
+          <input
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+            placeholder="e.g. CNX-7K2F"
+            aria-label="Team join code"
+            className="min-w-40 flex-1 rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 font-mono text-sm text-fg outline-none placeholder:font-sans placeholder:text-fg-3 focus:border-accent"
+          />
+          <button type="submit" disabled={busy || !joinCode.trim()} className="rounded-input bg-accent px-5 py-2.5 text-sm font-bold text-white transition hover:bg-accent-strong disabled:opacity-60">
+            Join team
+          </button>
+        </form>
       </section>
 
       {/* Create */}

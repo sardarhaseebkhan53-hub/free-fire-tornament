@@ -122,6 +122,10 @@ export async function getTournamentBySlug(slug: string) {
       bonusPoints: t.bonusPoints,
       penaltyPoints: t.penaltyPoints,
     },
+    // Platform-level flag gating the "register solo, get admin-paired" DUO
+    // path (spec §Modes). The join engine re-reads the same setting at join
+    // time, so the UI gate and the server-side enforcement can never drift.
+    allowIndependentDuo: await getSetting('tournament.allowIndependentDuo', false),
     prizes,
     matches: matches.map(({ resultsStatus, ...m }) => ({
       ...m,
@@ -144,12 +148,21 @@ export async function getTournamentBySlug(slug: string) {
 // ---------------------------------------------------------------------------
 export async function activeAds(placement: string) {
   const now = new Date();
+  // The date window is two independent conditions that must BOTH hold:
+  //  • started (startsAt is null, or already in the past), AND
+  //  • not ended (endsAt is null, or still in the future).
+  // Nesting each as its own OR group under one AND fixes the original bug,
+  // where the flat `OR`/`AND` combination required endsAt to be null AND in
+  // the future on the same row at the same time — impossible, so the endpoint
+  // always returned zero ads no matter what admins configured.
   const list = await prisma.advertisement.findMany({
     where: {
       placement: placement as never,
       isActive: true,
-      OR: [{ startsAt: null }, { startsAt: { lte: now } }],
-      AND: [{ endsAt: null }, { endsAt: { gte: now } }],
+      AND: [
+        { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+        { OR: [{ endsAt: null }, { endsAt: { gte: now } }] },
+      ],
     },
     orderBy: { createdAt: 'desc' },
     select: { id: true, name: true, imageUrl: true, targetUrl: true, embedHtml: true },
@@ -163,6 +176,23 @@ export async function activeAds(placement: string) {
       embedHtml: a.embedHtml,
     })),
   };
+}
+
+/** Increment the impression counter for a rendered ad. `updateMany` is a no-op
+ * for unknown ids, so a beacon for a deleted ad can never 500 the page. */
+export async function recordAdImpression(id: string) {
+  await prisma.advertisement.updateMany({
+    where: { id },
+    data: { impressions: { increment: 1 } },
+  });
+}
+
+/** Increment the click counter for a clicked ad (same no-op-on-missing guard). */
+export async function recordAdClick(id: string) {
+  await prisma.advertisement.updateMany({
+    where: { id },
+    data: { clicks: { increment: 1 } },
+  });
 }
 
 // ---------------------------------------------------------------------------

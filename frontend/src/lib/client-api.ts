@@ -51,21 +51,30 @@ async function refreshAccessToken(): Promise<boolean> {
   return false;
 }
 
-/** Authed fetch that transparently refreshes the access token once on a 401
- * and retries. Returns the raw Response so callers can consume blobs (CSV
- * export) or non-JSON payloads. */
-export async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+/** Authed fetch against a fully-resolved URL (e.g. an uploaded-image path that
+ * has already been normalized to /api/backend/...). Shares the single
+ * refresh-once-on-401 implementation with authedFetch so no call site keeps its
+ * own token-rotation copy (§E.4 cleanup). */
+export async function authedFetchResolved(url: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken();
   const headers = new Headers(init.headers);
   headers.set(CLIENT_HEADER, 'web');
   if (token) headers.set('authorization', `Bearer ${token}`);
   const opts = { ...init, headers, credentials: 'include' as const };
-  let res = await fetch(`/api/backend${path}`, opts);
+  let res = await fetch(url, opts);
   if (res.status === 401 && token && (await refreshAccessToken())) {
     if (getToken()) headers.set('authorization', `Bearer ${getToken()}`);
-    res = await fetch(`/api/backend${path}`, opts);
+    res = await fetch(url, opts);
   }
   return res;
+}
+
+/** Authed fetch that transparently refreshes the access token once on a 401
+ * and retries. Returns the raw Response so callers can consume blobs (CSV
+ * export) or non-JSON payloads. The `path` is an API path (the /api/backend
+ * proxy prefix is added here). */
+export async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return authedFetchResolved(`/api/backend${path}`, init);
 }
 
 /** Download a protected response without navigating the browser to a URL that

@@ -106,3 +106,15 @@ publicRouter.get('/ads/:placement', async (req, res) => {
   const placement = String(req.params.placement).slice(0, 24);
   return ok(res, await svc.activeAds(placement));
 });
+
+// Anonymous analytics beacons — the counters on the Advertisement model exist
+// but nothing incremented them until now. Fire-and-forget from the consumer.
+publicRouter.post('/ads/:id/impression', async (req, res) => {
+  await svc.recordAdImpression(String(req.params.id).slice(0, 40));
+  return ok(res, { recorded: true });
+});
+
+publicRouter.post('/ads/:id/click', async (req, res) => {
+  await svc.recordAdClick(String(req.params.id).slice(0, 40));
+  return ok(res, { recorded: true });
+});

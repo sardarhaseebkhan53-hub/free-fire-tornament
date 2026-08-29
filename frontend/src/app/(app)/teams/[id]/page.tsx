@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { Crown, Loader2, Shield } from 'lucide-react';
+import { Copy, Crown, Loader2, RefreshCcw, Shield } from 'lucide-react';
 import { Avatar } from '@/components/ui';
 import { money } from '@/lib/format';
 import { deferLoad } from '@/lib/session';
@@ -35,6 +35,7 @@ export default function TeamDetailPage() {
   const [inviteName, setInviteName] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [joinCode, setJoinCode] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const token = localStorage.getItem('cn_access');
@@ -67,6 +68,40 @@ export default function TeamDetailPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // Captains see the shareable join code (spec §8): GET returns the existing
+  // code, `?rotate=1` rotates it server-side (captain-only endpoint).
+  useEffect(() => {
+    if (!team || meId !== team.captainId) return;
+    let cancelled = false;
+    authedFetch(`/teams/${teamId}/join-code`)
+      .then((r) => r.json())
+      .then((j: { success?: boolean; data?: { code?: string } }) => {
+        if (!cancelled && j.success && j.data?.code) setJoinCode(j.data.code);
+      })
+      .catch(() => { /* non-fatal — the section just shows nothing yet */ });
+    return () => { cancelled = true; };
+  }, [team, meId, teamId]);
+
+  async function rotateCode() {
+    setBusy(true); setMsg(null);
+    try {
+      const res = await authedFetch(`/teams/${teamId}/join-code?rotate=1`);
+      const json = await res.json();
+      if (json.success && json.data?.code) setJoinCode(json.data.code);
+      setMsg(json.success ? { ok: true, text: 'New code generated — the old one stopped working.' } : { ok: false, text: json.message ?? 'Rotation failed' });
+    } catch {
+      setMsg({ ok: false, text: 'Could not reach the server.' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyCode() {
+    if (!joinCode) return;
+    await navigator.clipboard?.writeText(joinCode).catch(() => {});
+    setMsg({ ok: true, text: 'Join code copied to clipboard.' });
   }
 
   if (error) {
@@ -145,6 +180,33 @@ export default function TeamDetailPage() {
           ))}
         </div>
       </section>
+
+      {/* Captain tools */}
+      {isCaptain && team.members.length < (team.type === 'DUO' ? 2 : 4) && (
+        <section className="glass mt-8 rounded-card p-5">
+          <h2 className="text-xs font-bold uppercase tracking-[0.15em] text-fg-3">Share join code</h2>
+          <p className="mt-1 text-xs text-fg-3">Anyone with this code can join your {team.type.toLowerCase()} instantly — no invite needed.</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="rounded-input border border-line bg-white/[4%] px-4 py-2.5 font-mono text-sm font-bold tracking-wide text-accent">
+              {joinCode ?? '…'}
+            </span>
+            <button
+              onClick={copyCode}
+              disabled={!joinCode}
+              className="inline-flex items-center gap-1.5 rounded-input border border-line px-3 py-2.5 text-xs font-semibold text-fg-2 transition hover:border-accent hover:text-accent disabled:opacity-40"
+            >
+              <Copy size={13} /> Copy
+            </button>
+            <button
+              onClick={rotateCode}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-input border border-warning/30 px-3 py-2.5 text-xs font-semibold text-warning transition hover:bg-warning/10 disabled:opacity-40"
+            >
+              <RefreshCcw size={13} /> New code
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* Captain tools */}
       {isCaptain && team.members.length < (team.type === 'DUO' ? 2 : 4) && (

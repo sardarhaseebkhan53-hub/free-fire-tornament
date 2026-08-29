@@ -38,6 +38,7 @@ export default function AdminSlotsPage() {
   const [busyReg, setBusyReg] = useState<string | null>(null);
   const [action, setAction] = useState<Mode>(null);
   const [history, setHistory] = useState(false);
+  const [pairing, setPairing] = useState(false);
   const tours = useAdminList<TList>('/admin/tournaments?pageSize=50');
 
   useEffect(() => {
@@ -87,6 +88,8 @@ export default function AdminSlotsPage() {
   const occupied = board?.occupied ?? 0;
   const maxSlots = board?.tournament.maxSlots ?? 0;
   const lockedCount = board?.slots.filter((s) => s.locked).length ?? 0;
+  // Independently-registered DUO players waiting to be paired into a team.
+  const unpaired = board ? board.slots.filter((s) => s.registrationId && !s.team && s.status === 'CONFIRMED') : [];
 
   return (
     <div>
@@ -114,6 +117,11 @@ export default function AdminSlotsPage() {
             <button onClick={() => setHistory(!history)} className="text-xs font-bold text-fg-3 hover:text-fg">
               {history ? '▾ hide match history' : '▸ show match history'}
             </button>
+            {board.tournament.type === 'DUO' && unpaired.length >= 2 && (
+              <button onClick={() => setPairing(true)} className="rounded-input border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-bold text-accent hover:bg-accent/20">
+                Pair solo players ({unpaired.length})
+              </button>
+            )}
           </>
         )}
       </div>
@@ -194,6 +202,15 @@ export default function AdminSlotsPage() {
           maxSlots={maxSlots}
           onClose={() => setAction(null)}
           onDone={async () => { setAction(null); await load(); }}
+        />
+      )}
+
+      {pairing && board && (
+        <PairDuoModal
+          tournamentId={board.tournament.id}
+          unpaired={unpaired}
+          onClose={() => setPairing(false)}
+          onDone={async () => { setPairing(false); setMsg('Duo paired — board refreshed.'); await load(); }}
         />
       )}
     </div>
@@ -282,6 +299,65 @@ function SlotActionModal({ action, maxSlots, onClose, onDone }: {
         <button onClick={submit} disabled={busy || (action.kind === 'move' && !target) || (action.kind === 'clear' && !reason.trim())}
           className="flex w-full items-center justify-center gap-2 rounded-input bg-accent py-2.5 text-sm font-bold text-white disabled:opacity-50">
           {busy ? <Loader2 size={15} className="animate-spin" /> : <X size={15} />} {action.kind === 'move' ? 'Move player' : action.kind === 'clear' ? 'Remove from slot' : action.kind === 'lock' ? 'Lock slot' : 'Mark ready'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function PairDuoModal({ tournamentId, unpaired, onClose, onDone }: {
+  tournamentId: string; unpaired: SlotEntry[]; onClose: () => void; onDone: () => void;
+}) {
+  const [a, setA] = useState('');
+  const [b, setB] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const selectCls = 'w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none [color-scheme:dark]';
+  const optionLabel = (s: SlotEntry) => `${s.player}${s.username && s.username !== s.player ? ` (@${s.username})` : ''} — slot ${String(s.slot).padStart(2, '0')}`;
+
+  async function submit() {
+    if (!a || !b) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/admin/tournaments/${tournamentId}/pair`, { method: 'POST', body: { a, b } });
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Pairing failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Pair solo players into a duo" onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-xs text-fg-3">
+          Creates a DUO team from two independently-registered players (captain = first pick) and updates both registrations. Both are notified.
+        </p>
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold text-fg-2">Player A (captain)</span>
+          <select value={a} onChange={(e) => setA(e.target.value)} className={selectCls}>
+            <option value="">Select…</option>
+            {unpaired.map((s) => (
+              <option key={s.registrationId} value={s.registrationId!} disabled={s.registrationId === b}>{optionLabel(s)}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold text-fg-2">Player B</span>
+          <select value={b} onChange={(e) => setB(e.target.value)} className={selectCls}>
+            <option value="">Select…</option>
+            {unpaired.map((s) => (
+              <option key={s.registrationId} value={s.registrationId!} disabled={s.registrationId === a}>{optionLabel(s)}</option>
+            ))}
+          </select>
+        </label>
+        {error && <p className="rounded-input border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
+        <button onClick={submit} disabled={busy || !a || !b}
+          className="flex w-full items-center justify-center gap-2 rounded-input bg-accent py-2.5 text-sm font-bold text-white disabled:opacity-50">
+          {busy ? <Loader2 size={15} className="animate-spin" /> : null} Pair into duo
         </button>
       </div>
     </Modal>
