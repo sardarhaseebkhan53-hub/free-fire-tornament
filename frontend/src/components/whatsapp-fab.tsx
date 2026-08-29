@@ -17,7 +17,7 @@ export async function WhatsAppFab() {
       aria-label="Chat with us on WhatsApp"
       // Sits above the bottom nav (≈84px + safe-area inset) so nothing overlaps;
       // on desktop it drops to the usual corner position.
-      className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-40 flex items-center gap-2 transition-transform duration-200 active:scale-95 lg:bottom-6 lg:right-6"
+      className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-40 flex items-center gap-2 transition-transform duration-200 active:scale-95 lg:bottom-6 lg:right-6 press"
     >
       <span className="animate-rise rounded-lg rounded-br-none border border-line bg-surface px-3 py-2 text-[11px] font-semibold leading-tight text-fg shadow-xl lg:hidden">
         Need help?

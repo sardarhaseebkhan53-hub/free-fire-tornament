@@ -30,7 +30,7 @@ export function BottomNav() {
               key={item.href}
               href={item.href}
               aria-current={active ? 'page' : undefined}
-              className={`flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-card pb-1 pt-1.5 text-[10px] font-semibold transition-colors duration-200 ${
+              className={`press flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-card pb-1 pt-1.5 text-[10px] font-semibold transition-colors duration-200 ${
                 active ? 'text-accent' : 'text-fg-3 active:text-fg-2'
               }`}
             >

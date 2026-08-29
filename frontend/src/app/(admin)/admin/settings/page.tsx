@@ -1,10 +1,12 @@
 'use client';
 // System settings — design 39: every admin-configurable value, edited + audited.
+// Also hosts the Maintenance / Fresh-start danger zone (wipes demo data only).
 import { useState } from 'react';
-import { Loader2, Save } from 'lucide-react';
+import { AlertTriangle, Loader2, Save, Trash2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { useAdminList } from '@/components/admin/kit';
-import { api , apiGet } from '@/lib/client-api';
+import { api, apiGet } from '@/lib/client-api';
+import { useToast } from '@/components/toast';
 
 interface Row { key: string; value: unknown; description: string | null; updatedAt: string }
 
@@ -14,6 +16,33 @@ export default function AdminSettingsPage() {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  // Fresh-start danger zone
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [resetBusy, setResetBusy] = useState(false);
+
+  async function resetDemo() {
+    if (resetConfirm.trim().toUpperCase() !== 'RESET') return;
+    setResetBusy(true);
+    try {
+      const out = await api<{ playersDeleted: number }>('/admin/maintenance/reset-demo', { method: 'POST' });
+      setResetConfirm('');
+      toast({
+        tone: 'success',
+        title: 'Fresh start complete',
+        description: `${out.playersDeleted} player accounts and all demo content removed. Admin accounts, settings and audit history kept.`,
+      });
+    } catch (e) {
+      toast({
+        tone: 'error',
+        title: 'Reset failed',
+        description: e instanceof Error ? e.message : 'Could not reset demo data.',
+      });
+    } finally {
+      setResetBusy(false);
+    }
+  }
 
   async function save(key: string, original: Row) {
     setBusy(key);
@@ -104,6 +133,39 @@ export default function AdminSettingsPage() {
           ))}
         </div>
       )}
+
+      {/* Maintenance — Fresh start (danger zone) */}
+      <div className="mt-8 rounded-card border border-danger/30 bg-danger/[4%] p-5 sm:p-6">
+        <p className="flex items-center gap-2 font-display text-base font-bold text-danger">
+          <AlertTriangle size={17} /> Fresh Start — Wipe Demo Data
+        </p>
+        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-fg-2">
+          Removes <b className="text-fg">all player accounts, tournaments, registrations, teams, matches,
+          results, prizes, wallets, deposits, withdrawals, transfers, notifications, blogs, FAQs, ads and
+          support data</b> so the platform can go live clean.
+        </p>
+        <p className="mt-1.5 text-xs text-fg-3">
+          <b className="text-success">Kept:</b> admin/staff accounts (you stay logged in), system settings,
+          payment accounts, static pages, SEO config and the full audit trail (the reset itself is audited).
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <input
+            value={resetConfirm}
+            onChange={(e) => setResetConfirm(e.target.value)}
+            placeholder='Type RESET to confirm'
+            aria-label="Type RESET to confirm"
+            className="w-44 rounded-input border border-danger/40 bg-base/60 px-3 py-2 font-mono text-xs font-bold uppercase tracking-wide text-danger outline-none placeholder:normal-case placeholder:text-fg-3 focus:border-danger"
+          />
+          <button
+            onClick={resetDemo}
+            disabled={resetBusy || resetConfirm.trim().toUpperCase() !== 'RESET'}
+            className="inline-flex items-center gap-2 rounded-input bg-danger px-5 py-2.5 text-sm font-bold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {resetBusy ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+            {resetBusy ? 'Wiping…' : 'Wipe demo data'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -23,7 +23,7 @@ import {
   listSettings, listTeamsAdmin, listTickets, listTournamentsAdmin, listUsers,
   listWinnersAdmin, recalculateLeaderboard, replyTicket, revenueAnalytics,
   setBlogStatus, setMatchStatus, setTournamentStatus, setUserStatus, toggleAd,
-  updateSetting, updateTournamentScoring, upsertSeo,
+  resetDemoData, updateSetting, updateTournamentScoring, upsertSeo,
 } from '../services/admin.service';
 import { financeCsv, financeDashboard } from '../services/finance.service';
 import { deleteDeposit } from '../services/payment.service';
@@ -338,4 +338,10 @@ adminRouter.post('/settings', async (req, res) => {
 adminRouter.get('/audit-logs', async (req, res) => {
   const q = auditLogQuerySchema.parse(req.query);
   return ok(res, await listAuditLogs(q));
+});
+
+// Fresh start — wipe all demo/data content (keeps admin accounts + settings).
+adminRouter.post('/maintenance/reset-demo', adminWriteLimiter, async (req, res) => {
+  const out = await resetDemoData(req.auth!.id, ctxOf(req));
+  return ok(res, out, `Fresh start complete — ${out.playersDeleted} player accounts and all demo content removed.`);
 });

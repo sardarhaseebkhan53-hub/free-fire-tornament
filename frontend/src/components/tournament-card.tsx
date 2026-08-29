@@ -67,7 +67,7 @@ export function TournamentCard({ t }: { t: TournamentSummary }) {
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
           <div className="rounded-input bg-white/[4%] px-2 py-2 text-left sm:text-center">
             <p className="text-[9px] font-bold uppercase tracking-wide text-fg-3 sm:text-[10px]">Prize Pool</p>
-            <p className="tabular text-sm font-bold text-reward sm:text-base">{money(t.prizePool)}</p>
+            <p className="gold-text tabular text-sm font-bold sm:text-base">{money(t.prizePool)}</p>
           </div>
           <div className="rounded-input bg-white/[4%] px-2 py-2 text-left sm:text-center">
             <p className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-fg-3 sm:justify-center sm:text-[10px]">
@@ -83,11 +83,11 @@ export function TournamentCard({ t }: { t: TournamentSummary }) {
           </div>
         </div>
 
-        {/* Slots progress */}
+        {/* Slots progress — animated fill (GPU scaleX, runs once on mount) */}
         <div className="mt-3">
           <div className="h-1.5 overflow-hidden rounded-full bg-white/5">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-accent to-accent-strong transition-[width] duration-500"
+              className="bar-fill h-full rounded-full bg-gradient-to-r from-accent to-accent-strong shadow-[0_0_10px_rgba(139,92,246,0.5)]"
               style={{ width: `${fillPct}%` }}
             />
           </div>
@@ -117,7 +117,7 @@ export function TournamentCard({ t }: { t: TournamentSummary }) {
           </div>
           <div className="mt-3">
             {t.registrationOpen && t.slotsLeft > 0 ? (
-              <span className="flex w-full items-center justify-center gap-1.5 rounded-input bg-accent px-5 py-2.5 text-sm font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition duration-200 group-hover:bg-accent-strong group-hover:shadow-[0_0_22px_rgba(139,92,246,0.55)] group-active:scale-95">
+              <span className="press flex w-full items-center justify-center gap-1.5 rounded-input bg-accent px-5 py-2.5 text-sm font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition duration-200 group-hover:bg-accent-strong group-hover:shadow-[0_0_22px_rgba(139,92,246,0.55)]">
                 Confirm Entry — {money(t.entryFeePerPlayer)}
               </span>
             ) : t.status === 'REGISTRATION_OPEN' && t.slotsLeft <= 0 ? (

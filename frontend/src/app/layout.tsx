@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 import { InstallBanner, SwRegister } from '@/components/pwa';
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
@@ -9,6 +10,8 @@ import '@fontsource/space-grotesk/600.css';
 import '@fontsource/space-grotesk/700.css';
 import { BottomNav } from '@/components/bottom-nav';
 import { WhatsAppFab } from '@/components/whatsapp-fab';
+import { ToastProvider } from '@/components/toast';
+import { SessionKeeper } from '@/components/session-keeper';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -51,13 +54,22 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="h-full">
+    <html lang="en" className="h-full" suppressHydrationWarning>
+      <head>
+        {/* Gates scroll-reveal CSS behind JS so no-JS users never see hidden content */}
+        <Script id="enable-js-class" strategy="beforeInteractive">
+          {`document.documentElement.classList.add('js')`}
+        </Script>
+      </head>
       <body className="flex min-h-screen flex-col bg-base text-fg">
-        {children}
-        <BottomNav />
-        <WhatsAppFab />
-        <SwRegister />
-        <InstallBanner />
+        <ToastProvider>
+          <SessionKeeper />
+          {children}
+          <BottomNav />
+          <WhatsAppFab />
+          <SwRegister />
+          <InstallBanner />
+        </ToastProvider>
       </body>
     </html>
   );

@@ -140,8 +140,12 @@ describe('refresh rotation', () => {
     const rotated = await auth.refreshSession(refreshToken, ctx);
     expect(rotated.refreshToken).not.toBe(refreshToken);
 
-    // Replaying the old token must fail…
-    await rejectsWithCode(() => auth.refreshSession(refreshToken, ctx), 'TOKEN_INVALID');
+    // A replay OUTSIDE the grace window (grace=0 simulates an old replay)
+    // must fail…
+    await rejectsWithCode(
+      () => auth.refreshSession(refreshToken, ctx, 0),
+      'TOKEN_INVALID',
+    );
 
     // …and must revoke every live session for that account.
     const live = await db.authToken.count({
@@ -151,6 +155,35 @@ describe('refresh rotation', () => {
 
     const alerts = await db.fraudAlert.count({ where: { kind: 'REFRESH_TOKEN_REUSE', userId: u.id } });
     expect(alerts).toBeGreaterThanOrEqual(1);
+  });
+
+  it('chains a within-grace replay onto the successor instead of nuking the session', async () => {
+    // This is the bug that logged users out: a burst of parallel API calls at
+    // access-token expiry each triggers its own refresh with the same cookie.
+    // The racers must chain onto the successor token, not get treated as
+    // theft and have every session revoked.
+    const u = await makeUser();
+    created.push(u.id);
+    const { refreshToken } = await auth.login(u.username, u.password, ctx);
+
+    const rotated = await auth.refreshSession(refreshToken, ctx);
+    expect(rotated.refreshToken).not.toBe(refreshToken);
+
+    // Replay the OLD cookie within the grace window (default 60s): it chains
+    // onto the live successor and returns a fresh pair.
+    const chained = await auth.refreshSession(refreshToken, ctx);
+    expect(chained.refreshToken).toBeTruthy();
+    expect(chained.accessToken).toBeTruthy();
+
+    // The account still has a live session — nothing was revoked.
+    const live = await db.authToken.count({
+      where: { userId: u.id, type: 'REFRESH', revokedAt: null },
+    });
+    expect(live).toBeGreaterThanOrEqual(1);
+
+    // No fraud alert for a benign race.
+    const alerts = await db.fraudAlert.count({ where: { kind: 'REFRESH_TOKEN_REUSE', userId: u.id } });
+    expect(alerts).toBe(0);
   });
 
   it('stores refresh tokens only as hashes', async () => {

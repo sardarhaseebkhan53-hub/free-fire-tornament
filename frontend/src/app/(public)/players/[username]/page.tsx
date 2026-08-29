@@ -5,6 +5,7 @@ import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import { pageMetadata } from '@/lib/seo';
 import { RankBadge } from '@/components/rank-badge';
+import { Reveal } from '@/components/reveal';
 import type { RankInfo } from '@/lib/types';
 import type { Metadata } from 'next';
 
@@ -71,7 +72,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
         )}
         {p.bio && <p className="mx-auto mt-3 max-w-md text-sm text-fg-3">{p.bio}</p>}
 
-        <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <Reveal><div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-5">
           {[
             ['Matches', String(p.stats.matchesPlayed)],
             ['Wins', String(p.stats.wins)],
@@ -84,7 +85,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
               <p className="mt-0.5 text-[10px] uppercase tracking-wide text-fg-3">{label}</p>
             </div>
           ))}
-        </div>
+        </div></Reveal>
       </div>
     </div>
   );

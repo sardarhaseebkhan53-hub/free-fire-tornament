@@ -8,6 +8,7 @@ import {
   Check, Copy, Eye, EyeOff, KeyRound, Loader2, Lock, Trophy, Upload, X, XCircle,
 } from 'lucide-react';
 import { EmptyState } from '@/components/ui';
+import { Reveal } from '@/components/reveal';
 import { Countdown } from '@/components/countdown';
 import { MODE_LABEL } from '@/lib/format';
 import { api } from '@/lib/client-api';
@@ -118,7 +119,7 @@ export default function MyMatchesPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <h1 className="font-display text-2xl font-bold text-fg sm:text-3xl">My Matches</h1>
+      <Reveal><h1 className="font-display text-2xl font-bold text-fg sm:text-3xl">My Matches</h1>
 
       {/* Tabs */}
       <div className="mt-5 flex w-fit gap-1 rounded-card border border-line bg-white/[2%] p-1">
@@ -143,12 +144,12 @@ export default function MyMatchesPage() {
             {dot && count > 0 && <span className="h-1.5 w-1.5 rounded-full bg-danger animate-pulse-dot" />}
           </button>
         ))}
-      </div>
+      </div></Reveal>
 
       {groups === null ? (
         <p className="mt-10 flex items-center gap-2 text-sm text-fg-3"><Loader2 size={15} className="animate-spin" /> Loading…</p>
       ) : visible.length === 0 ? (
-        <div className="mt-8">
+        <Reveal><div className="mt-8">
           <EmptyState
             title={tab === 'upcoming' ? 'No upcoming matches' : tab === 'live' ? 'Nothing is live right now' : 'No completed matches yet'}
             sub={tab === 'completed' ? 'Once tournaments finish, your placements and prizes appear here.' : 'Join a tournament and your matches will appear here.'}
@@ -158,7 +159,7 @@ export default function MyMatchesPage() {
               <Link href="/tournaments" className="inline-block rounded-input bg-accent px-6 py-3 text-sm font-bold text-white">Browse tournaments</Link>
             </div>
           )}
-        </div>
+        </div></Reveal>
       ) : (
         <>
           <div className="mt-6 space-y-4">

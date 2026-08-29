@@ -7,6 +7,7 @@ import { apiServerSafe } from '@/lib/api';
 import type { TournamentDetails } from '@/lib/types';
 import { money, MODE_LABEL, STATUS_LABEL, dateTime, displayStatus, slotLabel } from '@/lib/format';
 import { Badge, Avatar } from '@/components/ui';
+import { Reveal } from '@/components/reveal';
 import { Countdown, CountdownUntil } from '@/components/countdown';
 import { JoinTournament } from '@/components/join-tournament';
 import { TournamentImage } from '@/components/tournament-image';
@@ -109,7 +110,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
       <AdSlot placement="TOURNAMENT_PAGE" className="mt-8" />
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_360px]">
+      <Reveal><div className="mt-8 grid gap-8 lg:grid-cols-[1fr_360px]">
         {/* Main column */}
         <div className="space-y-8">
           {t.description && <p className="text-sm leading-relaxed text-fg-2">{t.description}</p>}
@@ -264,7 +265,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             </div>
           )}
         </aside>
-      </div>
+      </div></Reveal>
     </div>
   );
 }

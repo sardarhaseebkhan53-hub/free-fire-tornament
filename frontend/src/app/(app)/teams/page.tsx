@@ -5,15 +5,17 @@
 // session falls back to the sign-in screen — never a raw 401 in the console.
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Loader2, Shield, Users } from 'lucide-react';
+import { Copy, Loader2, Shield, Users } from 'lucide-react';
 import { Avatar, EmptyState } from '@/components/ui';
 import { deferLoad } from '@/lib/session';
 import { api, ApiClientError } from '@/lib/client-api';
+import { useToast } from '@/components/toast';
 
 interface MyTeam {
   role: string;
   team: {
     id: string; name: string; tag: string; type: string;
+    joinCode: string | null;
     members: { userId: string }[];
     captain: { username: string };
   };
@@ -25,6 +27,7 @@ interface Invite {
 }
 
 export default function TeamsPage() {
+  const { toast } = useToast();
   const [teams, setTeams] = useState<MyTeam[] | null>(null);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [anon, setAnon] = useState(false);
@@ -55,19 +58,29 @@ export default function TeamsPage() {
     e.preventDefault();
     setBusy(true); setMsg(null);
     try {
-      const created = await api<{ team?: { name: string } }>('/teams', {
+      const created = await api<{ name: string; joinCode: string | null }>('/teams', {
         method: 'POST', body: form,
       });
-      setMsg({ ok: true, text: `Team ${form.name} created — invite your squad!` });
+      setMsg({
+        ok: true,
+        text: created.joinCode
+          ? `Team ${created.name} created — join code ${created.joinCode}. Share it with your squad!`
+          : `Team ${created.name} created — invite your squad!`,
+      });
+      toast({
+        tone: 'success',
+        title: 'Team created',
+        description: created.joinCode
+          ? `Join code ${created.joinCode} — share it with your squad.`
+          : 'Invite your squad to join.',
+      });
       setForm({ name: '', tag: '', type: 'SQUAD' });
-      void created;
       load();
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) return setAnon(true);
-      setMsg({
-        ok: false,
-        text: err instanceof ApiClientError ? (err.message ?? 'Could not create team.') : 'Could not create team.',
-      });
+      const text = err instanceof ApiClientError ? (err.message ?? 'Could not create team.') : 'Could not create team.';
+      setMsg({ ok: false, text });
+      toast({ tone: 'error', title: 'Could not create team', description: text });
     } finally {
       setBusy(false);
     }
@@ -89,14 +102,14 @@ export default function TeamsPage() {
     try {
       const out = await api<{ name: string; tag: string }>('/teams/join', { method: 'POST', body: { code: joinCode.trim() } });
       setMsg({ ok: true, text: `Joined ${out.name} [${out.tag}] — welcome to the team!` });
+      toast({ tone: 'success', title: 'Joined the team', description: `${out.name} [${out.tag}] — welcome!` });
       setJoinCode('');
       load();
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 401) return setAnon(true);
-      setMsg({
-        ok: false,
-        text: err instanceof ApiClientError ? (err.message ?? 'Could not join that team.') : 'Could not join that team.',
-      });
+      const text = err instanceof ApiClientError ? (err.message ?? 'Could not join that team.') : 'Could not join that team.';
+      setMsg({ ok: false, text });
+      toast({ tone: 'error', title: 'Could not join', description: text });
     } finally {
       setBusy(false);
     }
@@ -163,6 +176,11 @@ export default function TeamsPage() {
                     ? <><Shield size={13} className="text-reward" /> <span className="text-reward">Captain</span></>
                     : <><Users size={13} className="text-fg-3" /> <span className="text-fg-3">Member — captain: {team.captain.username}</span></>}
                 </p>
+                {role === 'CAPTAIN' && team.joinCode && (
+                  <p className="mt-3 inline-flex items-center gap-1.5 rounded-input border border-accent/30 bg-accent/10 px-3 py-1.5 font-mono text-xs font-bold tracking-wide text-accent">
+                    <Copy size={12} /> {team.joinCode}
+                  </p>
+                )}
               </Link>
             ))}
           </div>
