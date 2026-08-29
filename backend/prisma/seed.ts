@@ -172,6 +172,7 @@ async function main() {
     ['tournament.defaultRefundPercent', 100, 'Refund percentage when a tournament is cancelled'],
     ['tournament.registrationCutoffMinutes', 30, 'Registration closes N minutes before start'],
     ['tournament.roomCredentialsReleaseMinutesBeforeStart', 30, 'Room ID/password unlock window'],
+    ['tournament.allowIndependentDuo', false, 'Allow players to register DUO without a team and get paired later by admin'],
     ['referral.firstDepositReward', 50, 'Referrer bonus (PKR) when a referred player\u2019s first approved deposit qualifies'],
     ['referral.minFirstDeposit', 100, 'Minimum approved deposit (PKR) that qualifies the referrer bonus'],
     ['tournament.startReminderMinutes', 5, 'Minutes before match start to send the reminder notification'],

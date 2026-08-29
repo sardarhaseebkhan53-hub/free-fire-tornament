@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowDownLeft, ArrowUpRight, Loader2, Search } from 'lucide-react';
-import { api, getToken } from '@/lib/client-api';
+import { api, authedFetch } from '@/lib/client-api';
 import { CopyChip, StatusPill, TypeChip } from '@/components/wallet/bits';
 import { useHasSession } from '@/lib/session';
 
@@ -88,10 +88,11 @@ export default function TransactionsPage() {
     if (search.trim()) qs.set('search', search.trim());
     if (from) qs.set('from', from);
     if (to) qs.set('to', `${to}T23:59:59`);
-    fetch(`/api/backend/wallet/transactions?${qs.toString()}`, {
-      headers: { authorization: `Bearer ${getToken() ?? ''}` },
-    })
-      .then((r) => r.blob())
+    authedFetch(`/wallet/transactions?${qs.toString()}`)
+      .then((r) => {
+        if (!r.ok) throw new Error('Export failed — try again.');
+        return r.blob();
+      })
       .then((blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -99,7 +100,8 @@ export default function TransactionsPage() {
         a.download = 'clutchnex-transactions.csv';
         a.click();
         URL.revokeObjectURL(url);
-      });
+      })
+      .catch((e) => alert(e instanceof Error ? e.message : 'Export failed — try again.'));
   }
 
   if (anon) {

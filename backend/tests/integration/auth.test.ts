@@ -176,3 +176,60 @@ describe('password changes', () => {
     expect(audits).toBe(1);
   });
 });
+
+describe('profile editing (spec §20)', () => {
+  it('creates a profile on first update, persists values and audits PROFILE_UPDATED', async () => {
+    const u = await makeUser();
+    created.push(u.id);
+
+    const out = await auth.updateProfile(u.id, {
+      fullName: 'Ali Khan',
+      freeFireUID: '1122334455',
+      freeFireIGN: 'ClutchKing',
+      city: 'Karachi',
+      bio: 'Solo grinder',
+      showPublicProfile: true,
+    });
+
+    expect(out.profile?.freeFireUID).toBe('1122334455');
+    expect(out.profile?.freeFireIGN).toBe('ClutchKing');
+
+    const profile = await db.userProfile.findUniqueOrThrow({ where: { userId: u.id } });
+    expect(profile.fullName).toBe('Ali Khan');
+    expect(profile.city).toBe('Karachi');
+    expect(profile.showPublicProfile).toBe(true);
+
+    const audits = await db.auditLog.count({ where: { actorId: u.id, action: 'PROFILE_UPDATED', entity: 'UserProfile' } });
+    expect(audits).toBe(1);
+  });
+
+  it('rejects a Free Fire UID already linked to another account', async () => {
+    const a = await makeUser({ prefix: 'pf-a' });
+    const b = await makeUser({ prefix: 'pf-b' });
+    created.push(a.id, b.id);
+
+    await auth.updateProfile(a.id, { freeFireUID: '5566778899', freeFireIGN: 'Alpha' });
+    await rejectsWithCode(
+      () => auth.updateProfile(b.id, { freeFireUID: '5566778899', freeFireIGN: 'Beta' }),
+      'FF_UID_TAKEN',
+    );
+    // The losing account's identity is untouched.
+    const bProfile = await db.userProfile.findUniqueOrThrow({ where: { userId: b.id } });
+    expect(bProfile.freeFireUID).not.toBe('5566778899');
+  });
+
+  it('allows clearing the UID and re-using it elsewhere', async () => {
+    const a = await makeUser({ prefix: 'pf-c' });
+    const b = await makeUser({ prefix: 'pf-d' });
+    created.push(a.id, b.id);
+
+    await auth.updateProfile(a.id, { freeFireUID: '6677889900', freeFireIGN: 'One' });
+    await auth.updateProfile(a.id, { freeFireUID: null });
+    await auth.updateProfile(b.id, { freeFireUID: '6677889900', freeFireIGN: 'Two' }); // must not collide now
+
+    const aProfile = await db.userProfile.findUniqueOrThrow({ where: { userId: a.id } });
+    expect(aProfile.freeFireUID).toBeNull();
+    const bProfile = await db.userProfile.findUniqueOrThrow({ where: { userId: b.id } });
+    expect(bProfile.freeFireUID).toBe('6677889900');
+  });
+});

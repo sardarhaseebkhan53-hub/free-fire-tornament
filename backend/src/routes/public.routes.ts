@@ -100,3 +100,9 @@ publicRouter.get('/seo/:pageSlug', async (req, res) => {
   const slug = String(req.params.pageSlug).slice(0, 120);
   return ok(res, await svc.getSeoConfig(slug));
 });
+
+// Admin-managed ad placements (rendered by the site)
+publicRouter.get('/ads/:placement', async (req, res) => {
+  const placement = String(req.params.placement).slice(0, 24);
+  return ok(res, await svc.activeAds(placement));
+});

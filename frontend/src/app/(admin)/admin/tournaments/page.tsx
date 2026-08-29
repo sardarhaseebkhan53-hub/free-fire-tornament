@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Loader2, Plus } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
-import { api } from '@/lib/client-api';
+import { api , apiGet } from '@/lib/client-api';
 
 interface Row {
   id: string; title: string; slug: string; type: string; status: string;
@@ -29,9 +29,8 @@ export default function AdminTournamentsPage() {
     setBusy(id);
     try {
       await api(`/admin/tournaments/${id}/status`, { method: 'POST', body: { status } });
-      const fresh = await fetch(`/api/backend/admin/tournaments?page=${page}&pageSize=15`,
-        { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json());
-      if (fresh.success) setData(fresh.data);
+      const fresh = await apiGet<Page>(`/api/backend/admin/tournaments?page=${page}&pageSize=15`);
+      if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Status change failed');
     } finally {

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { AuthedImage, Pill, useAdminList } from '@/components/admin/kit';
-import { api } from '@/lib/client-api';
+import { api , apiGet } from '@/lib/client-api';
 
 interface Ticket {
   id: string; category: string; subject: string; priority: string; status: string;
@@ -29,10 +29,10 @@ export default function AdminSupportPage() {
     try {
       await api(`/admin/tickets/${selected.id}/reply`, { method: 'POST', body: { body: reply.trim(), close } });
       setReply('');
-      const fresh = await fetch(`/api/backend/admin/tickets?status=${tab}&pageSize=25`, { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json());
-      if (fresh.success) {
-        setData(fresh.data);
-        const again = (fresh.data.items as Ticket[]).find((t) => t.id === selected.id);
+      const fresh = await apiGet<Page>(`/admin/tickets?status=${tab}&pageSize=25`);
+      if (fresh) {
+        setData(fresh);
+        const again = (fresh.items as Ticket[]).find((t) => t.id === selected.id);
         setSelected(again ?? null);
       }
     } catch (e) {

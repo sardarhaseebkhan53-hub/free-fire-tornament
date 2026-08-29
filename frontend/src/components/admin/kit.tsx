@@ -3,6 +3,7 @@
 // SVG, no chart dependency), modal and small helpers. Design language of 26-40.
 import { useEffect, useMemo, useState } from 'react';
 import { deferLoad } from '@/lib/session';
+import { api } from '@/lib/client-api';
 
 export function Kpi({
   label, value, sub, tone = 'accent', icon,
@@ -343,9 +344,10 @@ export function useAdminList<T>(path: string, deps: unknown[] = []) {
   useEffect(() => {
     deferLoad(() => {
       setLoading(true);
-      return fetch(`/api/backend${path}`, { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } })
-        .then((r) => r.json())
-        .then((j) => setData(j.success ? j.data : null))
+      // Shared API client → a stale access token is transparently refreshed
+      // instead of surfacing a raw 401 (the old admin 401 bug).
+      return api<T>(path)
+        .then((d) => setData(d))
         .catch(() => setData(null))
         .finally(() => setLoading(false));
     });

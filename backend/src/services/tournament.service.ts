@@ -75,9 +75,25 @@ export interface JoinInput {
   tournamentSlug: string;
   teamId?: string;
   couponCode?: string;
+  /** Required for SOLO (and independent DUO) — verified at join, synced to the profile. */
+  freeFireUID?: string;
+  freeFireIGN?: string;
 }
 
 export interface ActorCtx { ip?: string; userAgent?: string }
+
+/** Profile completeness for tournament play: UID (digits) + IGN (2-24 chars). */
+function validateFFIdentity(uidRaw?: string, ignRaw?: string): { uid: string; ign: string } {
+  const uid = (uidRaw ?? '').trim();
+  const ign = (ignRaw ?? '').trim();
+  if (!/^\d{5,15}$/.test(uid)) {
+    throw badRequest('VALIDATION_ERROR', 'A valid Free Fire UID (5-15 digits) is required to join. Update it in your profile.');
+  }
+  if (ign.length < 2 || ign.length > 24) {
+    throw badRequest('VALIDATION_ERROR', 'Your Free Fire nickname (2-24 characters) is required to join.');
+  }
+  return { uid, ign };
+}
 
 export async function joinTournament(userId: string, input: JoinInput, actorIp?: string, actorUa?: string) {
   const actor: ActorCtx = { ip: actorIp, userAgent: actorUa };
@@ -98,12 +114,43 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
   // Resolve settings BEFORE opening the transaction: reading them inside would
   // use the global client and deadlock the single-writer embedded database.
   const currency = await getSetting('platform.currency', 'PKR');
+  const allowIndependentDuo = await getSetting('tournament.allowIndependentDuo', false);
+
+  // --- identity requirement -------------------------------------------------
+  // SOLO: the joining player must confirm UID + nickname at join time.
+  // DUO/SQUAD: every team member needs a saved UID + nickname (profile).
+  // Independent DUO (admin opt-in): same as SOLO — no team required.
+  const isTeamJoin = teamSize > 1 && !!input.teamId;
+  const isIndependentDuo = t.type === 'DUO' && !input.teamId && allowIndependentDuo === true && teamSize === 2;
+  if (teamSize === 1 || isIndependentDuo) {
+    // Join-time identity confirmation: values sent by the client win, but the
+    // saved profile is the fallback, so a player who already saved their UID/
+    // nickname can still join without retyping it (the UI prefills both).
+    const saved = await prisma.userProfile.findUnique({
+      where: { userId },
+      select: { freeFireUID: true, freeFireIGN: true },
+    });
+    const identity = validateFFIdentity(input.freeFireUID ?? saved?.freeFireUID ?? undefined, input.freeFireIGN ?? saved?.freeFireIGN ?? undefined);
+    try {
+      await prisma.userProfile.upsert({
+        where: { userId },
+        create: { userId, fullName: user.username, freeFireUID: identity.uid, freeFireIGN: identity.ign },
+        update: { freeFireUID: identity.uid, freeFireIGN: identity.ign },
+      });
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === 'P2002') {
+        throw badRequest('VALIDATION_ERROR', 'This Free Fire UID is already linked to another CLUTCHNEX account.');
+      }
+      throw e;
+    }
+  }
 
   // Resolve who is paying: solo = the player; team modes = every member pays
   // their own share (the captain triggers the join on behalf of the team).
   let payerIds: string[] = [userId];
-  if (teamSize > 1) {
-    if (!input.teamId) throw badRequest('VALIDATION_ERROR', 'This mode requires a team.');
+  let flowTeamSize = teamSize;
+  if (isTeamJoin) {
     const team = await prisma.team.findUnique({
       where: { id: input.teamId },
       include: { members: { select: { userId: true } } },
@@ -117,11 +164,24 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
     if (team.members.length !== teamSize) {
       throw badRequest('VALIDATION_ERROR', `Team must have exactly ${teamSize} members.`);
     }
+    // Every member must have their Free Fire identity saved.
+    const profiles = await prisma.userProfile.findMany({
+      where: { userId: { in: team.members.map((m) => m.userId) } },
+      select: { userId: true, freeFireUID: true, freeFireIGN: true },
+    });
+    for (const p of profiles) {
+      if (!p.freeFireUID || !p.freeFireIGN) {
+        const member = team.members.find((m) => m.userId === p.userId);
+        throw badRequest('VALIDATION_ERROR', `${member ? member.userId.slice(0, 6) : 'A team member'} must set their Free Fire UID and nickname in Profile before the team can register.`);
+      }
+    }
     payerIds = team.members.map((m) => m.userId);
+  } else if (isIndependentDuo) {
+    flowTeamSize = 1; // paid + seated independently; admin pairs later
   }
 
   try {
-    return await runJoin(userId, input, t, feePerPlayer, currency, payerIds, teamSize, actor);
+    return await runJoin(userId, input, t, feePerPlayer, currency, payerIds, flowTeamSize, actor, isIndependentDuo);
   } catch (e) {
     // Rejections roll their transaction back, so the trail has to be written
     // outside it — this is what makes abuse patterns visible afterwards.
@@ -153,6 +213,7 @@ async function runJoin(
   payerIds: string[],
   teamSize: number,
   actor: ActorCtx,
+  independentDuo = false,
 ) {
   const actorIp = actor.ip;
   return prisma.$transaction(async (tx) => {
@@ -169,10 +230,12 @@ async function runJoin(
     }
 
     // 2. Atomic slot guard + seat assignment — a single conditional UPDATE.
-    // `UPDATE ... RETURNING` is serialized by the row lock, so every
-    // successful join receives the exact next seat number; two concurrent
-    // joins can never observe the same value. Seat = the slot number the
-    // player/team now occupies (1..maxSlots).
+    // `UPDATE ... RETURNING` is serialized by the row lock (held for the rest
+    // of the transaction), so every successful join receives the exact next
+    // seat number; two concurrent joins can never observe the same value.
+    // Admin-controlled seats (manual assigns, locks) are respected: the
+    // smallest free seat 1..maxSlots is chosen, so the board always stays
+    // collision-free even when an admin moved players around.
     const seatRows = await tx.$queryRaw<Array<{ registeredSlots: number }>>`
       UPDATE "tournaments"
       SET "registeredSlots" = "registeredSlots" + 1
@@ -190,7 +253,24 @@ async function runJoin(
       }
       throw badRequest('TOURNAMENT_CLOSED', 'Registration just closed.');
     }
-    const seatNumber = seatRows[0]!.registeredSlots;
+    // Row lock is held from the UPDATE above → safe to scan seats here.
+    const occupied = await tx.tournamentRegistration.findMany({
+      where: { tournamentId: t.id, status: 'CONFIRMED', seatNumber: { not: null } },
+      select: { seatNumber: true, slotLocked: true },
+    });
+    const taken = new Set<number>();
+    const lockedSeats = new Set<number>();
+    for (const o of occupied) {
+      if (o.seatNumber !== null) taken.add(o.seatNumber);
+      if (o.slotLocked && o.seatNumber !== null) lockedSeats.add(o.seatNumber);
+    }
+    let seatNumber: number | null = null;
+    for (let s = 1; s <= t.maxSlots; s++) {
+      if (!taken.has(s)) { seatNumber = s; break; }
+    }
+    if (seatNumber === null) {
+      throw badRequest('TOURNAMENT_FULL', 'This tournament is full.');
+    }
 
     // 3. Coupon (applies to the joining player's share)
     let discount = 0;
@@ -255,7 +335,7 @@ async function runJoin(
       const reg = await tx.tournamentRegistration.create({
         data: {
           tournamentId: t.id, userId: pid,
-          teamId: teamSize > 1 ? input.teamId : undefined,
+          teamId: teamSize > 1 && input.teamId ? input.teamId : undefined,
           entryAmount: new Prisma.Decimal(payable),
           discount: new Prisma.Decimal(isJoiner ? discount : 0),
           couponId: isJoiner ? couponId : undefined,

@@ -53,3 +53,13 @@ export const changePasswordSchema = z.object({
   message: 'Passwords do not match',
   path: ['confirmPassword'],
 });
+
+/** Profile edit (spec §20) — server validates FF identity, never trusts the client. */
+export const updateProfileSchema = z.object({
+  fullName: z.string().trim().min(2).max(60).optional(),
+  freeFireUID: z.string().trim().regex(/^\d{5,15}$/, 'UID must be 5–15 digits').optional().nullable(),
+  freeFireIGN: z.string().trim().min(2).max(24).optional().nullable(),
+  city: z.string().trim().max(60).optional().nullable(),
+  bio: z.string().trim().max(240).optional().nullable(),
+  showPublicProfile: z.boolean().optional(),
+});

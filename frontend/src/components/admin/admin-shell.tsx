@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  ArrowUpRight, BarChart3, CreditCard, FileText, Headphones,
-  Home, LayoutDashboard, Loader2, Megaphone, Search, Send, Settings, Shield, ShieldAlert,
+  ArrowUpRight, BarChart3, ClipboardList, CreditCard, FileText, Headphones,
+  Home, LayoutDashboard, LayoutGrid, Loader2, Megaphone, Search, Send, Settings, Shield, ShieldAlert,
   ScrollText, Swords, TrendingUp, Trophy, Upload, UserRound, Users, Wallet, XCircle,
 } from 'lucide-react';
 import { api } from '@/lib/client-api';

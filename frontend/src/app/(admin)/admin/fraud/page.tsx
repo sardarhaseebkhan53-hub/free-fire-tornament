@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { AlertTriangle, Loader2, ShieldCheck } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Kpi, Modal, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
-import { api } from '@/lib/client-api';
+import { api, apiGet } from '@/lib/client-api';
 
 interface Row {
   id: string;
@@ -66,10 +66,8 @@ export default function AdminFraudPage() {
       await api(`/admin/fraud/${open.id}/review`, { method: 'POST', body: { action, note } });
       setOpen(null);
       setNote('');
-      const fresh = await fetch(`/api/backend/admin/fraud?status=${tab}&page=${page}&pageSize=15`, {
-        headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` },
-      }).then((r) => r.json());
-      if (fresh.success) setData(fresh.data);
+      const fresh = await apiGet<Page>(`/admin/fraud?status=${tab}&page=${page}&pageSize=15`);
+      if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Review failed');
     } finally {

@@ -6,7 +6,7 @@ import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Modal, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
 import { MethodBrand, type Method } from '@/components/wallet/bits';
-import { api } from '@/lib/client-api';
+import { api , apiGet } from '@/lib/client-api';
 
 interface Row {
   id: string; method: Method; label: string; accountName: string; accountNumber: string;
@@ -21,8 +21,8 @@ export default function AdminPaymentAccountsPage() {
   const [editing, setEditing] = useState<Row | 'new' | null>(null);
 
   async function refresh() {
-    const f = await fetch('/api/backend/admin/payment-accounts', { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json());
-    if (f.success) setData(f.data);
+    const f = await apiGet<Row[]>(`/api/backend/admin/payment-accounts`);
+    if (f) setData(f);
   }
 
   async function toggle(row: Row) {

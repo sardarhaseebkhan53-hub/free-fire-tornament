@@ -1,14 +1,21 @@
 // =============================================================================
 // Phase 8 — Results & prize distribution.
 //
-// Flow: players submit result screenshots for completed matches → staff verify
-// (approve / reject / disqualify) → points = placement table + kills × rate →
-// winner ranking → IDEMPOTENT prize distribution (placement + capped kill pool
-// + MVP) crediting WINNING balances through the immutable ledger.
+// Admin-driven results workflow (added this session):
+//   Admin enters results per participant (position, kills, bonus, penalty,
+//   prize, ready/absent/DQ, notes, evidence) → Save Draft → Confirm Results →
+//   Calculate standings → Publish Results → Winners become public.
 //
-// Every step is audited and notified; the database is the source of truth and
-// the (tournamentId, position) unique constraint on Winner is the
-// double-distribution defense.
+// Player self-verification path is preserved: players submit screenshots for
+// completed matches → staff verify → points use the PER-TOURNAMENT placement
+// table → winner ranking → IDEMPOTENT prize distribution crediting WINNING
+// balances through the immutable ledger.
+//
+// Scoring is NEVER hard-coded: Final Score = placement table (Tournament
+// .placementPoints or platform default) + kills × pointsPerKill + bonus − penalty.
+// Every published step is audited; the database is the source of truth and the
+// (tournamentId, position) unique constraint on Winner is the double-distribution
+// defense. Financial records are never silently changed by leaderboard edits.
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
 import { prisma } from '../lib/prisma';
@@ -16,18 +23,27 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { moveBalance, TX_OPTS } from './wallet.service';
 import { fireIdenticalResultClaims } from './fraud.service';
+import {
+  DEFAULT_PLACEMENT_POINTS, finalScoreFor, normalizePlacementTable,
+  placementPointsFor, pointsFor as pointsForScoring, rankByScore,
+} from '../lib/scoring';
 
 const num = (d: unknown) => Math.round(Number(d ?? 0) * 100) / 100;
 
-/** Spec §placement table — consistent with the seed and leaderboard. */
-export const PLACEMENT_POINTS = [12, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+/** Compatibility export (legacy verification path + unit tests). */
+export const PLACEMENT_POINTS = DEFAULT_PLACEMENT_POINTS;
 
 const KILL_POOL_BASE_POSITION = 100; // Winner.position namespace for kill pools
 const MVP_POSITION = 200;
 
-export function pointsFor(placement: number, kills: number, perKill: number): number {
-  const base = placement >= 1 && placement <= PLACEMENT_POINTS.length ? PLACEMENT_POINTS[placement - 1]! : 0;
-  return base + kills * perKill;
+/** Placement table for a tournament row (per-tournament, default fallback). */
+export function tableFor(tournament: { placementPoints?: unknown }): number[] {
+  return normalizePlacementTable(tournament.placementPoints);
+}
+
+/** Legacy signature kept for the verification-review path (uses tournament table). */
+export function pointsFor(placement: number, kills: number, perKill: number, table?: number[]): number {
+  return pointsForScoring(placement, kills, perKill, table);
 }
 
 interface Ctx { ip?: string; userAgent?: string }
@@ -155,7 +171,7 @@ export async function reviewResult(
 
     const match = await tx.match.findUnique({
       where: { id: sub.matchId },
-      select: { id: true, tournamentId: true, tournament: { select: { pointsPerKill: true, title: true } } },
+      select: { id: true, tournamentId: true, tournament: { select: { pointsPerKill: true, placementPoints: true, title: true } } },
     });
     if (!match) throw notFound('Match not found');
 
@@ -177,7 +193,8 @@ export async function reviewResult(
       // Revert stats if a previous approval had applied them (correction path).
       if (participant.status === 'PLAYED' && participant.placement !== null) {
         const perKill = match.tournament.pointsPerKill;
-        const oldPoints = pointsFor(participant.placement, participant.kills ?? 0, perKill);
+        const table = tableFor(match.tournament);
+        const oldPoints = pointsFor(participant.placement, participant.kills ?? 0, perKill, table);
         const soloUserId = participant.userId ?? null;
         if (soloUserId) {
           await bumpStats(tx, soloUserId, {
@@ -226,11 +243,12 @@ export async function reviewResult(
     const placement = Math.max(1, opts.placement ?? sub.placement ?? 1);
     const kills = Math.max(0, opts.kills ?? sub.kills ?? 0);
     const perKill = match.tournament.pointsPerKill;
-    const points = pointsFor(placement, kills, perKill);
+    const table = tableFor(match.tournament);
+    const points = pointsFor(placement, kills, perKill, table);
 
     // Compensate stats if this participant was already PLAYED (correction).
     if (participant.status === 'PLAYED' && participant.placement !== null) {
-      const oldPoints = pointsFor(participant.placement, participant.kills ?? 0, perKill);
+      const oldPoints = pointsFor(participant.placement, participant.kills ?? 0, perKill, table);
       if (participant.userId) {
         await bumpStats(tx, participant.userId, {
           kills: kills - (participant.kills ?? 0),
@@ -256,7 +274,7 @@ export async function reviewResult(
 
     await tx.matchParticipant.update({
       where: { id: participant.id },
-      data: { status: 'PLAYED', placement, kills, points },
+      data: { status: 'PLAYED', placement, kills, points, finalScore: points },
     });
     const updated = await tx.resultSubmission.update({
       where: { id: submissionId },
@@ -569,4 +587,355 @@ export async function resultScreenshotPath(userId: string, role: string, submiss
   const staff = ['ADMIN', 'SUPER_ADMIN', 'MODERATOR'].includes(role);
   if (sub.submittedById !== userId && !staff) throw forbidden('You can only view your own result screenshots.');
   return sub.screenshot.replace(/^\/uploads\//, '');
+}
+
+// =============================================================================
+// ADMIN RESULT ENTRY + CONTROLLED PUBLISH FLOW (spec §14, §26, §39)
+//
+//   Match.resultsStatus:
+//     DRAFT          → admin saves participant rows freely
+//     UNDER_REVIEW   → rows locked for review
+//     CONFIRMED      → standings frozen, prizes ready to calculate
+//     PUBLISHED      → public results + winners reveal (no more edits)
+//
+// Public endpoints only expose results when PUBLISHED (see public.service).
+// =============================================================================
+
+export interface AdminResultRowInput {
+  participantId: string;
+  position?: number | null;
+  kills?: number | null;
+  bonus?: number | null;
+  penalty?: number | null;
+  prize?: number | null;
+  notes?: string | null;
+  status?: 'REGISTERED' | 'PLAYED' | 'DISQUALIFIED';
+  absent?: boolean;
+  ready?: boolean;
+  evidenceUrl?: string | null;
+}
+
+interface ResultRow {
+  id: string;
+  placement: number | null;
+  kills: number | null;
+  bonus: number | null;
+  penalty: number | null;
+  points: number | null;
+  finalScore: number | null;
+  prizeAmount: Prisma.Decimal | null;
+  notes: string | null;
+  absent: boolean;
+  readyAt: Date | null;
+  evidenceUrl: string | null;
+  status: string;
+  userId: string | null;
+  teamId: string | null;
+}
+
+/** Recompute finalScore for a participant using the tournament formula. */
+function scoreFor(
+  row: { placement: number | null; kills: number | null; bonus: number | null; penalty: number | null },
+  perKill: number,
+  table: number[],
+): number | null {
+  if (row.placement === null || row.placement === undefined) return null;
+  return finalScoreFor({
+    placement: row.placement,
+    kills: row.kills ?? 0,
+    pointsPerKill: perKill,
+    table,
+    bonus: row.bonus ?? 0,
+    penalty: row.penalty ?? 0,
+  });
+}
+
+/** Staff — save one participant's result row (DRAFT/UNDER_REVIEW only; confirmed rows are frozen). */
+export async function saveAdminResult(
+  adminId: string,
+  matchId: string,
+  input: AdminResultRowInput,
+  ctx: Ctx = {},
+) {
+  const match = await prisma.match.findUnique({
+    where: { id: matchId },
+    select: {
+      id: true, resultsStatus: true, status: true,
+      tournament: { select: { pointsPerKill: true, placementPoints: true, title: true } },
+    },
+  });
+  if (!match) throw notFound('Match not found');
+  if (match.resultsStatus === 'PUBLISHED') {
+    throw conflict('CONFLICT', 'Results are published and locked. Unpublish first (if permitted) to edit.');
+  }
+
+  const participant = await prisma.matchParticipant.findUnique({ where: { id: input.participantId } });
+  if (!participant || participant.matchId !== matchId) throw notFound('Participant not found in this match.');
+
+  const table = tableFor(match.tournament);
+  const perKill = match.tournament.pointsPerKill;
+
+  const base = {
+    placement: input.position ?? participant.placement,
+    kills: input.kills ?? participant.kills,
+    bonus: input.bonus ?? participant.bonus,
+    penalty: input.penalty ?? participant.penalty,
+  };
+  const finalScore = scoreFor(base, perKill, table);
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const prev = await tx.matchParticipant.findUnique({ where: { id: participant.id } });
+    const row = await tx.matchParticipant.update({
+      where: { id: participant.id },
+      data: {
+        placement: base.placement,
+        kills: base.kills,
+        bonus: base.bonus,
+        penalty: base.penalty,
+        points: base.placement !== null && base.placement !== undefined
+          ? placementPointsFor(base.placement, table) + (base.kills ?? 0) * perKill
+          : participant.points,
+        finalScore,
+        prizeAmount: input.prize !== undefined && input.prize !== null
+          ? new Prisma.Decimal(input.prize)
+          : participant.prizeAmount,
+        notes: input.notes !== undefined ? input.notes : participant.notes,
+        status: input.status ?? participant.status,
+        absent: input.absent ?? participant.absent,
+        readyAt: input.ready === true ? new Date() : input.ready === false ? null : participant.readyAt,
+        evidenceUrl: input.evidenceUrl !== undefined ? input.evidenceUrl : participant.evidenceUrl,
+      },
+    });
+    // If the participant had verified stats and now changes to a result state,
+    // keep PlayerStat in sync for the player-facing leaderboard.
+    const previous = prev as unknown as ResultRow;
+    const next = row as unknown as ResultRow;
+    await syncStatsForResultChange(tx, previous, next, perKill, table);
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'RESULT_ROW_SAVED', entity: 'MatchParticipant', entityId: participant.id,
+        before: {
+          placement: prev?.placement, kills: prev?.kills, bonus: prev?.bonus, penalty: prev?.penalty,
+          points: prev?.points, finalScore: prev?.finalScore ?? null, prize: prev?.prizeAmount ? num(prev.prizeAmount) : null,
+          status: prev?.status, absent: prev?.absent,
+        },
+        after: {
+          placement: row.placement, kills: row.kills, bonus: row.bonus, penalty: row.penalty,
+          points: row.points, finalScore: row.finalScore ?? null, prize: row.prizeAmount ? num(row.prizeAmount) : null,
+          status: row.status, absent: row.absent,
+        },
+        ip: ctx.ip, userAgent: ctx.userAgent,
+      },
+    });
+    return row;
+  }, TX_OPTS);
+
+  return {
+    id: updated.id,
+    placement: updated.placement,
+    kills: updated.kills,
+    bonus: updated.bonus,
+    penalty: updated.penalty,
+    points: updated.points,
+    finalScore: updated.finalScore,
+    prizeAmount: updated.prizeAmount ? num(updated.prizeAmount) : null,
+    status: updated.status,
+    absent: updated.absent,
+  };
+}
+
+/** Keep PlayerStat consistent when an admin move changes a solo participant's verified results. */
+async function syncStatsForResultChange(
+  tx: Prisma.TransactionClient,
+  prev: ResultRow,
+  next: ResultRow,
+  perKill: number,
+  table: number[],
+) {
+  const targetUserId = next.userId ?? prev.userId;
+  if (!targetUserId) return; // team rows are reconciled per-member via winner distribution
+
+  const prevPlayed = prev.status === 'PLAYED' && prev.placement !== null && prev.placement !== undefined;
+  const nextPlayed = next.status === 'PLAYED' && next.placement !== null && next.placement !== undefined;
+  if (!prevPlayed && !nextPlayed) return;
+
+  const prevScore = prevPlayed
+    ? finalScoreFor({ placement: prev.placement!, kills: prev.kills ?? 0, pointsPerKill: perKill, table, bonus: prev.bonus ?? 0, penalty: prev.penalty ?? 0 })
+    : 0;
+  const nextScore = nextPlayed
+    ? finalScoreFor({ placement: next.placement!, kills: next.kills ?? 0, pointsPerKill: perKill, table, bonus: next.bonus ?? 0, penalty: next.penalty ?? 0 })
+    : 0;
+
+  const existing = await tx.playerStat.findUnique({ where: { userId: targetUserId } });
+  if (!existing) return;
+
+  const patch = {
+    matchesPlayed: { increment: nextPlayed && !prevPlayed ? 1 : !nextPlayed && prevPlayed ? -1 : 0 },
+    kills: { increment: (next.kills ?? 0) - (prev.kills ?? 0) },
+    totalPoints: { increment: nextScore - prevScore },
+    wins: { increment: (nextPlayed && next.placement === 1 ? 1 : 0) - (prevPlayed && prev.placement === 1 ? 1 : 0) },
+  };
+  await tx.playerStat.update({ where: { userId: targetUserId }, data: patch });
+}
+
+/** Staff — set the match results workflow state and audit the transition. */
+export async function setResultsStatus(
+  adminId: string,
+  matchId: string,
+  status: 'UNDER_REVIEW' | 'CONFIRMED' | 'PUBLISHED' | 'DRAFT',
+  ctx: Ctx = {},
+) {
+  const match = await prisma.match.findUnique({
+    where: { id: matchId },
+    select: {
+      id: true, resultsStatus: true, resultsFinalized: true, status: true, tournamentId: true,
+      tournament: { select: { title: true } },
+    },
+  });
+  if (!match) throw notFound('Match not found');
+  if (match.resultsStatus === 'PUBLISHED' && status !== 'PUBLISHED') {
+    throw conflict('CONFLICT', 'Published results cannot be reverted — winners are public and prizes may be credited.');
+  }
+  if (status !== 'DRAFT' && match.status !== 'COMPLETED') {
+    throw badRequest('VALIDATION_ERROR', 'Mark the match COMPLETED before reviewing/publishing results.');
+  }
+  if (status === 'CONFIRMED' || status === 'PUBLISHED') {
+    const rows = await prisma.matchParticipant.count({
+      where: { matchId, placement: { not: null }, status: 'PLAYED' },
+    });
+    if (rows === 0) throw badRequest('VALIDATION_ERROR', 'No scored participants — enter results first.');
+  }
+
+  const updated = await prisma.match.update({
+    where: { id: matchId },
+    data: {
+      resultsStatus: status,
+      resultsPublishedAt: status === 'PUBLISHED' ? new Date() : null,
+      resultsFinalized: status === 'PUBLISHED' ? true : match.resultsFinalized,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      actorId: adminId, action: `MATCH_RESULTS_${status}`, entity: 'Match', entityId: matchId,
+      before: { resultsStatus: match.resultsStatus },
+      after: { resultsStatus: status, publishedAt: updated.resultsPublishedAt },
+      ip: ctx.ip, userAgent: ctx.userAgent,
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      userId: adminId, type: 'ACCOUNT',
+      title: `Results ${status.toLowerCase().replace('_', ' ')}`,
+      body: `Match results for ${match.tournament.title} are now ${status.toLowerCase().replace('_', ' ')}.`,
+      data: { matchId, tournamentId: match.tournamentId },
+    },
+  });
+
+  return { id: matchId, resultsStatus: updated.resultsStatus, resultsPublishedAt: updated.resultsPublishedAt };
+}
+
+/**
+ * Calculate prize amounts per participant from the standings (placement prizes
+ * only) WITHOUT crediting anything. Called on CONFIRM; PUBLISH persists the
+ * computed prize on each row and is the only step that reveals results.
+ */
+export async function confirmStandings(adminId: string, matchId: string, ctx: Ctx = {}) {
+  const match = await prisma.match.findUnique({
+    where: { id: matchId },
+    select: {
+      id: true, tournamentId: true, resultsStatus: true,
+      tournament: { select: { id: true, type: true, title: true, pointsPerKill: true, placementPoints: true } },
+    },
+  });
+  if (!match) throw notFound('Match not found');
+
+  const [rows, prizes] = await Promise.all([
+    prisma.matchParticipant.findMany({ where: { matchId, status: 'PLAYED', absent: false } }),
+    prisma.prize.findMany({ where: { tournamentId: match.tournamentId, OR: [{ kind: null }, { kind: 'PLACEMENT' }] }, orderBy: { position: 'asc' } }),
+  ]);
+
+  const table = tableFor(match.tournament);
+  const perKill = match.tournament.pointsPerKill;
+  const scored = rows.map((r) => {
+    const score = r.finalScore ?? scoreFor({
+      placement: r.placement, kills: r.kills, bonus: r.bonus, penalty: r.penalty,
+    }, perKill, table);
+    return { ...r, score: score ?? 0 };
+  });
+  const ranked = rankByScore(scored.map((r) => ({
+    key: r.id, score: r.score, kills: r.kills ?? 0, placement: r.placement,
+  }))).map((r) => r.key);
+
+  const placementByRank = new Map<string, number>();
+  ranked.forEach((id, idx) => placementByRank.set(id, idx + 1));
+
+  const computed = await prisma.$transaction(async (tx) => {
+    const updates: Array<{ id: string; placement: number; finalScore: number; prizeAmount: number | null }> = [];
+    for (const r of rows) {
+      const rank = placementByRank.get(r.id) ?? 0;
+      const prize = prizes.find((p) => p.position === rank);
+      const amount = prize ? num(prize.amount) : null;
+      const finalScore = scoreFor({
+        placement: r.placement, kills: r.kills, bonus: r.bonus, penalty: r.penalty,
+      }, perKill, table);
+      if (finalScore === null) continue;
+      await tx.matchParticipant.update({
+        where: { id: r.id },
+        data: { placement: r.placement, finalScore, prizeAmount: amount !== null ? new Prisma.Decimal(amount) : null },
+      });
+      updates.push({ id: r.id, placement: r.placement ?? rank, finalScore, prizeAmount: amount });
+    }
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'MATCH_RESULTS_CONFIRMED', entity: 'Match', entityId: matchId,
+        after: { ranked, scored: updates.map((u) => ({ participantId: u.id, finalScore: u.finalScore, prize: u.prizeAmount })) },
+        ip: ctx.ip, userAgent: ctx.userAgent,
+      },
+    });
+    return updates;
+  }, TX_OPTS);
+
+  return { matchId, confirmed: computed.length, rows: computed };
+}
+
+/** Server-side standings for a match — public only when PUBLISHED. */
+export async function matchStandings(matchId: string) {
+  const match = await prisma.match.findUnique({
+    where: { id: matchId },
+    select: { id: true, resultsStatus: true, resultsPublishedAt: true },
+  });
+  if (!match) throw notFound('Match not found');
+
+  const rows = await prisma.matchParticipant.findMany({
+    where: { matchId, status: 'PLAYED', absent: false },
+    select: {
+      id: true, placement: true, kills: true, bonus: true, penalty: true,
+      points: true, finalScore: true, prizeAmount: true, notes: true, status: true,
+      user: { select: { username: true, profile: { select: { freeFireIGN: true } } } },
+      team: { select: { name: true, tag: true } },
+    },
+    orderBy: { finalScore: 'desc' },
+  });
+
+  return {
+    matchId,
+    resultsStatus: match.resultsStatus,
+    published: match.resultsStatus === 'PUBLISHED',
+    rows: rows.map((r, i) => ({
+      id: r.id,
+      rank: i + 1,
+      label: r.team ? `${r.team.name} [${r.team.tag}]` : (r.user?.profile?.freeFireIGN ?? r.user?.username ?? 'Unknown'),
+      placement: r.placement,
+      kills: r.kills,
+      bonus: r.bonus,
+      penalty: r.penalty,
+      points: r.points,
+      finalScore: r.finalScore,
+      prizeAmount: r.prizeAmount ? num(r.prizeAmount) : null,
+      notes: r.notes,
+      status: r.status,
+    })),
+  };
 }

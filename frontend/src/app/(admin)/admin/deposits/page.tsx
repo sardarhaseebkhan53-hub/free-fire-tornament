@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Check, Loader2, X } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { AuthedImage, Modal, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
-import { api } from '@/lib/client-api';
+import { api , apiGet } from '@/lib/client-api';
 
 interface Row {
   id: string; amount: number; method: string; methodLabel: string; transactionId: string;
@@ -33,9 +33,8 @@ export default function AdminDepositsPage() {
     try {
       await api(`/admin/deposits/${review.row.id}/review`, { method: 'POST', body: { action, note } });
       setReview(null);
-      const fresh = await fetch(`/api/backend/admin/deposits?status=${tab}&page=${page}&pageSize=15`,
-        { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json());
-      if (fresh.success) setData(fresh.data);
+      const fresh = await apiGet<Page>(`/api/backend/admin/deposits?status=${tab}&page=${page}&pageSize=15`);
+      if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Review failed');
     }

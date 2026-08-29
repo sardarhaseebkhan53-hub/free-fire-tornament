@@ -3,10 +3,10 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { ok } from '../lib/respond';
 import {
-  createTeam, inviteMember, leaveTeam, myInvites, myTeams, removeMember,
-  respondInvite, teamDetails, transferCaptaincy, updateTeam,
+  createTeam, inviteMember, joinByCode, leaveTeam, myInvites, myTeams,
+  removeMember, respondInvite, teamDetails, teamJoinCode, transferCaptaincy, updateTeam,
 } from '../services/team.service';
-import { createTeamSchema, idBodySchema, inviteSchema, updateTeamSchema } from '../validation/team.schema';
+import { createTeamSchema, idBodySchema, inviteSchema, joinTeamByCodeSchema, updateTeamSchema } from '../validation/team.schema';
 
 export const teamRouter = Router();
 teamRouter.use(requireAuth);
@@ -23,6 +23,18 @@ teamRouter.get('/my', async (req, res) => {
 
 teamRouter.get('/invites/my', async (req, res) => {
   return ok(res, await myInvites(req.auth!.id));
+});
+
+// Shareable join code (captain) + join by code (player) — spec §8
+teamRouter.post('/join', async (req, res) => {
+  const { code } = joinTeamByCodeSchema.parse(req.body);
+  const out = await joinByCode(req.auth!.id, code);
+  return ok(res, out, `Joined ${out.name} [${out.tag}]`, 201);
+});
+
+teamRouter.get('/:teamId/join-code', async (req, res) => {
+  const rotate = req.query.rotate === '1';
+  return ok(res, await teamJoinCode(req.auth!.id, String(req.params.teamId), rotate));
 });
 
 teamRouter.post('/invites/:inviteId/accept', async (req, res) => {

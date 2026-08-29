@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import { prisma } from '../lib/prisma';
 import { badRequest, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
+import { normalizePlacementTable } from '../lib/scoring';
 
 function randomRoomId(): string {
   return String(crypto.randomInt(1_000_000, 9_999_999));
@@ -26,32 +27,55 @@ export interface CreateMatchInput {
   scheduledAt: string; // ISO
   roomId?: string;
   roomPassword?: string;
+  notes?: string;
   /** Minutes before start when credentials unlock (default from settings). */
   releaseMinutesBeforeStart?: number;
 }
 
 /** Admin/moderator — create a match and sync participants from registrations. */
-export async function createMatch(input: CreateMatchInput) {
+export async function createMatch(input: CreateMatchInput, adminId?: string, ctx: { ip?: string; userAgent?: string } = {}) {
   const tournament = await prisma.tournament.findUnique({ where: { id: input.tournamentId } });
   if (!tournament) throw notFound('Tournament not found');
 
   const scheduledAt = new Date(input.scheduledAt);
   if (Number.isNaN(scheduledAt.getTime())) throw badRequest('VALIDATION_ERROR', 'Invalid schedule time');
 
+  const existing = await prisma.match.findUnique({
+    where: { tournamentId_matchNumber: { tournamentId: input.tournamentId, matchNumber: input.matchNumber } },
+  });
+  if (existing) throw badRequest('VALIDATION_ERROR', `Match #${input.matchNumber} already exists for this tournament.`);
+
   const defaultReleaseMin = await getSetting('tournament.roomCredentialsReleaseMinutesBeforeStart', 30);
   const releaseMin = input.releaseMinutesBeforeStart ?? defaultReleaseMin;
 
-  const match = await prisma.match.create({
-    data: {
-      tournamentId: tournament.id,
-      matchNumber: input.matchNumber,
-      round: input.round ?? 1,
-      map: input.map ?? tournament.map,
-      scheduledAt,
-      roomId: input.roomId ?? randomRoomId(),
-      roomPassword: input.roomPassword ?? randomRoomPassword(),
-      credentialsReleaseAt: new Date(scheduledAt.getTime() - releaseMin * 60_000),
-    },
+  const match = await prisma.$transaction(async (tx) => {
+    const row = await tx.match.create({
+      data: {
+        tournamentId: tournament.id,
+        matchNumber: input.matchNumber,
+        round: input.round ?? 1,
+        map: input.map ?? tournament.map,
+        scheduledAt,
+        roomId: input.roomId ?? randomRoomId(),
+        roomPassword: input.roomPassword ?? randomRoomPassword(),
+        credentialsReleaseAt: new Date(scheduledAt.getTime() - releaseMin * 60_000),
+        notes: input.notes ?? null,
+      },
+    });
+    if (adminId) {
+      await tx.auditLog.create({
+        data: {
+          actorId: adminId, action: 'MATCH_CREATED', entity: 'Match', entityId: row.id,
+          after: {
+            tournamentId: tournament.id, matchNumber: row.matchNumber, round: row.round,
+            map: row.map, scheduledAt: row.scheduledAt,
+            roomId: row.roomId, releaseMinutesBeforeStart: releaseMin,
+          },
+          ip: ctx.ip, userAgent: ctx.userAgent,
+        },
+      });
+    }
+    return row;
   });
 
   await syncParticipants(match.id);
@@ -92,6 +116,185 @@ export async function syncParticipants(matchId: string) {
 // ---------------------------------------------------------------------------
 // MY MATCHES — the ONLY place room credentials are served.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// ADMIN MATCH TABLE — full room-style roster for one match (spec §11, §38).
+// ---------------------------------------------------------------------------
+export interface MatchTableRow {
+  participantId: string;
+  slot: number | null;
+  playerOrTeam: string;
+  ign: string | null;
+  uid: string | null;
+  username: string | null;
+  team: string | null;
+  registrationId: string | null;
+  registeredAt: Date | null;
+  entryAmount: number | null;
+  payment: string;
+  ready: boolean;
+  absent: boolean;
+  status: string;
+  placement: number | null;
+  kills: number | null;
+  bonus: number | null;
+  penalty: number | null;
+  points: number | null;
+  finalScore: number | null;
+  prize: number | null;
+  slotLocked: boolean;
+  notes: string | null;
+  evidenceUrl: string | null;
+  userId: string | null;
+  teamId: string | null;
+}
+
+export async function matchTable(matchId: string) {
+  const match = await prisma.match.findUnique({
+    where: { id: matchId },
+    select: {
+      id: true, matchNumber: true, round: true, map: true, scheduledAt: true,
+      status: true, resultsStatus: true, resultsFinalized: true, notes: true,
+      roomId: true, roomPassword: true, credentialsReleaseAt: true,
+      tournament: {
+        select: {
+          id: true, title: true, slug: true, type: true, maxSlots: true,
+          pointsPerKill: true, placementPoints: true,
+        },
+      },
+    },
+  });
+  if (!match) throw notFound('Match not found');
+
+  const participants = await prisma.matchParticipant.findMany({
+    where: { matchId },
+    orderBy: { createdAt: 'asc' },
+    include: {
+      user: { select: { id: true, username: true, profile: { select: { freeFireUID: true, freeFireIGN: true } } } },
+      team: { select: { id: true, name: true, tag: true, type: true } },
+    },
+  });
+
+  const t = match.tournament;
+
+  // Resolve registrations in ONE query so admin sees reg id, seat, payment.
+  const regs = await prisma.tournamentRegistration.findMany({
+    where: {
+      tournamentId: t.id,
+      status: { in: ['CONFIRMED', 'REFUNDED', 'DISQUALIFIED', 'CANCELLED'] },
+    },
+    select: { id: true, userId: true, teamId: true, seatNumber: true, status: true, entryAmount: true, registeredAt: true, slotLocked: true },
+  });
+  const regByUserId = new Map<string, (typeof regs)[number]>();
+  const regByTeamId = new Map<string, (typeof regs)[number]>();
+  for (const r of regs) {
+    if (r.teamId && !regByTeamId.has(r.teamId)) regByTeamId.set(r.teamId, r);
+    if (!regByUserId.has(r.userId)) regByUserId.set(r.userId, r);
+  }
+
+  const rows: MatchTableRow[] = participants.map((p) => {
+    const reg = p.teamId ? regByTeamId.get(p.teamId) : p.userId ? regByUserId.get(p.userId) : undefined;
+    const isTeamRow = p.teamId !== null;
+    return {
+      participantId: p.id,
+      slot: reg?.seatNumber ?? null,
+      playerOrTeam: p.team ? `${p.team.name} [${p.team.tag}]` : (p.user?.profile?.freeFireIGN ?? p.user?.username ?? 'Unknown'),
+      ign: p.user?.profile?.freeFireIGN ?? null,
+      uid: isTeamRow ? null : (p.user?.profile?.freeFireUID ?? null),
+      username: p.user?.username ?? null,
+      team: p.team ? p.team.tag : null,
+      registrationId: reg?.id ?? null,
+      registeredAt: reg?.registeredAt ?? null,
+      entryAmount: reg ? num(reg.entryAmount) : null,
+      payment: reg && reg.status === 'CONFIRMED' ? 'PAID' : reg ? reg.status : '—',
+      ready: p.readyAt !== null,
+      absent: p.absent,
+      status: p.status,
+      placement: p.placement,
+      kills: p.kills,
+      bonus: p.bonus,
+      penalty: p.penalty,
+      points: p.points,
+      finalScore: p.finalScore,
+      prize: p.prizeAmount !== null ? num(p.prizeAmount) : null,
+      slotLocked: reg?.slotLocked ?? false,
+      notes: p.notes,
+      evidenceUrl: p.evidenceUrl,
+      userId: p.userId,
+      teamId: p.teamId,
+    };
+  });
+
+  // Seat-aware sort: empty slot fill from registrations that have no participant
+  // row (e.g. joined after the match was scheduled) is handled by sync; here we
+  // sort filled slots first so the table reads like the room board.
+  rows.sort((a, b) => (a.slot ?? 99999) - (b.slot ?? 99999));
+
+  const totalSeats = t.maxSlots;
+  return {
+    match: {
+      id: match.id,
+      matchNumber: match.matchNumber,
+      round: match.round,
+      map: match.map,
+      scheduledAt: match.scheduledAt,
+      status: match.status,
+      resultsStatus: match.resultsStatus,
+      resultsFinalized: match.resultsFinalized,
+      notes: match.notes,
+      roomId: match.roomId,
+      roomPassword: match.roomPassword,
+      credentialsReleaseAt: match.credentialsReleaseAt,
+      tournament: { id: t.id, title: t.title, slug: t.slug, type: t.type, maxSlots: t.maxSlots },
+    },
+    scoring: { pointsPerKill: t.pointsPerKill, placementTable: normalizePlacementTable(t.placementPoints) },
+    rows,
+    totalSeats,
+    filled: rows.length,
+  };
+}
+
+const num = (d: unknown) => Math.round(Number(d ?? 0) * 100) / 100;
+
+/** Admin — update match operational fields (notes, room, schedule, status). */
+export async function updateMatch(
+  adminId: string,
+  matchId: string,
+  input: { notes?: string | null; roomId?: string | null; roomPassword?: string | null; scheduledAt?: string | null; map?: string | null },
+  ctx: { ip?: string; userAgent?: string },
+) {
+  const match = await prisma.match.findUnique({ where: { id: matchId } });
+  if (!match) throw notFound('Match not found');
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.match.update({
+      where: { id: matchId },
+      data: {
+        ...(input.notes !== undefined ? { notes: input.notes || null } : {}),
+        ...(input.roomId !== undefined ? { roomId: input.roomId || null } : {}),
+        ...(input.roomPassword !== undefined ? { roomPassword: input.roomPassword || null } : {}),
+        ...(input.map !== undefined ? { map: input.map } : {}),
+        ...(input.scheduledAt !== undefined && input.scheduledAt !== null ? { scheduledAt: new Date(input.scheduledAt) } : {}),
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'MATCH_UPDATED', entity: 'Match', entityId: matchId,
+        before: {
+          notes: match.notes, roomId: match.roomId, map: match.map,
+          scheduledAt: match.scheduledAt, status: match.status,
+        },
+        after: {
+          notes: row.notes, roomId: row.roomId, map: row.map,
+          scheduledAt: row.scheduledAt, status: row.status,
+        },
+        ip: ctx.ip, userAgent: ctx.userAgent,
+      },
+    });
+    return row;
+  });
+  return updated;
+}
+
 export async function myMatches(userId: string) {
   const regs = await prisma.tournamentRegistration.findMany({
     where: { userId, status: 'CONFIRMED' },

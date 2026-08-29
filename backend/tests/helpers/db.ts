@@ -44,6 +44,10 @@ export async function makeUser(opts: {
 } = {}): Promise<TestUser> {
   const name = uid(opts.prefix ?? 'u');
   const password = 'Test@12345';
+  // Unique-ish Free Fire identity: test users get a UID + IGN up front so the
+  // join engine's identity requirement (SOLO + team modes) is satisfied.
+  const nameHash = name.split('').reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+  const uidNum = String((nameHash % 9_000_000_000) + 1_000_000_000);
   // Cost 4 keeps the suite fast; production uses 12 (asserted in auth.test.ts).
   const { hashSync } = await import('bcryptjs');
   const user = await db.user.create({
@@ -55,7 +59,7 @@ export async function makeUser(opts: {
       status: 'ACTIVE',
       isVerified: opts.verified ?? true,
       referralCode: `TST-${name.slice(-6).toUpperCase()}`,
-      profile: { create: { fullName: name } },
+      profile: { create: { fullName: name, freeFireUID: uidNum, freeFireIGN: name } },
       wallet: {
         create: {
           cashBalance: new Prisma.Decimal(opts.cash ?? 0),

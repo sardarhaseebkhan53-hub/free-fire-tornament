@@ -3,7 +3,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import * as svc from '../services/auth.service';
 import {
   changePasswordSchema, emailSchema, loginSchema, registerSchema,
-  resetPasswordSchema, verifyEmailSchema,
+  resetPasswordSchema, updateProfileSchema, verifyEmailSchema,
 } from '../validation/auth.schema';
 import {
   loginLimiter, passwordResetLimiter, registerLimiter, resendLimiter,
@@ -132,4 +132,11 @@ authRouter.post('/change-password', requireAuth, async (req, res) => {
 authRouter.get('/me', requireAuth, async (req, res) => {
   const user = await svc.me(req.auth!.id);
   return ok(res, user);
+});
+
+// Profile edit (spec §20) — UID/nickname update is also used by the SOLO join flow.
+authRouter.put('/profile', requireAuth, async (req, res) => {
+  const input = updateProfileSchema.parse(req.body);
+  const out = await svc.updateProfile(req.auth!.id, input);
+  return ok(res, out, 'Profile updated.');
 });

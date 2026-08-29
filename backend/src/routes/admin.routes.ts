@@ -5,24 +5,32 @@ import { Router, type Request } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { ok } from '../lib/respond';
 import {
-  adjustBalanceSchema, adToggleSchema, auditLogQuerySchema, blogListQuerySchema,
-  createAdSchema, createBlogSchema, createTournamentSchema, fraudListQuerySchema,
-  fraudReviewSchema, matchListQuerySchema,
-  matchStatusSchema, revenueQuerySchema, financeQuerySchema, settingUpdateSchema, ticketListQuerySchema,
+  adjustBalanceSchema, adToggleSchema, adminResultRowSchema, auditLogQuerySchema,
+  blogListQuerySchema, createAdSchema, createBlogSchema, createTournamentSchema,
+  fraudListQuerySchema, fraudReviewSchema, leaderboardAdjustSchema,
+  matchListQuerySchema, matchStatusSchema, matchUpdateSchema, tournamentScoringSchema,
+  participantStateSchema, registrationReadySchema, resultsStatusSchema,
+  revenueQuerySchema, financeQuerySchema, settingUpdateSchema, slotAssignSchema,
+  slotClearSchema, slotLockSchema, ticketListQuerySchema,
   ticketReplySchema, tournamentStatusSchema, upsertSeoSchema, userListQuerySchema,
   userStatusSchema, blogStatusSchema, paymentAccountSchema, paymentAccountToggleSchema,
 } from '../validation/admin.schema';
 import { listFraudAlerts, reviewFraudAlert } from '../services/fraud.service';
 import { adminWriteLimiter } from '../middleware/rateLimit';
 import {
-  adjustBalance, adminStats, createAd, createBlog, createTournament, listAds,
-  listAuditLogs, listBlog, listMatchesAdmin, listSeo, listSettings, listTickets,
-  listTournamentsAdmin, listUsers, replyTicket, revenueAnalytics, setBlogStatus,
-  setMatchStatus, setTournamentStatus, setUserStatus, toggleAd, updateSetting,
-  upsertSeo,
+  adjustBalance, adjustPlayerStats, adminReports, adminStats, createAd, createBlog,
+  createTournament, listAds, listAuditLogs, listBlog, listMatchesAdmin, listSeo,
+  listSettings, listTeamsAdmin, listTickets, listTournamentsAdmin, listUsers,
+  listWinnersAdmin, recalculateLeaderboard, replyTicket, revenueAnalytics,
+  setBlogStatus, setMatchStatus, setTournamentStatus, setUserStatus, toggleAd,
+  updateSetting, updateTournamentScoring, upsertSeo,
 } from '../services/admin.service';
 import { financeCsv, financeDashboard } from '../services/finance.service';
 import { listAllTransfers } from '../services/transfer.service';
+import { rotateTeamJoinCode } from '../services/team.service';
+import { matchTable, updateMatch } from '../services/match.service';
+import { confirmStandings, matchStandings, saveAdminResult, setResultsStatus } from '../services/result.service';
+import { assignSlot, clearSlot, setParticipantState, setRegistrationReady, setSlotLock, slotBoard } from '../services/slot.service';
 
 export const adminRouter = Router();
 
@@ -79,16 +87,94 @@ adminRouter.post('/tournaments/:id/status', async (req, res) => {
   const { status } = tournamentStatusSchema.parse(req.body);
   return ok(res, await setTournamentStatus(req.auth!.id, String(req.params.id), status, ctxOf(req)), `Tournament ${status.toLowerCase()}.`);
 });
+adminRouter.put('/tournaments/:id/scoring', adminWriteLimiter, async (req, res) => {
+  const input = tournamentScoringSchema.parse(req.body);
+  return ok(res, await updateTournamentScoring(req.auth!.id, String(req.params.id), input, ctxOf(req)), 'Scoring configuration updated.');
+});
 
-// Matches
+// Matches — list (search/filter/sort), status, room-style table, updates
 adminRouter.get('/matches', async (req, res) => {
   const q = matchListQuerySchema.parse(req.query);
   return ok(res, await listMatchesAdmin(q));
+});
+adminRouter.get('/matches/:id/table', async (req, res) => {
+  return ok(res, await matchTable(String(req.params.id)));
+});
+adminRouter.put('/matches/:id', async (req, res) => {
+  const input = matchUpdateSchema.parse(req.body);
+  const out = await updateMatch(req.auth!.id, String(req.params.id), input, ctxOf(req));
+  return ok(res, { id: out.id, status: out.status }, 'Match updated.');
 });
 adminRouter.post('/matches/:id/status', async (req, res) => {
   const { status } = matchStatusSchema.parse(req.body);
   return ok(res, await setMatchStatus(req.auth!.id, String(req.params.id), status, ctxOf(req)), `Match ${status.toLowerCase()}.`);
 });
+
+// Results workflow (spec §26): Draft → Review → Confirm → Publish
+adminRouter.post('/matches/:id/results/status', async (req, res) => {
+  const { status } = resultsStatusSchema.parse(req.body);
+  return ok(res, await setResultsStatus(req.auth!.id, String(req.params.id), status, ctxOf(req)), `Results ${status.toLowerCase().replace('_', ' ')}.`);
+});
+adminRouter.post('/matches/:id/results/confirm', async (req, res) => {
+  return ok(res, await confirmStandings(req.auth!.id, String(req.params.id), ctxOf(req)), 'Standings confirmed — prizes calculated.');
+});
+adminRouter.get('/matches/:id/standings', async (req, res) => {
+  return ok(res, await matchStandings(String(req.params.id)));
+});
+adminRouter.post('/matches/:id/results/row', async (req, res) => {
+  const input = adminResultRowSchema.parse(req.body);
+  return ok(res, await saveAdminResult(req.auth!.id, String(req.params.id), input, ctxOf(req)), 'Result row saved.');
+});
+adminRouter.post('/matches/:id/participants/:pid/state', async (req, res) => {
+  const input = participantStateSchema.parse(req.body);
+  return ok(res, await setParticipantState(req.auth!.id, String(req.params.pid), input, ctxOf(req)), 'Participant state saved.');
+});
+
+// Slot control (spec §12, §37)
+adminRouter.get('/tournaments/:id/slots', async (req, res) => {
+  return ok(res, await slotBoard(String(req.params.id)));
+});
+adminRouter.post('/slots/:regId/assign', adminWriteLimiter, async (req, res) => {
+  const { slot, reason } = slotAssignSchema.parse(req.body);
+  const out = await assignSlot(req.auth!.id, String(req.params.regId), slot, reason, ctxOf(req));
+  return ok(res, out, `Assigned to slot ${String(out.seatNumber).padStart(2, '0')}.`);
+});
+adminRouter.post('/slots/:regId/clear', adminWriteLimiter, async (req, res) => {
+  const { reason } = slotClearSchema.parse(req.body);
+  return ok(res, await clearSlot(req.auth!.id, String(req.params.regId), reason, ctxOf(req)), 'Slot cleared.');
+});
+adminRouter.post('/slots/:regId/lock', adminWriteLimiter, async (req, res) => {
+  const { locked, note } = slotLockSchema.parse(req.body);
+  return ok(res, await setSlotLock(req.auth!.id, String(req.params.regId), locked, note || null, ctxOf(req)), locked ? 'Slot locked.' : 'Slot unlocked.');
+});
+adminRouter.post('/slots/:regId/ready', adminWriteLimiter, async (req, res) => {
+  const { ready, note } = registrationReadySchema.parse(req.body);
+  return ok(res, await setRegistrationReady(req.auth!.id, String(req.params.regId), ready, note || null, ctxOf(req)), 'Ready state saved.');
+});
+
+// Leaderboard admin controls (spec §40)
+adminRouter.post('/leaderboard/adjust', adminWriteLimiter, async (req, res) => {
+  const input = leaderboardAdjustSchema.parse(req.body);
+  return ok(res, await adjustPlayerStats(req.auth!.id, input, ctxOf(req)), 'Leaderboard stats adjusted (financial records untouched).');
+});
+adminRouter.post('/leaderboard/recalculate', adminWriteLimiter, async (req, res) => {
+  return ok(res, await recalculateLeaderboard(req.auth!.id, ctxOf(req)), 'Leaderboard recalculated from verified results.');
+});
+
+// Winners / Teams / Reports (admin sections)
+adminRouter.get('/winners', async (req, res) => {
+  const q = matchListQuerySchema.partial({ q: true, status: true }).parse(req.query);
+  return ok(res, await listWinnersAdmin({ page: q.page, pageSize: q.pageSize }));
+});
+adminRouter.get('/teams', async (req, res) => {
+  const q = userListQuerySchema.partial({ q: true, status: true }).parse(req.query);
+  return ok(res, await listTeamsAdmin({ q: q.q, page: q.page, pageSize: q.pageSize }));
+});
+adminRouter.post('/teams/:id/join-code', adminWriteLimiter, async (req, res) => {
+  const out = await rotateTeamJoinCode(req.auth!.id, String(req.params.id), ctxOf(req));
+  return ok(res, out, 'Join code rotated and audited.');
+});
+adminRouter.get('/reports', async (_req, res) => ok(res, await adminReports()));
 
 // Payments review (Phase 7 services)
 import { depositListQuerySchema, depositReviewSchema, withdrawalListQuerySchema, withdrawalReviewSchema } from '../validation/wallet.schema';

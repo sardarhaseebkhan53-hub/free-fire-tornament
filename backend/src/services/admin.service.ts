@@ -258,6 +258,43 @@ export async function adjustBalance(
 // Tournaments + builder
 // ---------------------------------------------------------------------------
 
+/** Admin — reconfigure a tournament's scoring formula (spec §35). Purely
+ * scoring-related: prize amounts, entry fees and wallet balances are never
+ * touched by this endpoint. */
+export async function updateTournamentScoring(
+  adminId: string,
+  id: string,
+  input: { pointsPerKill: number; placementPoints: number[]; bonusPoints: number; penaltyPoints: number },
+  ctx: { ip?: string },
+) {
+  const t = await prisma.tournament.findUnique({ where: { id }, select: { id: true, pointsPerKill: true, placementPoints: true, bonusPoints: true, penaltyPoints: true } });
+  if (!t) throw badRequest('NOT_FOUND', 'Tournament not found');
+
+  await prisma.$transaction(async (tx) => {
+    await tx.tournament.update({
+      where: { id },
+      data: {
+        pointsPerKill: input.pointsPerKill,
+        placementPoints: input.placementPoints as unknown as Prisma.InputJsonValue,
+        bonusPoints: input.bonusPoints,
+        penaltyPoints: input.penaltyPoints,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'TOURNAMENT_SCORING_UPDATED', entity: 'Tournament', entityId: id,
+        before: {
+          pointsPerKill: Number(t.pointsPerKill), placementPoints: t.placementPoints,
+          bonusPoints: Number(t.bonusPoints), penaltyPoints: Number(t.penaltyPoints),
+        },
+        after: { ...input },
+        ip: ctx.ip,
+      },
+    });
+  });
+  return { id, ...input };
+}
+
 export async function listTournamentsAdmin(filter: { page: number; pageSize: number }) {
   const [rows, total] = await Promise.all([
     prisma.tournament.findMany({
@@ -298,13 +335,24 @@ export interface BuilderInput {
   prizes: PrizeInput[];
   publish?: boolean;
   confirmLoss?: boolean;
+  // Spec §5 — full configuration
+  banner?: string;
+  rules?: string;
+  placementPoints?: number[];
+  bonusPoints?: number;
+  penaltyPoints?: number;
+  roomId?: string;
+  roomPassword?: string;
+  matchNumber?: number;
+  matchMap?: string;
+  matchScheduledOffsetMinutes?: number;
 }
 
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'tournament';
 
 export async function createTournament(adminId: string, input: BuilderInput, ctx: { ip?: string }) {
-  const slots = input.type === 'SOLO' ? input.maxSlots : input.maxSlots; // slots are players-wide
+  const slots = input.maxSlots; // slots are player/team-wide per mode
   const economics = await computeEconomics({
     type: input.type,
     entryFeePerPlayer: input.entryFeePerPlayer,
@@ -319,40 +367,73 @@ export async function createTournament(adminId: string, input: BuilderInput, ctx
   const base = slugify(input.title);
   const slug = `${base}-${Math.random().toString(36).slice(2, 6)}`;
 
-  const tournament = await prisma.tournament.create({
-    data: {
-      title: input.title,
-      slug,
-      description: input.description || null,
-      type: input.type,
-      map: input.map || null,
-      status: input.publish ? 'REGISTRATION_OPEN' : 'DRAFT',
-      entryFeePerPlayer: new Prisma.Decimal(input.entryFeePerPlayer),
-      maxSlots: input.maxSlots,
-      minSlotsToStart: input.minSlotsToStart,
-      numWinners: input.numWinners,
-      pointsPerKill: input.pointsPerKill,
-      startTime: new Date(input.startTime),
-      registrationDeadline: new Date(input.registrationDeadline),
-      prizes: {
-        create: input.prizes.map((p, i) => ({
-          position: p.kind === 'PLACEMENT' ? i + 1 : i + 1,
-          amount: new Prisma.Decimal(p.amount),
-          label: p.label ?? (p.kind === 'PLACEMENT' ? `${i + 1} Place` : p.kind === 'KILL_POOL' ? 'Kill Pool' : p.kind),
-          kind: p.kind,
-          perKill: p.perKill !== undefined ? new Prisma.Decimal(p.perKill) : null,
-          cap: p.cap !== undefined ? new Prisma.Decimal(p.cap) : null,
-        })),
-      },
-    },
-  });
+  const placementPoints = input.placementPoints && input.placementPoints.length > 0
+    ? input.placementPoints
+    : undefined;
 
-  await prisma.auditLog.create({
-    data: {
-      actorId: adminId, action: 'TOURNAMENT_CREATED', entity: 'Tournament', entityId: tournament.id,
-      after: { title: input.title, slug, publish: !!input.publish, economics: { ...economics } },
-      ip: ctx.ip,
-    },
+  const tournament = await prisma.$transaction(async (tx) => {
+    const row = await tx.tournament.create({
+      data: {
+        title: input.title,
+        slug,
+        description: input.description || null,
+        type: input.type,
+        map: input.map || null,
+        status: input.publish ? 'REGISTRATION_OPEN' : 'DRAFT',
+        entryFeePerPlayer: new Prisma.Decimal(input.entryFeePerPlayer),
+        maxSlots: input.maxSlots,
+        minSlotsToStart: input.minSlotsToStart,
+        numWinners: input.numWinners,
+        pointsPerKill: input.pointsPerKill,
+        startTime: new Date(input.startTime),
+        registrationDeadline: new Date(input.registrationDeadline),
+        rules: input.rules || null,
+        banner: input.banner || null,
+        placementPoints: placementPoints as unknown as Prisma.InputJsonValue | undefined,
+        bonusPoints: input.bonusPoints ?? 0,
+        penaltyPoints: input.penaltyPoints ?? 0,
+        prizes: {
+          create: input.prizes.map((p, i) => ({
+            position: i + 1,
+            amount: new Prisma.Decimal(p.amount),
+            label: p.label ?? (p.kind === 'PLACEMENT' ? `${i + 1} Place` : p.kind === 'KILL_POOL' ? 'Kill Pool' : p.kind),
+            kind: p.kind,
+            perKill: p.perKill !== undefined ? new Prisma.Decimal(p.perKill) : null,
+            cap: p.cap !== undefined ? new Prisma.Decimal(p.cap) : null,
+          })),
+        },
+      },
+    });
+
+    // Optional first match created with the tournament (room credentials pre-set).
+    if (input.publish && input.matchNumber) {
+      const scheduledAt = new Date(new Date(input.startTime).getTime() + (input.matchScheduledOffsetMinutes ?? 0) * 60_000);
+      await tx.match.create({
+        data: {
+          tournamentId: row.id,
+          matchNumber: input.matchNumber,
+          round: 1,
+          map: input.matchMap || input.map || null,
+          scheduledAt,
+          roomId: input.roomId || null,
+          roomPassword: input.roomPassword || null,
+          credentialsReleaseAt: new Date(scheduledAt.getTime() - 30 * 60_000),
+        },
+      });
+    }
+
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'TOURNAMENT_CREATED', entity: 'Tournament', entityId: row.id,
+        after: {
+          title: input.title, slug, publish: !!input.publish, economics: { ...economics },
+          placementPoints, bonusPoints: input.bonusPoints ?? 0, penaltyPoints: input.penaltyPoints ?? 0,
+          matchNumber: input.matchNumber ?? null, banner: input.banner || null,
+        },
+        ip: ctx.ip,
+      },
+    });
+    return row;
   });
 
   // Announce published tournaments to every active player.
@@ -408,12 +489,27 @@ export async function setTournamentStatus(adminId: string, id: string, status: s
 // Matches
 // ---------------------------------------------------------------------------
 
-export async function listMatchesAdmin(filter: { tournamentId?: string; page: number; pageSize: number }) {
-  const where: Prisma.MatchWhereInput = filter.tournamentId ? { tournamentId: filter.tournamentId } : {};
+export async function listMatchesAdmin(filter: {
+  tournamentId?: string; q?: string; status?: string;
+  sort?: 'scheduledAt' | 'matchNumber' | 'status'; dir?: 'asc' | 'desc';
+  page: number; pageSize: number;
+}) {
+  const where: Prisma.MatchWhereInput = {};
+  if (filter.tournamentId) where.tournamentId = filter.tournamentId;
+  if (filter.status) where.status = filter.status as Prisma.EnumMatchStatusFilter['equals'];
+  if (filter.q) {
+    where.OR = [
+      { notes: { contains: filter.q, mode: 'insensitive' } },
+      { tournament: { title: { contains: filter.q, mode: 'insensitive' } } },
+      { tournament: { slug: { contains: filter.q, mode: 'insensitive' } } },
+    ];
+  }
+  const orderBy = { [filter.sort ?? 'scheduledAt']: filter.dir ?? ('desc' as const) } as Prisma.MatchOrderByWithRelationInput;
+
   const [rows, total] = await Promise.all([
     prisma.match.findMany({
       where,
-      orderBy: { scheduledAt: 'desc' },
+      orderBy,
       skip: pageOf(filter.page) * filter.pageSize,
       take: filter.pageSize,
       include: {
@@ -432,6 +528,7 @@ export async function listMatchesAdmin(filter: { tournamentId?: string; page: nu
       scheduledAt: m.scheduledAt,
       status: m.status,
       resultsFinalized: m.resultsFinalized,
+      resultsStatus: m.resultsStatus,
       participants: m._count.participants,
       submissions: m._count.resultSubmissions,
       tournament: m.tournament,
@@ -440,10 +537,26 @@ export async function listMatchesAdmin(filter: { tournamentId?: string; page: nu
   };
 }
 
-export async function setMatchStatus(adminId: string, id: string, status: 'SCHEDULED' | 'LIVE' | 'COMPLETED' | 'CANCELLED', ctx: { ip?: string }) {
+export async function setMatchStatus(
+  adminId: string,
+  id: string,
+  status: 'UPCOMING' | 'SCHEDULED' | 'ROOM_CREATED' | 'ROOM_OPEN' | 'CREDENTIALS_RELEASED' | 'LIVE' | 'COMPLETED' | 'CANCELLED',
+  ctx: { ip?: string },
+) {
   const m = await prisma.match.findUnique({ where: { id } });
   if (!m) throw badRequest('NOT_FOUND', 'Match not found');
-  await prisma.match.update({ where: { id }, data: { status } });
+  if (m.resultsStatus === 'PUBLISHED' && status !== 'COMPLETED') {
+    throw conflict('CONFLICT', 'Published matches are final — only COMPLETED is allowed.');
+  }
+  await prisma.match.update({
+    where: { id },
+    data: {
+      status,
+      credentialsReleasedAt: status === 'ROOM_OPEN' || status === 'CREDENTIALS_RELEASED'
+        ? (m.credentialsReleasedAt ?? new Date())
+        : m.credentialsReleasedAt,
+    },
+  });
   await prisma.auditLog.create({
     data: {
       actorId: adminId, action: 'MATCH_STATUS', entity: 'Match', entityId: id,
@@ -451,6 +564,190 @@ export async function setMatchStatus(adminId: string, id: string, status: 'SCHED
     },
   });
   return { id, status };
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboard admin controls (spec §40) — stats only, NEVER financial rows.
+// ---------------------------------------------------------------------------
+
+export async function adjustPlayerStats(
+  adminId: string,
+  input: {
+    userId: string; kills?: number; totalPoints?: number; wins?: number; matchesPlayed?: number;
+    note: string;
+  },
+  ctx: { ip?: string },
+) {
+  const target = await prisma.user.findUnique({ where: { id: input.userId }, select: { username: true } });
+  if (!target) throw badRequest('NOT_FOUND', 'User not found');
+
+  const stat = await prisma.playerStat.upsert({
+    where: { userId: input.userId },
+    create: {
+      userId: input.userId,
+      kills: Math.max(0, input.kills ?? 0),
+      totalPoints: Math.max(0, input.totalPoints ?? 0),
+      wins: Math.max(0, input.wins ?? 0),
+      matchesPlayed: Math.max(0, input.matchesPlayed ?? 0),
+    },
+    update: {
+      ...(input.kills !== undefined ? { kills: { increment: input.kills } } : {}),
+      ...(input.totalPoints !== undefined ? { totalPoints: { increment: input.totalPoints } } : {}),
+      ...(input.wins !== undefined ? { wins: { increment: input.wins } } : {}),
+      ...(input.matchesPlayed !== undefined ? { matchesPlayed: { increment: input.matchesPlayed } } : {}),
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      actorId: adminId, action: 'LEADERBOARD_ADJUSTED', entity: 'PlayerStat', entityId: stat.id,
+      after: { username: target.username, ...input, note: input.note },
+      ip: ctx.ip,
+    },
+  });
+  return {
+    userId: input.userId,
+    matchesPlayed: stat.matchesPlayed,
+    wins: stat.wins,
+    kills: stat.kills,
+    totalPoints: stat.totalPoints,
+    earnings: num(stat.earnings),
+  };
+}
+
+/** Rebuild PlayerStat rows from verified match participants (placement, kills, finalScore). */
+export async function recalculateLeaderboard(adminId: string, ctx: { ip?: string }) {
+  const participants = await prisma.matchParticipant.findMany({
+    where: { status: 'PLAYED', absent: false },
+    select: {
+      userId: true, teamId: true, placement: true, kills: true, finalScore: true,
+      team: { select: { members: { select: { userId: true } } } },
+      match: { select: { resultsStatus: true } },
+    },
+  });
+
+  const agg = new Map<string, { matches: number; wins: number; kills: number; points: number }>();
+  const add = (userId: string, p: { placement: number | null; kills: number | null; finalScore: number | null }) => {
+    const cur = agg.get(userId) ?? { matches: 0, wins: 0, kills: 0, points: 0 };
+    cur.matches += 1;
+    cur.kills += p.kills ?? 0;
+    cur.points += p.finalScore ?? 0;
+    if (p.placement === 1) cur.wins += 1;
+    agg.set(userId, cur);
+  };
+
+  for (const p of participants) {
+    if (p.userId) add(p.userId, p);
+    for (const m of p.team?.members ?? []) add(m.userId, p);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const [userId, s] of agg) {
+      await tx.playerStat.upsert({
+        where: { userId },
+        create: { userId, matchesPlayed: s.matches, wins: s.wins, kills: s.kills, totalPoints: s.points },
+        update: { matchesPlayed: s.matches, wins: s.wins, kills: s.kills, totalPoints: s.points },
+      });
+    }
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'LEADERBOARD_RECALCULATED', entity: 'PlayerStat', entityId: null,
+        after: { usersUpdated: agg.size, basedOn: 'verified match participants (published + draft)' },
+        ip: ctx.ip,
+      },
+    });
+  });
+  return { usersUpdated: agg.size };
+}
+
+// ---------------------------------------------------------------------------
+// Winners + Teams + Reports (admin sections)
+// ---------------------------------------------------------------------------
+
+export async function listWinnersAdmin(filter: { page: number; pageSize: number; tournamentId?: string }) {
+  const where: Prisma.WinnerWhereInput = filter.tournamentId ? { tournamentId: filter.tournamentId } : {};
+  const [rows, total] = await Promise.all([
+    prisma.winner.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: pageOf(filter.page) * filter.pageSize,
+      take: filter.pageSize,
+      include: {
+        user: { select: { username: true, profile: { select: { freeFireIGN: true } } } },
+        team: { select: { name: true, tag: true } },
+        tournament: { select: { title: true, slug: true, type: true } },
+      },
+    }),
+    prisma.winner.count({ where }),
+  ]);
+  return {
+    items: rows.map((w) => ({
+      id: w.id,
+      position: w.position,
+      amount: num(w.amount),
+      status: w.status,
+      creditedAt: w.creditedAt,
+      createdAt: w.createdAt,
+      recipient: w.team ? `${w.team.name} [${w.team.tag}]` : (w.user?.profile?.freeFireIGN ?? w.user?.username),
+      tournament: { title: w.tournament.title, slug: w.tournament.slug, type: w.tournament.type },
+    })),
+    page: filter.page, pageSize: filter.pageSize, total,
+  };
+}
+
+export async function listTeamsAdmin(filter: { q?: string; page: number; pageSize: number }) {
+  const where: Prisma.TeamWhereInput = filter.q
+    ? { OR: [{ name: { contains: filter.q, mode: 'insensitive' } }, { tag: { contains: filter.q, mode: 'insensitive' } }] }
+    : {};
+  const [rows, total] = await Promise.all([
+    prisma.team.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: pageOf(filter.page) * filter.pageSize,
+      take: filter.pageSize,
+      select: {
+        id: true, name: true, tag: true, type: true, joinCode: true, createdAt: true,
+        captain: { select: { username: true } },
+        _count: { select: { members: true, registrations: true, winnings: true } },
+      },
+    }),
+    prisma.team.count({ where }),
+  ]);
+  return {
+    items: rows.map((t) => ({
+      id: t.id, name: t.name, tag: t.tag, type: t.type, joinCode: t.joinCode,
+      captain: t.captain.username, createdAt: t.createdAt,
+      members: t._count.members, registrations: t._count.registrations, winnings: t._count.winnings,
+    })),
+    page: filter.page, pageSize: filter.pageSize, total,
+  };
+}
+
+/** Cross-domain reports: attendance/registration/finance quick views. */
+export async function adminReports() {
+  const now = new Date();
+  const monthAgo = new Date(now.getTime() - 30 * 86_400_000);
+  const [users, activeUsers, registrations, matches, completedMatches, deposits, withdrawals, entries, winners] =
+    await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { lastLoginAt: { gte: monthAgo } } }),
+      prisma.tournamentRegistration.count({ where: { status: 'CONFIRMED', registeredAt: { gte: monthAgo } } }),
+      prisma.match.count(),
+      prisma.match.count({ where: { status: 'COMPLETED' } }),
+      prisma.deposit.aggregate({ where: { status: 'APPROVED', reviewedAt: { gte: monthAgo } }, _sum: { amount: true }, _count: true }),
+      prisma.withdrawal.aggregate({ where: { status: 'PAID', paidAt: { gte: monthAgo } }, _sum: { amount: true }, _count: true }),
+      prisma.tournamentRegistration.aggregate({ where: { status: 'CONFIRMED', registeredAt: { gte: monthAgo } }, _sum: { entryAmount: true } }),
+      prisma.winner.aggregate({ where: { status: 'CREDITED', creditedAt: { gte: monthAgo } }, _sum: { amount: true }, _count: true }),
+    ]);
+  return {
+    window: '30d',
+    users: { total: users, active: activeUsers },
+    registrations: { count: registrations, revenue: num(entries._sum.entryAmount) },
+    matches: { total: matches, completed: completedMatches },
+    deposits: { count: deposits._count, amount: num(deposits._sum.amount) },
+    withdrawals: { count: withdrawals._count, amount: num(withdrawals._sum.amount) },
+    prizes: { count: winners._count, amount: num(winners._sum.amount) },
+  };
 }
 
 // ---------------------------------------------------------------------------

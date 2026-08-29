@@ -3,11 +3,85 @@
 // Rules: a player holds at most one DUO and one SQUAD team; member caps are
 // 2 (duo) and 4 (squad); only captains manage membership.
 // =============================================================================
+import crypto from 'node:crypto';
 import { prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import type { TeamType } from '../../generated/prisma';
 
 const CAPACITY: Record<TeamType, number> = { DUO: 2, SQUAD: 4 };
+
+/** Unique human-friendly team join code: CNX-XXXXX */
+function newJoinCode(): string {
+  return `CNX-${crypto.randomBytes(3).toString('hex').toUpperCase().slice(0, 5)}`;
+}
+
+/** Captain — get or rotate the team's shareable join code. */
+export async function teamJoinCode(actorId: string, teamId: string, rotate: boolean) {
+  const team = await prisma.team.findUnique({ where: { id: teamId } });
+  if (!team) throw notFound('Team not found');
+  if (team.captainId !== actorId) throw forbidden('Only the captain can manage the join code.');
+
+  if (team.joinCode && !rotate) return { code: team.joinCode };
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = newJoinCode();
+    try {
+      const updated = await prisma.team.update({ where: { id: teamId }, data: { joinCode: code } });
+      return { code: updated.joinCode };
+    } catch (e) {
+      if ((e as { code?: string }).code !== 'P2002') throw e;
+    }
+  }
+  throw badRequest('VALIDATION_ERROR', 'Could not generate a unique code — try again.');
+}
+
+
+/** Admin — rotate any team's join code (captain agnostic). Audited. */
+export async function rotateTeamJoinCode(adminId: string, teamId: string, ctx: { ip?: string; userAgent?: string } = {}) {
+  const team = await prisma.team.findUnique({ where: { id: teamId }, select: { id: true, name: true, joinCode: true } });
+  if (!team) throw notFound('Team not found');
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = newJoinCode();
+    try {
+      const updated = await prisma.team.update({ where: { id: teamId }, data: { joinCode: code } });
+      await prisma.auditLog.create({
+        data: {
+          actorId: adminId, action: 'TEAM_JOIN_CODE_ROTATED', entity: 'Team', entityId: teamId,
+          before: { joinCode: team.joinCode }, after: { joinCode: updated.joinCode },
+          ip: ctx.ip, userAgent: ctx.userAgent,
+        },
+      });
+      return { code: updated.joinCode };
+    } catch (e) {
+      if ((e as { code?: string }).code !== 'P2002') throw e;
+    }
+  }
+  throw badRequest('VALIDATION_ERROR', 'Could not generate a unique code — try again.');
+}
+
+/** Player — join a DUO/SQUAD team via code (accepts CNX-XXXXX or raw code). */
+export async function joinByCode(userId: string, codeRaw: string) {
+  const code = codeRaw.trim().toUpperCase();
+  const team = await prisma.team.findUnique({ where: { joinCode: code } });
+  if (!team) throw notFound('Team not found — check the code.');
+  if (team.captainId === userId) throw badRequest('VALIDATION_ERROR', 'You are this team’s captain.');
+
+  await assertNoTeamOfType(userId, team.type);
+  const members = await prisma.teamMember.count({ where: { teamId: team.id } });
+  if (members >= CAPACITY[team.type]) throw badRequest('VALIDATION_ERROR', 'This team is full.');
+
+  const member = await prisma.teamMember.create({
+    data: { teamId: team.id, userId, role: 'MEMBER' },
+  });
+  await prisma.notification.create({
+    data: {
+      userId: team.captainId, type: 'TEAM_INVITE',
+      title: 'New squadmate via join code',
+      body: `A player joined ${team.name} [${team.tag}] with your code.`,
+      data: { teamId: team.id },
+    },
+  });
+  return { teamId: team.id, name: team.name, tag: team.tag, memberId: member.id };
+}
 
 async function assertNoTeamOfType(userId: string, type: TeamType) {
   const existing = await prisma.teamMember.findFirst({

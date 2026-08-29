@@ -7,7 +7,7 @@ import { Suspense } from 'react';
 import { Ban, Loader2, Search, ShieldCheck, Wallet } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Kpi, Modal, Pager, Pill, Table, TableSkeleton, Td, Tr, useAdminList } from '@/components/admin/kit';
-import { api } from '@/lib/client-api';
+import { api , apiGet } from '@/lib/client-api';
 
 interface Row {
   id: string; username: string; email: string; role: string; status: string;
@@ -32,9 +32,8 @@ function UsersInner() {
     setBusy(key);
     try {
       await action();
-      const fresh = await fetch(`/api/backend/admin/users?page=${page}&pageSize=20${q ? `&q=${encodeURIComponent(q)}` : ''}${status ? `&status=${status}` : ''}`,
-        { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json());
-      if (fresh.success) setData(fresh.data);
+      const fresh = await apiGet<Page>(`/admin/users?page=${page}&pageSize=20${q ? `&q=${encodeURIComponent(q)}` : ''}${status ? `&status=${status}` : ''}`);
+      if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Action failed');
     } finally {
@@ -145,8 +144,8 @@ function UsersInner() {
           user={adjustFor}
           onClose={() => setAdjustFor(null)}
           refresh={async () => {
-            const fresh = await fetch('/api/backend/admin/users?page=1&pageSize=20', { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json());
-            if (fresh.success) setData(fresh.data);
+            const fresh = await apiGet<Page>(`/api/backend/admin/users?page=1&pageSize=20`);
+            if (fresh) setData(fresh);
           }}
         />
       )}
