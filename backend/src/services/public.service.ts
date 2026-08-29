@@ -26,6 +26,7 @@ export async function listTournaments(q: TournamentListQuery) {
   const limit = Math.min(50, Math.max(1, q.limit ?? 12));
 
   const where: Prisma.TournamentWhereInput = {
+    deletedAt: null,
     status: { not: 'DRAFT' }, // drafts are admin-only
     ...(q.type ? { type: q.type as never } : {}),
     ...(q.status ? { status: q.status as never } : {}),
@@ -75,11 +76,12 @@ export async function listTournaments(q: TournamentListQuery) {
 
 // ---------------------------------------------------------------------------
 export async function getTournamentBySlug(slug: string) {
-  const t = await prisma.tournament.findUnique({
-    where: { slug },
+  const t = await prisma.tournament.findFirst({
+    where: { slug, deletedAt: null },
     include: {
       prizes: { orderBy: { position: 'asc' } },
       matches: {
+        where: { deletedAt: null },
         orderBy: { matchNumber: 'asc' },
         select: {
           id: true, round: true, matchNumber: true, map: true, scheduledAt: true, status: true,
@@ -122,10 +124,12 @@ export async function getTournamentBySlug(slug: string) {
       bonusPoints: t.bonusPoints,
       penaltyPoints: t.penaltyPoints,
     },
-    // Platform-level flag gating the "register solo, get admin-paired" DUO
-    // path (spec §Modes). The join engine re-reads the same setting at join
-    // time, so the UI gate and the server-side enforcement can never drift.
+    // Platform-level flag gating the "register solo, get admin-paired" path
+    // for team modes (DUO and SQUAD / Clash Squad). The join engine re-reads
+    // the same settings at join time, so the UI gate and server-side
+    // enforcement can never drift.
     allowIndependentDuo: await getSetting('tournament.allowIndependentDuo', false),
+    allowIndependentSquad: await getSetting('tournament.allowIndependentSquad', false),
     prizes,
     matches: matches.map(({ resultsStatus, ...m }) => ({
       ...m,
@@ -147,6 +151,12 @@ export async function getTournamentBySlug(slug: string) {
 // Ads (rendered client-side; admin-managed placements)
 // ---------------------------------------------------------------------------
 export async function activeAds(placement: string) {
+  // Master switch: ads are OFF by default and can only be enabled from the
+  // admin panel. This keeps the public site clean until an operator explicitly
+  // turns advertisements back on.
+  const adsEnabled = await getSetting('ads.enabled', false);
+  if (adsEnabled !== true) return { items: [] };
+
   const now = new Date();
   // The date window is two independent conditions that must BOTH hold:
   //  • started (startsAt is null, or already in the past), AND
@@ -470,11 +480,11 @@ export async function getSeoConfig(pageSlug: string) {
 import { tournamentStandings } from './result.service';
 
 export async function tournamentResults(slug: string) {
-  const t = await prisma.tournament.findUnique({
-    where: { slug },
+  const t = await prisma.tournament.findFirst({
+    where: { slug, deletedAt: null },
     select: {
       id: true, title: true, type: true, status: true,
-      matches: { select: { id: true, resultsStatus: true }, orderBy: { matchNumber: 'asc' } },
+      matches: { where: { deletedAt: null }, select: { id: true, resultsStatus: true }, orderBy: { matchNumber: 'asc' } },
     },
   });
   if (!t) return null;

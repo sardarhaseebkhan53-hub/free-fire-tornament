@@ -280,19 +280,22 @@ export async function setParticipantState(
   return { id: updated.id, ready: updated.readyAt !== null, absent: updated.absent, status: updated.status };
 }
 
-/** Pair two independently-registered DUO players into a team (admin action).
- * The DUO "register solo, get paired by admin" path (spec §Modes) seats players
- * with no team; this is the admin tool that turns two such registrations into a
- * real DUO team, updates both registrations, and notifies + audits the change.
- * Race-safe via the tournament row lock and the Team.tag unique constraint. */
-export async function pairIndependentDuo(
+/** Pair independently-registered players into a real team (admin action).
+ * This powers both the DUO "register solo, get paired by admin" path and the
+ * new SQUAD / Clash Squad free-agent path. Players register with no team, then
+ * an admin selects exactly teamSize registrations and this turns them into a
+ * DUO or SQUAD team, updates the registrations, and notifies + audits the
+ * change. Race-safe via the tournament row lock and the Team.tag uniqueness. */
+export async function pairIndependentTeam(
   adminId: string,
   tournamentId: string,
-  a: string,
-  b: string,
+  registrationIds: string[],
   ctx: Ctx = {},
 ) {
-  if (a === b) throw badRequest('VALIDATION_ERROR', 'Pick two different players to pair.');
+  const ids = [...new Set(registrationIds.filter(Boolean))];
+  if (ids.length < 2 || ids.length > 4) {
+    throw badRequest('VALIDATION_ERROR', 'Pick between 2 and 4 players to pair.');
+  }
 
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${tournamentId} FOR UPDATE`;
@@ -301,55 +304,65 @@ export async function pairIndependentDuo(
       select: { id: true, title: true, type: true },
     });
     if (!t) throw notFound('Tournament not found');
-    if (t.type !== 'DUO') throw badRequest('VALIDATION_ERROR', 'Only DUO tournaments pair solo registrants.');
+    if (t.type !== 'DUO' && t.type !== 'SQUAD' && t.type !== 'CLASH_SQUAD') {
+      throw badRequest('VALIDATION_ERROR', 'Only team-mode tournaments pair solo registrants.');
+    }
+    const teamType = t.type === 'DUO' ? 'DUO' as const : 'SQUAD' as const;
+    const expectedCount = teamType === 'DUO' ? 2 : 4;
+    const modeLabel = teamType === 'DUO' ? 'duo' : 'squad';
+    if (ids.length !== expectedCount) {
+      throw badRequest('VALIDATION_ERROR', `A ${modeLabel} needs exactly ${expectedCount} players (you selected ${ids.length}).`);
+    }
 
     const regs = await tx.tournamentRegistration.findMany({
-      where: { id: { in: [a, b] } },
+      where: { id: { in: ids } },
       include: { user: { select: { id: true, username: true, status: true } } },
     });
-    if (regs.length !== 2) throw notFound('One or both registrations were not found.');
-    const regA = regs.find((r) => r.id === a)!;
-    const regB = regs.find((r) => r.id === b)!;
-    for (const r of [regA, regB]) {
+    if (regs.length !== ids.length) throw notFound('One or more registrations were not found.');
+    for (const r of regs) {
       if (r.tournamentId !== tournamentId) {
-        throw badRequest('VALIDATION_ERROR', 'Both players must be registered for this tournament.');
+        throw badRequest('VALIDATION_ERROR', 'All players must be registered for this tournament.');
       }
       if (r.status !== 'CONFIRMED') {
-        throw badRequest('VALIDATION_ERROR', 'Both registrations must be confirmed.');
+        throw badRequest('VALIDATION_ERROR', 'All registrations must be confirmed.');
       }
       if (r.teamId) {
         throw conflict('CONFLICT', 'One of these players is already in a team.');
       }
       if (r.user.status !== 'ACTIVE') {
-        throw badRequest('VALIDATION_ERROR', 'Both players must have active accounts.');
+        throw badRequest('VALIDATION_ERROR', 'All players must have active accounts.');
       }
     }
+    regs.sort((a, b2) => ids.indexOf(a.id) - ids.indexOf(b2.id));
+    const captain = regs[0]!;
 
-    // Neither player may already hold a DUO team elsewhere (one-DUO invariant).
+    // No selected player may already hold a team of this type elsewhere
+    // (the one-team-per-mode invariant used by the join engine).
     const existingMember = await tx.teamMember.findFirst({
-      where: { userId: { in: [regA.userId, regB.userId] }, team: { type: 'DUO' } },
+      where: { userId: { in: regs.map((r) => r.userId) }, team: { type: teamType } },
       select: { userId: true },
     });
     if (existingMember) {
-      throw conflict('CONFLICT', 'One of these players already belongs to a DUO team.');
+      throw conflict('CONFLICT', 'One of these players already belongs to a team of this mode.');
     }
 
     // Unique tag with a collision-retry loop (Team.tag is @unique).
+    const tagPrefix = teamType === 'DUO' ? 'D' : 'S';
     let team: { id: string; name: string; tag: string } | undefined;
     for (let attempt = 0; attempt < 8; attempt++) {
-      const tag = `D${crypto.randomBytes(2).toString('hex').toUpperCase()}`; // 5 chars
+      const tag = `${tagPrefix}${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
       try {
         team = await tx.team.create({
           data: {
-            name: `${t.title.trim().slice(0, 18) || 'Duo'} — paired`,
+            name: `${t.title.trim().slice(0, 18) || modeLabel} — paired`,
             tag,
-            type: 'DUO',
-            captainId: regA.userId,
+            type: teamType,
+            captainId: captain.userId,
             members: {
-              create: [
-                { userId: regA.userId, role: 'CAPTAIN' },
-                { userId: regB.userId, role: 'MEMBER' },
-              ],
+              create: regs.map((r, i) => ({
+                userId: r.userId,
+                role: i === 0 ? 'CAPTAIN' as const : 'MEMBER' as const,
+              })),
             },
           },
         });
@@ -361,17 +374,18 @@ export async function pairIndependentDuo(
     if (!team) throw badRequest('VALIDATION_ERROR', 'Could not generate a unique team tag — try again.');
 
     await tx.tournamentRegistration.updateMany({
-      where: { id: { in: [a, b] } },
+      where: { id: { in: ids } },
       data: { teamId: team.id },
     });
 
-    for (const r of [regA, regB]) {
+    for (const r of regs) {
+      const partners = regs.filter((o) => o.id !== r.id).map((o) => o.user.username).join(', ');
       await tx.notification.create({
         data: {
           userId: r.userId,
           type: 'TOURNAMENT_UPDATE',
-          title: `Duo paired — ${t.title}`,
-          body: `You were paired with ${r.id === a ? regB.user.username : regA.user.username} for this tournament. Room details stay in My Matches.`,
+          title: `${modeLabel.toUpperCase()} paired — ${t.title}`,
+          body: `You were paired${partners ? ` with ${partners}` : ''} for this tournament. Room details stay in My Matches.`,
           data: { tournamentId, teamId: team.id },
         },
       });
@@ -380,16 +394,16 @@ export async function pairIndependentDuo(
     await tx.auditLog.create({
       data: {
         actorId: adminId,
-        action: 'DUO_PAIRED',
+        action: 'INDEPENDENT_TEAM_PAIRED',
         entity: 'Team',
         entityId: team.id,
-        after: { tournamentId, registrations: [a, b], members: [regA.userId, regB.userId] },
+        after: { tournamentId, mode: teamType, registrations: ids, members: regs.map((r) => r.userId) },
         ip: ctx.ip,
         userAgent: ctx.userAgent,
       },
     });
 
-    return { teamId: team.id, name: team.name, tag: team.tag, members: [regA.userId, regB.userId] };
+    return { teamId: team.id, name: team.name, tag: team.tag, members: regs.map((r) => r.userId) };
   }, TX_OPTS);
 }
 

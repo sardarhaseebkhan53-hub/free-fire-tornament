@@ -18,7 +18,7 @@ interface Withdrawal {
   adminNote: string | null; paidReference: string | null; createdAt: string;
 }
 interface Overview {
-  wallet: { winningBalance: number };
+  wallet: { cashBalance: number; winningBalance: number; withdrawable?: number };
   settings: { minWithdrawal: number; withdrawalFeePercent: number };
 }
 interface PubSettings { 'platform.whatsappNumber'?: string }
@@ -71,8 +71,9 @@ export default function WithdrawPage() {
     );
   }
 
-  const winning = overview?.wallet.winningBalance ?? 0;
-  const min = overview?.settings.minWithdrawal ?? 100;
+  const wallet = overview?.wallet;
+  const withdrawable = wallet?.withdrawable ?? ((wallet?.cashBalance ?? 0) + (wallet?.winningBalance ?? 0));
+  const min = overview?.settings.minWithdrawal ?? 300;
   const feePct = overview?.settings.withdrawalFeePercent ?? 0;
   const amt = Number(amount || 0);
   const wa = (pub?.['platform.whatsappNumber'] ?? '+923001234567').replace(/[^\d]/g, '');
@@ -80,7 +81,7 @@ export default function WithdrawPage() {
   async function submit() {
     setError(null);
     if (!Number.isInteger(amt) || amt < min) return setError(`Minimum withdrawal is ${fmt(min)}.`);
-    if (amt > winning) return setError('Amount exceeds your available winning balance.');
+    if (amt > withdrawable) return setError('Amount exceeds your available balance (deposits + winnings).');
     if (accountName.trim().length < 2) return setError('Enter the account holder name.');
     const acc = accountNumber.replace(/[\s-]/g, '');
     if (['JAZZCASH', 'EASYPAISA', 'NAYAPAY', 'SADAPAY'].includes(method) && !/^03\d{9}$/.test(acc)) {
@@ -120,7 +121,7 @@ export default function WithdrawPage() {
         <Link href="/wallet" className="flex h-8 w-8 items-center justify-center rounded-input border border-line text-fg-2 transition hover:text-fg" aria-label="Back">
           <ArrowLeft size={16} />
         </Link>
-        <h1 className="font-display text-2xl font-bold text-fg sm:text-3xl">Withdraw Winnings</h1>
+        <h1 className="font-display text-2xl font-bold text-fg sm:text-3xl">Withdraw Funds</h1>
       </div>
 
       {/* Hero */}
@@ -131,9 +132,9 @@ export default function WithdrawPage() {
           aria-hidden
         />
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-fg-2">Available for withdrawal</p>
-        <p className="tabular mt-1 font-display text-4xl font-bold text-reward sm:text-5xl">{fmt(winning)}</p>
+        <p className="tabular mt-1 font-display text-4xl font-bold text-reward sm:text-5xl">{fmt(withdrawable)}</p>
         <p className="mt-4 flex items-center gap-2 rounded-input border border-line bg-base/60 px-3.5 py-2.5 text-xs text-fg-2 sm:inline-flex">
-          <span className="text-info">ⓘ</span> Winnings only — deposited PKR is not withdrawable.
+          <span className="text-info">ⓘ</span> Deposits + winnings are withdrawable, subject to the minimum. Bonus credits are not.
         </p>
         <span className="absolute right-8 top-1/2 hidden -translate-y-1/2 sm:block" aria-hidden>
           <span className="flex h-20 w-20 items-center justify-center rounded-2xl border border-reward/30 bg-reward/10 text-reward shadow-[0_0_40px_rgba(245,185,66,0.25)]">
@@ -167,7 +168,7 @@ export default function WithdrawPage() {
               className="w-full bg-transparent px-3 py-3 text-base font-semibold text-fg outline-none placeholder:text-fg-3"
             />
             <button
-              onClick={() => setAmount(String(Math.floor(winning)))}
+              onClick={() => setAmount(String(Math.floor(withdrawable)))}
               className="rounded-pill border border-accent/40 bg-accent/10 px-3 py-1 text-[11px] font-bold text-accent"
             >
               MAX
@@ -272,7 +273,7 @@ export default function WithdrawPage() {
               <ShieldAlert size={15} /> Important Note
             </p>
             <p className="mt-1.5 text-xs leading-relaxed text-fg-2">
-              You can only withdraw your winnings. Deposited PKR is non-withdrawable.
+              Withdrawals are funded from your PKR balance (deposits + winnings). Bonus credits stay promotional and cannot be cashed out.
             </p>
           </div>
         </div>

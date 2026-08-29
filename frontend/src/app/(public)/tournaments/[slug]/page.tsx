@@ -5,7 +5,7 @@ import { notFound } from 'next/navigation';
 import { Clock, MapPin, ShieldCheck, Skull, Star, Users } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import type { TournamentDetails } from '@/lib/types';
-import { money, MODE_LABEL, STATUS_LABEL, dateTime, displayStatus } from '@/lib/format';
+import { money, MODE_LABEL, STATUS_LABEL, dateTime, displayStatus, slotLabel } from '@/lib/format';
 import { Badge, Avatar } from '@/components/ui';
 import { Countdown, CountdownUntil } from '@/components/countdown';
 import { JoinTournament } from '@/components/join-tournament';
@@ -214,8 +214,8 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 >
                   <span className="flex items-center gap-1.5 rounded-pill bg-base/70 pl-1 pr-0.5">
                     <Avatar name={p.team?.name ?? p.user.username} size={22} />
-                    <span className="tabular px-0.5 font-bold text-accent">
-                      {p.seatNumber !== null ? String(p.seatNumber).padStart(2, '0') : '··'}
+                    <span className="tabular px-0.5 font-bold text-accent" title={p.seatNumber !== null ? `Seat ${p.seatNumber}` : undefined}>
+                      {p.seatNumber !== null ? slotLabel(p.seatNumber) : '··'}
                     </span>
                   </span>
                   {p.team ? `${p.team.name} [${p.team.tag}]` : p.user.username}
@@ -252,6 +252,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 slotsLeft={t.slotsLeft}
                 maxSlots={t.maxSlots}
                 allowIndependentDuo={t.allowIndependentDuo}
+                allowIndependentSquad={t.allowIndependentSquad}
               />
             </div>
           </div>

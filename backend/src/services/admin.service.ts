@@ -24,9 +24,9 @@ export async function adminStats() {
 
   const [users, activeToday, liveTournaments, openTickets, depAgg, wdAgg, registrations30d, recent, fraud] =
     await Promise.all([
-      prisma.user.count(),
+      prisma.user.count({ where: { deletedAt: null } }),
       prisma.auditLog.findMany({ where: { createdAt: { gte: dayAgo }, actorId: { not: null } }, select: { actorId: true }, distinct: ['actorId'] }),
-      prisma.tournament.count({ where: { status: 'LIVE' } }),
+      prisma.tournament.count({ where: { status: 'LIVE', deletedAt: null } }),
       prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
       prisma.deposit.aggregate({ where: { status: 'PENDING' }, _count: true, _sum: { amount: true } }),
       prisma.withdrawal.aggregate({ where: { status: { in: ['PENDING', 'APPROVED', 'PROCESSING'] } }, _count: true, _sum: { amount: true } }),
@@ -130,7 +130,7 @@ export async function revenueAnalytics(days = 30) {
 // ---------------------------------------------------------------------------
 
 export async function listUsers(filter: { q?: string; status?: string; page: number; pageSize: number }) {
-  const where: Prisma.UserWhereInput = {};
+  const where: Prisma.UserWhereInput = { deletedAt: null };
   if (filter.q) {
     where.OR = [
       { username: { contains: filter.q, mode: 'insensitive' } },
@@ -296,8 +296,10 @@ export async function updateTournamentScoring(
 }
 
 export async function listTournamentsAdmin(filter: { page: number; pageSize: number }) {
+  const where: Prisma.TournamentWhereInput = { deletedAt: null };
   const [rows, total] = await Promise.all([
     prisma.tournament.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       skip: pageOf(filter.page) * filter.pageSize,
       take: filter.pageSize,
@@ -307,7 +309,7 @@ export async function listTournamentsAdmin(filter: { page: number; pageSize: num
         startTime: true, createdAt: true,
       },
     }),
-    prisma.tournament.count(),
+    prisma.tournament.count({ where }),
   ]);
   return {
     items: rows.map((t) => ({
@@ -458,6 +460,7 @@ async function announceTournament(
 export async function setTournamentStatus(adminId: string, id: string, status: string, ctx: { ip?: string }) {
   const t = await prisma.tournament.findUnique({ where: { id } });
   if (!t) throw badRequest('NOT_FOUND', 'Tournament not found');
+  if (t.deletedAt) throw badRequest('NOT_FOUND', 'Tournament not found');
   const allowed = ['DRAFT', 'REGISTRATION_OPEN', 'LIVE', 'COMPLETED', 'CANCELLED'];
   if (!allowed.includes(status)) throw badRequest('VALIDATION_ERROR', 'Invalid status');
 
@@ -566,7 +569,7 @@ export async function listMatchesAdmin(filter: {
   sort?: 'scheduledAt' | 'matchNumber' | 'status'; dir?: 'asc' | 'desc';
   page: number; pageSize: number;
 }) {
-  const where: Prisma.MatchWhereInput = {};
+  const where: Prisma.MatchWhereInput = { deletedAt: null, tournament: { deletedAt: null } };
   if (filter.tournamentId) where.tournamentId = filter.tournamentId;
   if (filter.status) where.status = filter.status as Prisma.EnumMatchStatusFilter['equals'];
   if (filter.q) {
@@ -616,7 +619,7 @@ export async function setMatchStatus(
   ctx: { ip?: string },
 ) {
   const m = await prisma.match.findUnique({ where: { id } });
-  if (!m) throw badRequest('NOT_FOUND', 'Match not found');
+  if (!m || m.deletedAt) throw badRequest('NOT_FOUND', 'Match not found');
   if (m.status === status) return { id, status };
   if (m.resultsStatus === 'PUBLISHED' && status !== 'COMPLETED') {
     throw conflict('CONFLICT', 'Published matches are final — only COMPLETED is allowed.');
@@ -974,6 +977,99 @@ export async function setBlogStatus(adminId: string, id: string, publish: boolea
   return { id: post.id, status: post.status };
 }
 
+export async function deleteTournament(adminId: string, id: string, ctx: { ip?: string }) {
+  const t = await prisma.tournament.findUnique({
+    where: { id },
+    select: {
+      id: true, title: true, slug: true, status: true, registeredSlots: true, deletedAt: true,
+      _count: { select: { registrations: true, matches: true, winners: true } },
+    },
+  });
+  if (!t) throw badRequest('NOT_FOUND', 'Tournament not found');
+  if (t.deletedAt) return { id: t.id, deleted: true };
+
+  // Active tournaments must be cancelled/refunded first — deleting them silently
+  // would strand paid players. Finished history (COMPLETED / CANCELLED) and
+  // unused drafts can be archived directly.
+  if (t.status === 'REGISTRATION_OPEN' || t.status === 'LIVE') {
+    throw conflict('CONFLICT', 'Active tournaments must be cancelled (with refunds) before they can be removed.');
+  }
+  if (t.status === 'DRAFT' && t._count.registrations > 0) {
+    throw conflict('CONFLICT', 'This draft has registrations. Cancel it before removing.');
+  }
+
+  // Soft delete: the row, wallet ledger, prize records and winners all stay for
+  // reconciliation/audit; it is simply hidden from every admin/public list.
+  await prisma.$transaction(async (tx) => {
+    await tx.tournament.update({ where: { id }, data: { deletedAt: new Date() } });
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'TOURNAMENT_DELETED', entity: 'Tournament', entityId: t.id,
+        before: { title: t.title, slug: t.slug, status: t.status, registeredSlots: t.registeredSlots },
+        after: { deletedAt: new Date() }, ip: ctx.ip,
+      },
+    });
+  }, TX_OPTS);
+  return { id: t.id, deleted: true };
+}
+
+/** Archive a single match without touching its results or financial rows. */
+export async function deleteMatch(adminId: string, id: string, ctx: { ip?: string }) {
+  const m = await prisma.match.findUnique({ where: { id }, select: { id: true, matchNumber: true, deletedAt: true, tournament: { select: { title: true, deletedAt: true } } } });
+  if (!m) throw badRequest('NOT_FOUND', 'Match not found');
+  if (m.deletedAt) return { id: m.id, deleted: true };
+  await prisma.$transaction(async (tx) => {
+    await tx.match.update({ where: { id }, data: { deletedAt: new Date() } });
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'MATCH_DELETED', entity: 'Match', entityId: m.id,
+        before: { matchNumber: m.matchNumber, tournamentTitle: m.tournament.title },
+        after: { deletedAt: new Date() }, ip: ctx.ip,
+      },
+    });
+  }, TX_OPTS);
+  return { id: m.id, deleted: true };
+}
+
+/** Soft-delete/archive a user account. Balances, ledger, tickets and audits are
+ * never destroyed; the user is banned and hidden from all admin/user lists. */
+export async function deleteUser(adminId: string, userId: string, reason: string, ctx: { ip?: string }) {
+  if (userId === adminId) throw badRequest('VALIDATION_ERROR', 'You cannot remove your own account.');
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, username: true, email: true, role: true, status: true, deletedAt: true },
+  });
+  if (!target) throw badRequest('NOT_FOUND', 'User not found');
+  if (target.deletedAt) return { id: target.id, deleted: true };
+  if (target.role === 'SUPER_ADMIN') throw forbidden('Super admins cannot be removed.');
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      status: 'BANNED',
+      bannedAt: new Date(),
+      banReason: reason || 'Account removed by admin',
+      deletedAt: new Date(),
+      lastLoginAt: null,
+    },
+  });
+  await prisma.notification.create({
+    data: {
+      userId, type: 'ACCOUNT',
+      title: 'Account removed',
+      body: reason ? `Your account has been removed. Reason: ${reason}` : 'Your account has been removed by an administrator.',
+    },
+  });
+  await prisma.auditLog.create({
+    data: {
+      actorId: adminId, action: 'USER_DELETED', entity: 'User', entityId: userId,
+      before: { username: target.username, email: target.email, role: target.role, status: target.status },
+      after: { status: updated.status, reason: reason || null, deletedAt: updated.deletedAt }, ip: ctx.ip,
+    },
+  });
+  return { id: userId, deleted: true, username: target.username };
+}
+
 // ---------------------------------------------------------------------------
 // Ads + SEO
 // ---------------------------------------------------------------------------
@@ -1037,6 +1133,105 @@ export async function upsertSeo(adminId: string, input: { pageSlug: string; titl
 }
 
 // ---------------------------------------------------------------------------
+// Full wallet ledger (admin)
+// ---------------------------------------------------------------------------
+
+export async function listAllTransactions(filter: {
+  type?: string; bucket?: string; direction?: 'CREDIT' | 'DEBIT';
+  q?: string; from?: Date; to?: Date; page: number; pageSize: number;
+}) {
+  const where: Prisma.WalletTransactionWhereInput = {};
+  if (filter.type) where.type = filter.type as never;
+  if (filter.bucket) where.bucket = filter.bucket as never;
+  if (filter.direction) where.direction = filter.direction as never;
+  if (filter.from || filter.to) {
+    where.createdAt = {
+      ...(filter.from ? { gte: filter.from } : {}),
+      ...(filter.to ? { lte: filter.to } : {}),
+    };
+  }
+  if (filter.q) {
+    where.OR = [
+      { reference: { contains: filter.q, mode: 'insensitive' } },
+      { description: { contains: filter.q, mode: 'insensitive' } },
+      { user: { username: { contains: filter.q, mode: 'insensitive' } } },
+      { user: { email: { contains: filter.q, mode: 'insensitive' } } },
+    ];
+  }
+  const [rows, total] = await Promise.all([
+    prisma.walletTransaction.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: pageOf(filter.page) * filter.pageSize,
+      take: filter.pageSize,
+      include: { user: { select: { username: true, email: true } } },
+    }),
+    prisma.walletTransaction.count({ where }),
+  ]);
+  return {
+    items: rows.map((t) => ({
+      id: t.id,
+      userId: t.userId,
+      username: t.user.username,
+      email: t.user.email,
+      type: t.type,
+      bucket: t.bucket,
+      direction: t.direction,
+      amount: num(t.amount),
+      currency: t.currency,
+      balanceBefore: num(t.balanceBefore),
+      balanceAfter: num(t.balanceAfter),
+      reference: t.reference,
+      description: t.description,
+      status: t.status,
+      createdAt: t.createdAt,
+    })),
+    page: filter.page,
+    pageSize: filter.pageSize,
+    total,
+  };
+}
+
+/** CSV export for the admin ledger (respects the same filters as the page). */
+export async function listAllTransactionsCsv(filter: {
+  type?: string; bucket?: string; direction?: 'CREDIT' | 'DEBIT';
+  q?: string; from?: Date; to?: Date;
+}) {
+  const where: Prisma.WalletTransactionWhereInput = {};
+  if (filter.type) where.type = filter.type as never;
+  if (filter.bucket) where.bucket = filter.bucket as never;
+  if (filter.direction) where.direction = filter.direction as never;
+  if (filter.from || filter.to) {
+    where.createdAt = {
+      ...(filter.from ? { gte: filter.from } : {}),
+      ...(filter.to ? { lte: filter.to } : {}),
+    };
+  }
+  if (filter.q) {
+    where.OR = [
+      { reference: { contains: filter.q, mode: 'insensitive' } },
+      { description: { contains: filter.q, mode: 'insensitive' } },
+      { user: { username: { contains: filter.q, mode: 'insensitive' } } },
+      { user: { email: { contains: filter.q, mode: 'insensitive' } } },
+    ];
+  }
+  const rows = await prisma.walletTransaction.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    include: { user: { select: { username: true, email: true } } },
+  });
+  const esc = (v: unknown) => {
+    const s = String(v ?? '');
+    return /[\",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+  };
+  const head = 'Date,Player,Email,Type,Bucket,Direction,Amount,Currency,Before,After,Reference,Description,Status';
+  const lines = rows.map((t) =>
+    [t.createdAt.toISOString(), t.user.username, t.user.email, t.type, t.bucket, t.direction,
+      num(t.amount), t.currency, num(t.balanceBefore), num(t.balanceAfter),
+      t.reference ?? '', t.description ?? '', t.status].map(esc).join(','));
+  return [head, ...lines].join('\n');
+}
+
 // Settings + audit logs
 // ---------------------------------------------------------------------------
 

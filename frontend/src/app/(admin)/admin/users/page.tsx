@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
-import { Ban, Loader2, Search, ShieldCheck, Wallet } from 'lucide-react';
+import { Ban, Loader2, Search, ShieldCheck, Trash2, Wallet } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Kpi, Modal, Pager, Pill, Table, TableSkeleton, Td, Tr, useAdminList } from '@/components/admin/kit';
 import { api , apiGet } from '@/lib/client-api';
@@ -39,6 +39,14 @@ function UsersInner() {
     } finally {
       setBusy(null);
     }
+  }
+
+  async function remove(u: Row) {
+    const reason = window.prompt(`Remove ${u.username} (${u.email})?\n\nThe account will be banned and hidden from the admin panel. Balances and the wallet ledger are preserved.\n\nReason:`);
+    if (reason === null) return;
+    const confirmed = window.confirm(`Permanently remove ${u.username}? This archives the account and cannot be undone from the admin panel.`);
+    if (!confirmed) return;
+    await run(() => api(`/admin/users/${u.id}?reason=${encodeURIComponent(reason)}`, { method: 'DELETE' }), u.id);
   }
 
   return (
@@ -125,6 +133,15 @@ function UsersInner() {
                         className="inline-flex items-center gap-1 rounded-input border border-danger/30 px-2.5 py-1.5 text-[11px] font-bold text-danger transition hover:bg-danger/10 active:scale-95 disabled:opacity-50"
                       >
                         <Ban size={12} /> Ban
+                      </button>
+                    )}
+                    {u.role !== 'SUPER_ADMIN' && (
+                      <button
+                        onClick={() => void remove(u)}
+                        disabled={busy === u.id}
+                        className="inline-flex items-center gap-1 rounded-input border border-danger/30 px-2.5 py-1.5 text-[11px] font-bold text-danger transition hover:bg-danger/10 active:scale-95 disabled:opacity-50"
+                      >
+                        <Trash2 size={12} /> Remove
                       </button>
                     )}
                   </div>

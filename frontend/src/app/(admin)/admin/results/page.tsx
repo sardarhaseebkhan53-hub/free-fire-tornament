@@ -3,7 +3,7 @@
 // with kill/placement override + auto points, screenshot proof, standings draft
 // and the idempotent prize-distribution trigger.
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Loader2, RefreshCcw, Trophy, X } from 'lucide-react';
+import { Check, Loader2, RefreshCcw, Trash2, Trophy, X } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { AuthedImage, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
 import { MatchTableModal } from '@/components/admin/match-table';
@@ -39,7 +39,7 @@ export default function AdminResultsPage() {
   const [selected, setSelected] = useState<Submission | null>(null);
   const [tournaments, setTournaments] = useState<Array<{ id: string; title: string }>>([]);
   const [tourId, setTourId] = useState('');
-  const standings = useAdminList<Standings>(tourId ? `/admin/tournaments/${tourId}/results` : '/admin/results?status=NONE', [tourId]);
+  const standings = useTournamentStandings(tourId);
   const [busy, setBusy] = useState(false);
   // Review form state is keyed by the submission it belongs to, so selecting a
   // different submission resets the form by derivation instead of an effect.
@@ -57,7 +57,9 @@ export default function AdminResultsPage() {
   const setKills = (v: string) => setDraft({ ...form, kills: v });
   const setNote = (v: string) => setDraft({ ...form, note: v });
   const [distributed, setDistributed] = useState<string | null>(null);
-  const [view, setView] = useState<'submissions' | 'publish'>('submissions');
+  // Default to Publish & Prizes so an admin lands on the match list where they
+  // can Add / Enter Results immediately instead of an empty submission queue.
+  const [view, setView] = useState<'submissions' | 'publish'>('publish');
   const [scoring, setScoring] = useState<{ pointsPerKill: number; placementTable: number[]; bonusPoints: number; penaltyPoints: number } | null>(null);
   const [openTable, setOpenTable] = useState<string | null>(null);
 
@@ -361,6 +363,15 @@ function PublishWorkflow({ tournaments, openTable, setOpenTable }: {
     const fresh = await apiGet<Page2>(`/admin/matches?${qs}`);
     if (fresh) setData(fresh);
   };
+  const removeMatch = async (id: string, label: string) => {
+    if (!window.confirm(`Remove match ${label}? Results, participants and financial records stay archived/audited.`)) return;
+    try {
+      await api(`/admin/matches/${id}`, { method: 'DELETE' });
+      await refresh();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Remove failed');
+    }
+  };
 
   return (
     <div>
@@ -400,6 +411,10 @@ function PublishWorkflow({ tournaments, openTable, setOpenTable }: {
                     </button>
                     <button onClick={() => void downloadProtectedFile(`/matches/${m.id}/export`, `match-${m.id.slice(0, 8)}.csv`)}
                       className="rounded-input border border-line px-2.5 py-1 text-[11px] font-bold text-fg-2 hover:text-fg">CSV</button>
+                    <button onClick={() => void removeMatch(m.id, `#${m.matchNumber}${m.round > 1 ? ` · R${m.round}` : ''}`)}
+                      className="inline-flex items-center gap-1 rounded-input border border-danger/30 px-2.5 py-1 text-[11px] font-bold text-danger hover:bg-danger/10">
+                      <Trash2 size={12} /> Delete
+                    </button>
                   </div>
                 </Td>
               </Tr>
@@ -471,4 +486,25 @@ function timeAgo(d: string) {
 function useAdminListState<T>(path: string, deps: unknown[]) {
   const { data, loading, setData } = useAdminList<T>(path, deps);
   return { data, loading, setData };
+}
+
+/**
+ * Tournament standings only exist when a tournament is selected. Avoid sending
+ * a dummy `/admin/results?status=NONE` request (which the API correctly rejects
+ * with 400) by not fetching at all until a tournament is chosen.
+ */
+function useTournamentStandings(tourId: string) {
+  const [data, setData] = useState<Standings | null>(null);
+  useEffect(() => {
+    if (!tourId) {
+      setData(null);
+      return;
+    }
+    let cancelled = false;
+    api<Standings>(`/admin/tournaments/${tourId}/results`)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => { if (!cancelled) setData(null); });
+    return () => { cancelled = true; };
+  }, [tourId]);
+  return { data };
 }

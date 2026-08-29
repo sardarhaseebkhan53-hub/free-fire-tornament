@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Loader2, ShieldCheck } from 'lucide-react';
-import { money } from '@/lib/format';
+import { money, slotLabel } from '@/lib/format';
 import { api, ApiClientError } from '@/lib/client-api';
 
 const FRIENDLY: Record<string, string> = {
@@ -36,10 +36,12 @@ interface JoinReceipt {
 export function JoinTournament({
   slug, type, entryPerPlayer, entryPerTeam, teamSize, registrationOpen, slotsLeft, maxSlots,
   allowIndependentDuo = false,
+  allowIndependentSquad = false,
 }: {
   slug: string; type: string; entryPerPlayer: number; entryPerTeam: number;
   teamSize: number; registrationOpen: boolean; slotsLeft: number; maxSlots: number;
   allowIndependentDuo?: boolean;
+  allowIndependentSquad?: boolean;
 }) {
   const router = useRouter();
   const [stage, setStage] = useState<'idle' | 'confirm' | 'busy' | 'done'>('idle');
@@ -49,22 +51,28 @@ export function JoinTournament({
   const [error, setError] = useState<string | null>(null);
   const [needsLogin, setNeedsLogin] = useState(false);
   const [receipt, setReceipt] = useState<JoinReceipt | null>(null);
-  // Independent DUO (spec §Modes): a player can register solo and be paired by
-  // an admin later. Gated by the platform setting surfaced on the details API.
+  // Independent registrations (spec §Modes): a player can register solo and be
+  // paired by an admin later. Gated by the platform settings surfaced on the
+  // details API for both DUO and SQUAD / Clash Squad.
   const independentDuo = type === 'DUO' && teamSize === 2 && allowIndependentDuo === true;
+  const independentSquad = (type === 'SQUAD' || type === 'CLASH_SQUAD') && teamSize === 4 && allowIndependentSquad === true;
+  const independentTeam = independentDuo || independentSquad;
+  const modeLabel = type === 'DUO' ? 'duo' : type === 'SQUAD' || type === 'CLASH_SQUAD' ? 'squad' : 'team';
   const [joinMode, setJoinMode] = useState<'team' | 'solo'>('team');
   const [uid, setUid] = useState('');
   const [ign, setIgn] = useState('');
-  // "Team" path = a full team registers together (the only path for SQUAD, and
-  // the default for DUO). "Solo" path = SOLO always, plus independent DUO when
-  // the player opts to register alone and be paired by an admin later.
-  const usingTeam = teamSize > 1 && !(independentDuo && joinMode === 'solo');
+  // "Team" path = a full team registers together (the default for team modes).
+  // "Solo" path = SOLO always, plus independent DUO / SQUAD when the player
+  // opts to register alone and be paired by an admin later.
+  const usingTeam = teamSize > 1 && !(independentTeam && joinMode === 'solo');
 
-  // Independent DUO: prefill the player's saved Free Fire identity so the solo
-  // path falls back to the profile exactly like the backend does at join time.
+  // Solo path (SOLO, independent DUO/SQUAD): prefill the player's saved Free
+  // Fire identity so the join form shows what the server already has, and the
+  // player can correct it at join time (the backend requires both on every
+  // non-team or free-agent registration).
+  const soloPath = !usingTeam;
   useEffect(() => {
-    if (!independentDuo || stage !== 'confirm') return;
-    setJoinMode('team');
+    if (!soloPath || stage !== 'confirm') return;
     let cancelled = false;
     api<{ profile: { freeFireUID: string | null; freeFireIGN: string | null } | null }>('/auth/me')
       .then((me) => {
@@ -74,7 +82,7 @@ export function JoinTournament({
       })
       .catch(() => { /* prefill is best-effort; empty fields fall back to the profile server-side */ });
     return () => { cancelled = true; };
-  }, [independentDuo, stage]);
+  }, [soloPath, stage]);
 
   // Load the player's eligible teams for TEAM MODES ONLY. SOLO registration
   // never calls /teams/my — it is not a prerequisite (spec: solo = no team).
@@ -112,6 +120,7 @@ export function JoinTournament({
     if (!token) return router.push(`/login?next=/tournaments/${slug}`);
     setNeedsLogin(false);
     setError(null);
+    if (independentTeam) setJoinMode('team'); // reset to team path on each open
     setStage('confirm');
   }
 
@@ -122,11 +131,18 @@ export function JoinTournament({
       setError('Pick your team — only full squads/duos led by you can register.');
       return;
     }
-    if (!usingTeam && independentDuo && joinMode === 'solo') {
-      // Backend falls back to the saved profile when these are blank, but a
-      // player without a saved UID/IGN gets a clearer prompt here.
-      if ((uid.trim() && !/^\d{5,15}$/.test(uid.trim())) || (ign.trim() && (ign.trim().length < 2 || ign.trim().length > 24))) {
-        setError('Free Fire UID must be 5–15 digits and your nickname 2–24 characters.');
+    if (!usingTeam) {
+      // The join engine requires a valid Free Fire identity on every solo /
+      // free-agent registration. Validate it client-side so the user sees a
+      // clear message instead of the backend's generic 400.
+      const idValid = /^\d{5,15}$/.test(uid.trim());
+      const ignValid = ign.trim().length >= 2 && ign.trim().length <= 24;
+      if (!idValid || !ignValid) {
+        setError(
+          idValid || ignValid
+            ? 'Free Fire UID must be 5–15 digits and your nickname 2–24 characters.'
+            : 'Enter your Free Fire UID and nickname to confirm your slot.',
+        );
         return;
       }
     }
@@ -161,7 +177,13 @@ export function JoinTournament({
         return;
       }
       if (e instanceof ApiClientError) {
-        setError(FRIENDLY[e.code] ?? e.message ?? 'Could not join right now.');
+        // Validation errors carry the precise reason from the backend (e.g.
+        // missing UID/IGN, invalid coupon, tournament closed) — show it so the
+        // player knows what to fix instead of a generic "check your input".
+        const message = e.code === 'VALIDATION_ERROR'
+          ? (e.message || FRIENDLY[e.code]!)
+          : (FRIENDLY[e.code] ?? e.message ?? 'Could not join right now.');
+        setError(message);
       } else {
         setError('Could not reach the server. Please try again.');
       }
@@ -179,7 +201,7 @@ export function JoinTournament({
           {receipt.seatNumber !== null && (
             <>
               Your assigned {teamSize > 1 ? 'team ' : ''}position is{' '}
-              <strong className="text-fg">#{String(receipt.seatNumber).padStart(2, '0')}</strong>
+              <strong className="text-fg">{slotLabel(receipt.seatNumber)}</strong>
               {receipt.match && (
                 <> · {receipt.match.map ? `${receipt.match.map} · ` : ''}Match {receipt.match.matchNumber}
                   {receipt.match.round > 1 ? ` · Round ${receipt.match.round}` : ''}</>
@@ -204,15 +226,15 @@ export function JoinTournament({
           {teamSize > 1 && <div className="flex justify-between"><dt className="text-fg-2">Team total ({teamSize} players, each pays their share)</dt><dd className="tabular font-semibold text-fg">{money(entryPerTeam)}</dd></div>}
         </dl>
 
-        {independentDuo && (
+        {independentTeam && (
           <div className="mt-3 flex gap-1 rounded-input border border-line bg-white/[3%] p-1" role="tablist" aria-label="Registration mode">
             <button type="button" onClick={() => setJoinMode('team')} disabled={stage === 'busy'}
               className={`flex-1 rounded-[8px] px-2 py-1.5 text-xs font-bold transition ${joinMode === 'team' ? 'bg-accent text-white' : 'text-fg-2 hover:text-fg'}`}>
-              Register my duo
+              Register my {modeLabel}
             </button>
             <button type="button" onClick={() => setJoinMode('solo')} disabled={stage === 'busy'}
               className={`flex-1 rounded-[8px] px-2 py-1.5 text-xs font-bold transition ${joinMode === 'solo' ? 'bg-accent text-white' : 'text-fg-2 hover:text-fg'}`}>
-              Register solo · paired by admin
+              {teamSize === 4 ? 'Register solo · admin pairs squad' : 'Register solo · paired by admin'}
             </button>
           </div>
         )}
@@ -228,7 +250,7 @@ export function JoinTournament({
             <p className="mt-3 flex items-center gap-2 text-xs text-fg-3"><Loader2 size={13} className="animate-spin" /> Loading your teams…</p>
           ) : teams.length === 0 ? (
             <div className="mt-3 rounded-input border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
-              You need a full {teamSize}-player {type === 'DUO' ? 'duo' : 'squad'} where you are captain.{' '}
+              You need a full {teamSize}-player {modeLabel} where you are captain.{' '}
               <Link href="/teams" className="font-semibold underline">Manage teams</Link>
             </div>
           ) : (
@@ -249,34 +271,32 @@ export function JoinTournament({
           )
         ) : (
           <>
-            {independentDuo && (
-              <>
-                <p className="mt-3 text-xs text-fg-3">
-                  You&apos;ll be seated on your own; an admin pairs you with another solo registrant before the match.
-                </p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-fg-3">Free Fire UID</span>
-                    <input
-                      value={uid}
-                      onChange={(e) => setUid(e.target.value.replace(/\D/g, '').slice(0, 15))}
-                      inputMode="numeric"
-                      placeholder="e.g. 5231879640"
-                      className="w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-fg-3">Free Fire IGN</span>
-                    <input
-                      value={ign}
-                      onChange={(e) => setIgn(e.target.value.slice(0, 24))}
-                      maxLength={24}
-                      placeholder="In-game name"
-                      className="w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
-                    />
-                  </label>
-                </div>
-              </>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-fg-3">Free Fire UID</span>
+                <input
+                  value={uid}
+                  onChange={(e) => setUid(e.target.value.replace(/\D/g, '').slice(0, 15))}
+                  inputMode="numeric"
+                  placeholder="e.g. 5231879640"
+                  className="w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-fg-3">Free Fire IGN</span>
+                <input
+                  value={ign}
+                  onChange={(e) => setIgn(e.target.value.slice(0, 24))}
+                  maxLength={24}
+                  placeholder="In-game name"
+                  className="w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
+                />
+              </label>
+            </div>
+            {independentTeam && (
+              <p className="mt-3 text-xs text-fg-3">
+                You&apos;ll be seated on your own; an admin pairs you with {teamSize === 4 ? 'other solo registrants' : 'another solo registrant'} before the match.
+              </p>
             )}
             <input
               value={coupon}

@@ -10,7 +10,7 @@
 //   • slot board shortcut + CSV export
 // =============================================================================
 import { useEffect, useState } from 'react';
-import { Loader2, Plus, RefreshCcw, Search, Swords } from 'lucide-react';
+import { Loader2, Plus, RefreshCcw, Search, Swords, Trash2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Modal, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
 import { api, apiGet } from '@/lib/client-api';
@@ -53,6 +53,16 @@ export default function AdminMatchesPage() {
       await refresh();
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Status change failed');
+    }
+  }
+
+  async function removeMatch(id: string, label: string) {
+    if (!window.confirm(`Remove match ${label} from the admin panel? Its results, participants and financial records are archived and remain audited.`)) return;
+    try {
+      await api(`/admin/matches/${id}`, { method: 'DELETE' });
+      await refresh();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Remove failed');
     }
   }
 
@@ -125,6 +135,12 @@ export default function AdminMatchesPage() {
                     )}
                     {m.status === 'COMPLETED' && m.resultsStatus !== 'PUBLISHED' &&
                       <button onClick={() => setManageId(m.id)} className="rounded-input bg-reward/15 px-2.5 py-1 text-[11px] font-bold text-reward">Enter Results</button>}
+                    <button
+                      onClick={() => void removeMatch(m.id, `#${m.matchNumber}${m.round > 1 ? ` · R${m.round}` : ''}`)}
+                      className="inline-flex items-center gap-1 rounded-input border border-danger/30 px-2.5 py-1 text-[11px] font-bold text-danger hover:bg-danger/10"
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
                   </div>
                 </Td>
               </Tr>

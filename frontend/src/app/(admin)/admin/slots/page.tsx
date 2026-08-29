@@ -1,15 +1,17 @@
 'use client';
 // =============================================================================
 // Admin — SLOT CONTROL (spec §12, §37)
-//   Visual 1..maxSlots board. Per slot: assign/move, clear (remove), lock/
-//   unlock with note, mark ready, and per-match ready/absent/DQ. Every action
-//   goes through the audited admin endpoints (SLOT_* audit trail server-side).
+//   Visual A..maxSlots board (A=1, B=2, … Z=26, AA=27…). Per slot: assign/move,
+//   clear (remove), lock/unlock with note, mark ready, and per-match
+//   ready/absent/DQ. Every action goes through the audited admin endpoints
+//   (SLOT_* audit trail server-side).
 // =============================================================================
 import { useEffect, useState } from 'react';
 import { Loader2, Lock, LockOpen, MapPin, RefreshCcw, UserX, X, CheckCircle2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Modal, Pill, useAdminList } from '@/components/admin/kit';
-import { api, apiGet, authedFetch } from '@/lib/client-api';
+import { api, apiGet } from '@/lib/client-api';
+import { slotLabel } from '@/lib/format';
 
 interface SlotMatch {
   participantId: string; id: string; matchNumber: number; status: string;
@@ -63,7 +65,7 @@ export default function AdminSlotsPage() {
         method: 'POST',
         body: { locked: !entry.locked, note: '' },
       });
-      setMsg(entry.locked ? `Slot ${String(entry.slot).padStart(2, '0')} unlocked.` : `Slot ${String(entry.slot).padStart(2, '0')} locked.`);
+      setMsg(entry.locked ? `Slot ${slotLabel(entry.slot)} unlocked.` : `Slot ${slotLabel(entry.slot)} locked.`);
       await load();
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Lock change failed');
@@ -88,8 +90,11 @@ export default function AdminSlotsPage() {
   const occupied = board?.occupied ?? 0;
   const maxSlots = board?.tournament.maxSlots ?? 0;
   const lockedCount = board?.slots.filter((s) => s.locked).length ?? 0;
-  // Independently-registered DUO players waiting to be paired into a team.
+  // Independently-registered players waiting to be paired into a team.
   const unpaired = board ? board.slots.filter((s) => s.registrationId && !s.team && s.status === 'CONFIRMED') : [];
+  const mode = board?.tournament.type;
+  const teamSize = mode === 'DUO' ? 2 : mode === 'SOLO' ? 1 : 4;
+  const pairLabel = mode === 'DUO' ? 'duo' : 'squad';
 
   return (
     <div>
@@ -117,9 +122,9 @@ export default function AdminSlotsPage() {
             <button onClick={() => setHistory(!history)} className="text-xs font-bold text-fg-3 hover:text-fg">
               {history ? '▾ hide match history' : '▸ show match history'}
             </button>
-            {board.tournament.type === 'DUO' && unpaired.length >= 2 && (
+            {teamSize > 1 && unpaired.length >= teamSize && (
               <button onClick={() => setPairing(true)} className="rounded-input border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-bold text-accent hover:bg-accent/20">
-                Pair solo players ({unpaired.length})
+                Pair into {pairLabel} ({unpaired.length} free agents)
               </button>
             )}
           </>
@@ -143,7 +148,7 @@ export default function AdminSlotsPage() {
               <div key={s.slot}
                 className={`rounded-card border p-4 transition ${filled ? 'border-line bg-white/[3%]' : 'border-dashed border-line/60 bg-transparent'} ${s.locked ? 'ring-1 ring-warning/40' : ''}`}>
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="font-display text-lg font-bold text-fg">{String(s.slot).padStart(2, '0')}</span>
+                  <span className="font-display text-lg font-bold text-fg" title={`Slot ${s.slot}`}>{slotLabel(s.slot)}</span>
                   <div className="flex items-center gap-1.5">
                     {s.locked ? <Lock size={12} className="text-warning" /> : <LockOpen size={12} className="text-fg-3" />}
                     {filled && <Pill status={s.status ?? 'CONFIRMED'} />}
@@ -206,11 +211,13 @@ export default function AdminSlotsPage() {
       )}
 
       {pairing && board && (
-        <PairDuoModal
+        <PairTeamModal
           tournamentId={board.tournament.id}
           unpaired={unpaired}
+          teamSize={teamSize}
+          modeLabel={pairLabel}
           onClose={() => setPairing(false)}
-          onDone={async () => { setPairing(false); setMsg('Duo paired — board refreshed.'); await load(); }}
+          onDone={async () => { setPairing(false); setMsg(`${pairLabel.toUpperCase()} paired — board refreshed.`); await load(); }}
         />
       )}
     </div>
@@ -245,8 +252,8 @@ function SlotActionModal({ action, maxSlots, onClose, onDone }: {
 
   const titles: Record<NonNullable<Mode>['kind'], string> = {
     move: `Move ${action.player}`,
-    clear: `Remove ${action.player} from slot ${String(action.slot).padStart(2, '0')}`,
-    lock: `Lock slot ${String(action.slot).padStart(2, '0')}`,
+    clear: `Remove ${action.player} from slot ${slotLabel(action.slot)}`,
+    lock: `Lock slot ${slotLabel(action.slot)}`,
     ready: `Mark ready — ${action.player}`,
   };
 
@@ -284,7 +291,7 @@ function SlotActionModal({ action, maxSlots, onClose, onDone }: {
             <select value={target} onChange={(e) => setTarget(e.target.value)} className="w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none [color-scheme:dark]">
               <option value="">Select…</option>
               {Array.from({ length: maxSlots }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n} disabled={n === action.slot}>Slot {String(n).padStart(2, '0')}{n === action.slot ? ' (current)' : ''}</option>
+                <option key={n} value={n} disabled={n === action.slot}>Slot {slotLabel(n)}{n === action.slot ? ' (current)' : ''}</option>
               ))}
             </select>
             <p className="mt-1 text-[11px] text-fg-3">Occupied targets are refused server-side — move or remove the current holder first.</p>
@@ -305,23 +312,26 @@ function SlotActionModal({ action, maxSlots, onClose, onDone }: {
   );
 }
 
-function PairDuoModal({ tournamentId, unpaired, onClose, onDone }: {
-  tournamentId: string; unpaired: SlotEntry[]; onClose: () => void; onDone: () => void;
+function PairTeamModal({ tournamentId, unpaired, teamSize, modeLabel, onClose, onDone }: {
+  tournamentId: string; unpaired: SlotEntry[]; teamSize: number; modeLabel: string; onClose: () => void; onDone: () => void;
 }) {
-  const [a, setA] = useState('');
-  const [b, setB] = useState('');
+  const [picks, setPicks] = useState<string[]>(() => Array.from({ length: teamSize }, () => ''));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selectCls = 'w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none [color-scheme:dark]';
-  const optionLabel = (s: SlotEntry) => `${s.player}${s.username && s.username !== s.player ? ` (@${s.username})` : ''} — slot ${String(s.slot).padStart(2, '0')}`;
+  const optionLabel = (s: SlotEntry) => `${s.player}${s.username && s.username !== s.player ? ` (@${s.username})` : ''} — slot ${slotLabel(s.slot)}`;
+
+  function setPick(i: number, value: string) {
+    setPicks((prev) => prev.map((p, j) => (j === i ? value : p)));
+  }
 
   async function submit() {
-    if (!a || !b) return;
+    if (picks.some((p) => !p)) return;
     setBusy(true);
     setError(null);
     try {
-      await api(`/admin/tournaments/${tournamentId}/pair`, { method: 'POST', body: { a, b } });
+      await api(`/admin/tournaments/${tournamentId}/pair`, { method: 'POST', body: { registrationIds: picks } });
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Pairing failed.');
@@ -330,34 +340,29 @@ function PairDuoModal({ tournamentId, unpaired, onClose, onDone }: {
     }
   }
 
+  const selected = new Set(picks.filter(Boolean));
+
   return (
-    <Modal title="Pair solo players into a duo" onClose={onClose}>
+    <Modal title={`Pair solo players into a ${modeLabel}`} onClose={onClose}>
       <div className="space-y-3">
         <p className="text-xs text-fg-3">
-          Creates a DUO team from two independently-registered players (captain = first pick) and updates both registrations. Both are notified.
+          Creates a {teamSize}-player {modeLabel.toUpperCase()} team from independently-registered players (first pick = captain), updates all registrations, and notifies every player.
         </p>
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-fg-2">Player A (captain)</span>
-          <select value={a} onChange={(e) => setA(e.target.value)} className={selectCls}>
-            <option value="">Select…</option>
-            {unpaired.map((s) => (
-              <option key={s.registrationId} value={s.registrationId!} disabled={s.registrationId === b}>{optionLabel(s)}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-fg-2">Player B</span>
-          <select value={b} onChange={(e) => setB(e.target.value)} className={selectCls}>
-            <option value="">Select…</option>
-            {unpaired.map((s) => (
-              <option key={s.registrationId} value={s.registrationId!} disabled={s.registrationId === a}>{optionLabel(s)}</option>
-            ))}
-          </select>
-        </label>
+        {picks.map((value, i) => (
+          <label key={i} className="block">
+            <span className="mb-1.5 block text-xs font-semibold text-fg-2">Player {String.fromCharCode(65 + i)}{i === 0 ? ' (captain)' : ''}</span>
+            <select value={value} onChange={(e) => setPick(i, e.target.value)} className={selectCls}>
+              <option value="">Select…</option>
+              {unpaired.map((s) => (
+                <option key={s.registrationId} value={s.registrationId!} disabled={selected.has(s.registrationId!) && s.registrationId !== value}>{optionLabel(s)}</option>
+              ))}
+            </select>
+          </label>
+        ))}
         {error && <p className="rounded-input border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
-        <button onClick={submit} disabled={busy || !a || !b}
+        <button onClick={submit} disabled={busy || picks.some((p) => !p)}
           className="flex w-full items-center justify-center gap-2 rounded-input bg-accent py-2.5 text-sm font-bold text-white disabled:opacity-50">
-          {busy ? <Loader2 size={15} className="animate-spin" /> : null} Pair into duo
+          {busy ? <Loader2 size={15} className="animate-spin" /> : null} Pair into {modeLabel}
         </button>
       </div>
     </Modal>

@@ -148,10 +148,9 @@ export const registrationReadySchema = z.object({
   note: z.string().trim().max(300).nullish().default(''),
 });
 
-/** Pair two independently-registered DUO players into a team (spec §Modes). */
-export const duoPairSchema = z.object({
-  a: z.string().min(1).max(40),
-  b: z.string().min(1).max(40),
+/** Pair independently-registered players into a DUO or SQUAD team (spec §Modes). */
+export const teamPairSchema = z.object({
+  registrationIds: z.array(z.string().min(1).max(40)).min(2).max(4),
 });
 
 /** Leaderboard admin controls (spec §40) — financial records untouched. */
@@ -226,6 +225,18 @@ export const upsertSeoSchema = z.object({
 export const settingUpdateSchema = z.object({
   key: z.string().trim().min(2).max(80),
   value: z.unknown(),
+});
+
+/** Full wallet-ledger filter for the admin Transactions page. */
+export const adminTransactionsQuerySchema = z.object({
+  type: z.string().trim().max(40).optional(),
+  bucket: z.string().trim().max(20).optional(),
+  direction: z.enum(['CREDIT', 'DEBIT']).optional(),
+  q: z.string().trim().max(80).optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  csv: z.enum(['1', 'true']).optional(),
+  ...pageSchema,
 });
 
 export const auditLogQuerySchema = z.object({

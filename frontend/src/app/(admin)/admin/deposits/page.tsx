@@ -2,7 +2,7 @@
 // Deposits review — design 32: status tabs, screenshot proof viewer,
 // approve (credits the ledger) / reject with note.
 import { useState } from 'react';
-import { Check, Loader2, X } from 'lucide-react';
+import { Check, Loader2, Trash2, X } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { AuthedImage, Modal, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
 import { api , apiGet } from '@/lib/client-api';
@@ -27,6 +27,17 @@ export default function AdminDepositsPage() {
   const [review, setReview] = useState<{ row: Row; action: 'APPROVE' | 'REJECT' } | null>(null);
   const [proof, setProof] = useState<Row | null>(null);
   const { data, loading, setData } = useAdminList<Page>(`/admin/deposits?status=${tab}&page=${page}&pageSize=15`, [tab, page]);
+
+  async function remove(d: Row) {
+    if (!window.confirm(`Remove this ${d.status.toLowerCase()} deposit (${d.user.username}, PKR ${d.amount.toLocaleString('en-PK')})? This is permanent.`)) return;
+    try {
+      await api(`/admin/deposits/${d.id}`, { method: 'DELETE' });
+      const fresh = await apiGet<Page>(`/admin/deposits?status=${tab}&page=${page}&pageSize=15`);
+      if (fresh) setData(fresh);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Remove failed');
+    }
+  }
 
   async function decide(action: 'APPROVE' | 'REJECT', note: string) {
     if (!review) return;
@@ -94,6 +105,11 @@ export default function AdminDepositsPage() {
                       </>
                     )}
                     {d.status !== 'PENDING' && d.adminNote && <span className="text-[11px] text-fg-3" title={d.adminNote}>📝</span>}
+                    {d.status !== 'APPROVED' && (
+                      <button onClick={() => void remove(d)} className="inline-flex items-center gap-1 rounded-input border border-danger/30 px-2.5 py-1 text-[11px] font-bold text-danger hover:bg-danger/10">
+                        <Trash2 size={12} /> Remove
+                      </button>
+                    )}
                   </div>
                 </Td>
               </Tr>

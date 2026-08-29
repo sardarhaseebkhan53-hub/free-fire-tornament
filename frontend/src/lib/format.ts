@@ -11,6 +11,23 @@ export function compact(n: number): string {
   return String(n);
 }
 
+/**
+ * Spreadsheet-style seat label: #1 → A, #2 → B … #26 → Z, #27 → AA …
+ * Used on the admin slot board and player-facing seat chips so seats read as
+ * A–Z instead of only zero-padded numbers.
+ */
+export function slotLabel(n: number): string {
+  const value = Math.max(1, Math.floor(Number(n) || 1));
+  let out = '';
+  let x = value;
+  while (x > 0) {
+    x -= 1;
+    out = String.fromCharCode(65 + (x % 26)) + out;
+    x = Math.floor(x / 26);
+  }
+  return out;
+}
+
 export function dateTime(d: string | Date): string {
   const date = new Date(d);
   return date.toLocaleString('en-PK', {

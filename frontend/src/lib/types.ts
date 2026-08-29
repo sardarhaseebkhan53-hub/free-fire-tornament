@@ -42,6 +42,7 @@ export interface TournamentDetails extends TournamentSummary {
   refundPercent: string;
   pointsPerKill: number;
   allowIndependentDuo: boolean;
+  allowIndependentSquad: boolean;
   prizeBreakdown: { entryFeesCollected: number; prizePool: number; platformFee: number };
   prizes: PrizeRow[];
   matches: Array<{

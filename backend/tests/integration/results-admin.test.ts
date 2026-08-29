@@ -8,7 +8,7 @@ import { confirmStandings, saveAdminResult, setResultsStatus } from '../../src/s
 import { assignSlot, clearSlot, setParticipantState, setSlotLock, slotBoard } from '../../src/services/slot.service';
 import { createTeam, joinByCode, teamJoinCode } from '../../src/services/team.service';
 import { joinTournament } from '../../src/services/tournament.service';
-import { adjustPlayerStats, recalculateLeaderboard, updateTournamentScoring } from '../../src/services/admin.service';
+import { adjustPlayerStats, deleteMatch, deleteTournament, deleteUser, listUsers, recalculateLeaderboard, updateTournamentScoring } from '../../src/services/admin.service';
 import { tournamentResults } from '../../src/services/public.service';
 import { cleanupUsers, db, makeTournament, makeUser, rejectsWithCode, uid } from '../helpers/db';
 
@@ -303,5 +303,60 @@ describe('per-tournament scoring configuration (spec §35)', () => {
     expect(floored.finalScore).toBe(0);
 
     void reg;
+  });
+});
+
+describe('admin tournament deletion', () => {
+  it('archives a finished/unused tournament and hides it from the admin list', async () => {
+    const admin = await makeUser({ role: 'ADMIN', prefix: 'del-admin' });
+    created.push(admin.id);
+    const t = await makeTournament({ status: 'COMPLETED', prizes: [{ kind: 'PLACEMENT', amount: 300, label: '1st' }] });
+    const removed = await deleteTournament(admin.id, t.id, ctx);
+    expect(removed.deleted).toBe(true);
+    const row = await db.tournament.findUniqueOrThrow({ where: { id: t.id } });
+    expect(row.deletedAt).not.toBeNull();
+    // Prizes and winner/financial rows remain for audit.
+    expect(await db.prize.count({ where: { tournamentId: t.id } })).toBe(1);
+    const { listTournamentsAdmin } = await import('../../src/services/admin.service');
+    const page = await listTournamentsAdmin({ page: 1, pageSize: 50 });
+    expect(page.items.find((x) => x.id === t.id)).toBeUndefined();
+  });
+
+  it('refuses to delete an active tournament', async () => {
+    const admin = await makeUser({ role: 'ADMIN', prefix: 'del-admin2' });
+    created.push(admin.id);
+    const t = await makeTournament({ status: 'REGISTRATION_OPEN' });
+    tournamentIds.push(t.id);
+    await rejectsWithCode(() => deleteTournament(admin.id, t.id, ctx), 'CONFLICT');
+  });
+
+  it('archives a match and hides it from the admin match list', async () => {
+    const admin = await makeUser({ role: 'ADMIN', prefix: 'del-match-admin' });
+    created.push(admin.id);
+    const t = await makeTournament({ status: 'COMPLETED' });
+    tournamentIds.push(t.id);
+    const m = await createMatch({
+      tournamentId: t.id, matchNumber: 1,
+      scheduledAt: new Date(Date.now() - 3_600_000).toISOString(),
+    }, admin.id, ctx);
+    matchIds.push(m.id);
+
+    const removed = await deleteMatch(admin.id, m.id, ctx);
+    expect(removed.deleted).toBe(true);
+    const row = await db.match.findUniqueOrThrow({ where: { id: m.id } });
+    expect(row.deletedAt).not.toBeNull();
+  });
+
+  it('removes a user account and hides it from the admin user list', async () => {
+    const admin = await makeUser({ role: 'ADMIN', prefix: 'del-user-admin' });
+    const u = await makeUser({ prefix: 'del-user' });
+    created.push(admin.id, u.id);
+    const removed = await deleteUser(admin.id, u.id, 'Suspicious account', ctx);
+    expect(removed.deleted).toBe(true);
+    const row = await db.user.findUniqueOrThrow({ where: { id: u.id } });
+    expect(row.deletedAt).not.toBeNull();
+    expect(row.status).toBe('BANNED');
+    const page = await listUsers({ page: 1, pageSize: 100 });
+    expect(page.items.find((x) => x.id === u.id)).toBeUndefined();
   });
 });

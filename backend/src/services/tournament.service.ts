@@ -76,7 +76,7 @@ export interface JoinInput {
   tournamentSlug: string;
   teamId?: string;
   couponCode?: string;
-  /** Required for SOLO (and independent DUO) — verified at join, synced to the profile. */
+  /** Required for SOLO and independently-registered team modes (DUO/SQUAD) — verified at join, synced to the profile. */
   freeFireUID?: string;
   freeFireIGN?: string;
 }
@@ -98,7 +98,7 @@ function validateFFIdentity(uidRaw?: string, ignRaw?: string): { uid: string; ig
 
 export async function joinTournament(userId: string, input: JoinInput, actorIp?: string, actorUa?: string) {
   const actor: ActorCtx = { ip: actorIp, userAgent: actorUa };
-  const t = await prisma.tournament.findUnique({ where: { slug: input.tournamentSlug } });
+  const t = await prisma.tournament.findFirst({ where: { slug: input.tournamentSlug, deletedAt: null } });
   if (!t || t.status === 'DRAFT') throw notFound('Tournament not found');
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -116,14 +116,25 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
   // use the global client and deadlock the single-writer embedded database.
   const currency = await getSetting('platform.currency', 'PKR');
   const allowIndependentDuo = await getSetting('tournament.allowIndependentDuo', false);
+  const allowIndependentSquad = await getSetting('tournament.allowIndependentSquad', false);
 
   // --- identity requirement -------------------------------------------------
   // SOLO: the joining player must confirm UID + nickname at join time.
-  // DUO/SQUAD: every team member needs a saved UID + nickname (profile).
+  // DUO/SQUAD: every team member needs a saved UID + nickname (profile), unless
+  // the platform opt-in lets a team-player register alone and be admin-paired.
   // Independent DUO (admin opt-in): same as SOLO — no team required.
+  // Independent SQUAD / Clash Squad (admin opt-in): same path.
   const isTeamJoin = teamSize > 1 && !!input.teamId;
   const isIndependentDuo = t.type === 'DUO' && !input.teamId && allowIndependentDuo === true && teamSize === 2;
-  if (teamSize === 1 || isIndependentDuo) {
+  const isIndependentSquad = (t.type === 'SQUAD' || t.type === 'CLASH_SQUAD') && !input.teamId && allowIndependentSquad === true && teamSize === 4;
+  const isIndependentTeam = isIndependentDuo || isIndependentSquad;
+  // A team mode without a team is only valid when the admin opt-in for that
+  // mode is enabled. Never let the backend silently register one player in a
+  // DUO/SQUAD event.
+  if (teamSize > 1 && !input.teamId && !isIndependentTeam) {
+    throw badRequest('VALIDATION_ERROR', `A ${teamSize === 2 ? 'duo' : 'squad'} team is required to register for this tournament.`);
+  }
+  if (teamSize === 1 || isIndependentTeam) {
     // Join-time identity confirmation: values sent by the client win, but the
     // saved profile is the fallback, so a player who already saved their UID/
     // nickname can still join without retyping it (the UI prefills both).
@@ -182,12 +193,12 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
       }
     }
     payerIds = team.members.map((m) => m.userId);
-  } else if (isIndependentDuo) {
+  } else if (isIndependentTeam) {
     flowTeamSize = 1; // paid + seated independently; admin pairs later
   }
 
   try {
-    return await runJoin(userId, input, t, feePerPlayer, currency, payerIds, flowTeamSize, actor, isIndependentDuo);
+    return await runJoin(userId, input, t, feePerPlayer, currency, payerIds, flowTeamSize, actor, isIndependentTeam);
   } catch (e) {
     // Rejections roll their transaction back, so the trail has to be written
     // outside it — this is what makes abuse patterns visible afterwards.
@@ -219,7 +230,7 @@ async function runJoin(
   payerIds: string[],
   teamSize: number,
   actor: ActorCtx,
-  independentDuo = false,
+  independentTeam = false,
 ) {
   const actorIp = actor.ip;
   return prisma.$transaction(async (tx) => {
@@ -382,7 +393,7 @@ async function runJoin(
         data: {
           userId: pid, type: 'TOURNAMENT_JOINED',
           title: `You joined ${t.title}`,
-          body: `Entry ${currency} ${payable} deducted. Your ${teamSize > 1 ? 'team ' : ''}seat is #${seatNumber}. Room details unlock 30 minutes before start — see My Matches.`,
+          body: `Entry ${currency} ${payable} deducted. Your ${independentTeam ? 'standalone ' : teamSize > 1 ? 'team ' : ''}seat is #${seatNumber}. Room details unlock 30 minutes before start — see My Matches.`,
           data: { tournamentId: t.id, slug: t.slug, seatNumber },
         },
       });
@@ -423,7 +434,7 @@ async function runJoin(
 // Team modes: captain cancels the whole team's registration.
 // ---------------------------------------------------------------------------
 export async function cancelRegistration(userId: string, tournamentSlug: string) {
-  const t = await prisma.tournament.findUnique({ where: { slug: tournamentSlug } });
+  const t = await prisma.tournament.findFirst({ where: { slug: tournamentSlug, deletedAt: null } });
   if (!t) throw notFound('Tournament not found');
 
   // Hoisted out of the transaction — settings reads use the global client and
