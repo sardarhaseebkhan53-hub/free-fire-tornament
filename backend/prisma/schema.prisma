@@ -334,6 +334,7 @@ model User {
   banReason   String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime? // soft delete/archive — keeps the financial ledger intact
 
   profile                 UserProfile?
   wallet                  Wallet?
@@ -593,6 +594,7 @@ model Tournament {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  deletedAt DateTime? // soft delete/archive — finished history hidden, funds untouched
 
   registrations TournamentRegistration[]
   matches       Match[]
@@ -730,6 +732,7 @@ model Match {
   startNotifiedAt DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime? // soft delete/archive — results/funds stay audited
 
   participants      MatchParticipant[]
   resultSubmissions ResultSubmission[]

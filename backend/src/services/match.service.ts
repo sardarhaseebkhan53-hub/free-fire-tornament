@@ -35,7 +35,7 @@ export interface CreateMatchInput {
 /** Admin/moderator — create a match and sync participants from registrations. */
 export async function createMatch(input: CreateMatchInput, adminId?: string, ctx: { ip?: string; userAgent?: string } = {}) {
   const tournament = await prisma.tournament.findUnique({ where: { id: input.tournamentId } });
-  if (!tournament) throw notFound('Tournament not found');
+  if (!tournament || tournament.deletedAt) throw notFound('Tournament not found');
 
   const scheduledAt = new Date(input.scheduledAt);
   if (Number.isNaN(scheduledAt.getTime())) throw badRequest('VALIDATION_ERROR', 'Invalid schedule time');
@@ -154,16 +154,16 @@ export async function matchTable(matchId: string) {
     select: {
       id: true, matchNumber: true, round: true, map: true, scheduledAt: true,
       status: true, resultsStatus: true, resultsFinalized: true, notes: true,
-      roomId: true, roomPassword: true, credentialsReleaseAt: true,
+      roomId: true, roomPassword: true, credentialsReleaseAt: true, deletedAt: true,
       tournament: {
         select: {
           id: true, title: true, slug: true, type: true, maxSlots: true,
-          pointsPerKill: true, placementPoints: true,
+          pointsPerKill: true, placementPoints: true, deletedAt: true,
         },
       },
     },
   });
-  if (!match) throw notFound('Match not found');
+  if (!match || match.deletedAt || match.tournament.deletedAt) throw notFound('Match not found');
 
   const participants = await prisma.matchParticipant.findMany({
     where: { matchId },
@@ -263,7 +263,7 @@ export async function updateMatch(
   ctx: { ip?: string; userAgent?: string },
 ) {
   const match = await prisma.match.findUnique({ where: { id: matchId } });
-  if (!match) throw notFound('Match not found');
+  if (!match || match.deletedAt) throw notFound('Match not found');
 
   const updated = await prisma.$transaction(async (tx) => {
     const row = await tx.match.update({
@@ -297,13 +297,14 @@ export async function updateMatch(
 
 export async function myMatches(userId: string) {
   const regs = await prisma.tournamentRegistration.findMany({
-    where: { userId, status: 'CONFIRMED' },
+    where: { userId, status: 'CONFIRMED', tournament: { deletedAt: null } },
     include: {
       tournament: {
         select: {
           id: true, title: true, slug: true, type: true, map: true, status: true,
           startTime: true, entryFeePerPlayer: true, prizePool: true,
           matches: {
+            where: { deletedAt: null },
             orderBy: { matchNumber: 'asc' },
             select: {
               id: true, matchNumber: true, round: true, map: true, scheduledAt: true,

@@ -3,7 +3,7 @@
 // with kill/placement override + auto points, screenshot proof, standings draft
 // and the idempotent prize-distribution trigger.
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Loader2, RefreshCcw, Trophy, X } from 'lucide-react';
+import { Check, Loader2, RefreshCcw, Trash2, Trophy, X } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { AuthedImage, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
 import { MatchTableModal } from '@/components/admin/match-table';
@@ -363,6 +363,15 @@ function PublishWorkflow({ tournaments, openTable, setOpenTable }: {
     const fresh = await apiGet<Page2>(`/admin/matches?${qs}`);
     if (fresh) setData(fresh);
   };
+  const removeMatch = async (id: string, label: string) => {
+    if (!window.confirm(`Remove match ${label}? Results, participants and financial records stay archived/audited.`)) return;
+    try {
+      await api(`/admin/matches/${id}`, { method: 'DELETE' });
+      await refresh();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Remove failed');
+    }
+  };
 
   return (
     <div>
@@ -402,6 +411,10 @@ function PublishWorkflow({ tournaments, openTable, setOpenTable }: {
                     </button>
                     <button onClick={() => void downloadProtectedFile(`/matches/${m.id}/export`, `match-${m.id.slice(0, 8)}.csv`)}
                       className="rounded-input border border-line px-2.5 py-1 text-[11px] font-bold text-fg-2 hover:text-fg">CSV</button>
+                    <button onClick={() => void removeMatch(m.id, `#${m.matchNumber}${m.round > 1 ? ` · R${m.round}` : ''}`)}
+                      className="inline-flex items-center gap-1 rounded-input border border-danger/30 px-2.5 py-1 text-[11px] font-bold text-danger hover:bg-danger/10">
+                      <Trash2 size={12} /> Delete
+                    </button>
                   </div>
                 </Td>
               </Tr>

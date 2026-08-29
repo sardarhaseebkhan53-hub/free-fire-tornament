@@ -19,7 +19,7 @@ import { listFraudAlerts, reviewFraudAlert } from '../services/fraud.service';
 import { adminWriteLimiter } from '../middleware/rateLimit';
 import {
   adjustBalance, adjustPlayerStats, adminReports, adminStats, createAd, createBlog,
-  createTournament, deleteTournament, listAds, listAllTransactions, listAllTransactionsCsv, listAuditLogs, listBlog, listMatchesAdmin, listSeo,
+  createTournament, deleteMatch, deleteTournament, deleteUser, listAds, listAllTransactions, listAllTransactionsCsv, listAuditLogs, listBlog, listMatchesAdmin, listSeo,
   listSettings, listTeamsAdmin, listTickets, listTournamentsAdmin, listUsers,
   listWinnersAdmin, recalculateLeaderboard, replyTicket, revenueAnalytics,
   setBlogStatus, setMatchStatus, setTournamentStatus, setUserStatus, toggleAd,
@@ -74,6 +74,12 @@ adminRouter.post('/users/:id/adjust-balance', async (req, res) => {
   const input = adjustBalanceSchema.parse(req.body);
   return ok(res, await adjustBalance(req.auth!.id, String(req.params.id), input, ctxOf(req)), 'Balance adjusted and audited.');
 });
+// Soft-delete/archive a user. Balances and the wallet ledger are preserved but
+// the account is banned and hidden from every list.
+adminRouter.delete('/users/:id', adminWriteLimiter, async (req, res) => {
+  const reason = typeof req.query.reason === 'string' ? req.query.reason.trim() : '';
+  return ok(res, await deleteUser(req.auth!.id, String(req.params.id), reason, ctxOf(req)), 'User removed.');
+});
 
 // Tournaments + builder
 adminRouter.get('/tournaments', async (req, res) => {
@@ -97,6 +103,9 @@ adminRouter.put('/tournaments/:id/scoring', adminWriteLimiter, async (req, res) 
 adminRouter.get('/matches', async (req, res) => {
   const q = matchListQuerySchema.parse(req.query);
   return ok(res, await listMatchesAdmin(q));
+});
+adminRouter.delete('/matches/:id', adminWriteLimiter, async (req, res) => {
+  return ok(res, await deleteMatch(req.auth!.id, String(req.params.id), ctxOf(req)), 'Match removed.');
 });
 adminRouter.get('/matches/:id/table', async (req, res) => {
   return ok(res, await matchTable(String(req.params.id)));

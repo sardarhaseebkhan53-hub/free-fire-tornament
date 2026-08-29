@@ -26,6 +26,7 @@ export async function listTournaments(q: TournamentListQuery) {
   const limit = Math.min(50, Math.max(1, q.limit ?? 12));
 
   const where: Prisma.TournamentWhereInput = {
+    deletedAt: null,
     status: { not: 'DRAFT' }, // drafts are admin-only
     ...(q.type ? { type: q.type as never } : {}),
     ...(q.status ? { status: q.status as never } : {}),
@@ -75,11 +76,12 @@ export async function listTournaments(q: TournamentListQuery) {
 
 // ---------------------------------------------------------------------------
 export async function getTournamentBySlug(slug: string) {
-  const t = await prisma.tournament.findUnique({
-    where: { slug },
+  const t = await prisma.tournament.findFirst({
+    where: { slug, deletedAt: null },
     include: {
       prizes: { orderBy: { position: 'asc' } },
       matches: {
+        where: { deletedAt: null },
         orderBy: { matchNumber: 'asc' },
         select: {
           id: true, round: true, matchNumber: true, map: true, scheduledAt: true, status: true,
@@ -478,11 +480,11 @@ export async function getSeoConfig(pageSlug: string) {
 import { tournamentStandings } from './result.service';
 
 export async function tournamentResults(slug: string) {
-  const t = await prisma.tournament.findUnique({
-    where: { slug },
+  const t = await prisma.tournament.findFirst({
+    where: { slug, deletedAt: null },
     select: {
       id: true, title: true, type: true, status: true,
-      matches: { select: { id: true, resultsStatus: true }, orderBy: { matchNumber: 'asc' } },
+      matches: { where: { deletedAt: null }, select: { id: true, resultsStatus: true }, orderBy: { matchNumber: 'asc' } },
     },
   });
   if (!t) return null;

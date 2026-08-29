@@ -40,7 +40,7 @@ export default function AdminTournamentsPage() {
   }
 
   async function remove(t: Row) {
-    if (!window.confirm(`Delete draft tournament "${t.title}"? This permanently removes its prizes and cannot be undone.`)) return;
+    if (!window.confirm(`Remove "${t.title}" from the admin panel? Finished/unused tournaments are archived — money, winners and the ledger stay untouched.`)) return;
     setDeleting(true);
     try {
       await api(`/admin/tournaments/${t.id}`, { method: 'DELETE' });
@@ -102,7 +102,7 @@ export default function AdminTournamentsPage() {
                         Cancel
                       </button>
                     )}
-                    {t.status === 'DRAFT' && (
+                    {['DRAFT', 'CANCELLED', 'COMPLETED'].includes(t.status) && (
                       <button
                         onClick={() => remove(t)}
                         disabled={deleting}

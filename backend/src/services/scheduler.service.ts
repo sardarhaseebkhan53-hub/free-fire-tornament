@@ -17,6 +17,8 @@ export async function notifyUpcomingMatches(): Promise<number> {
 
   const matches = await prisma.match.findMany({
     where: {
+      deletedAt: null,
+      tournament: { deletedAt: null },
       startNotifiedAt: null,
       scheduledAt: { gte: from, lte: until },
       status: { in: ['SCHEDULED', 'CREDENTIALS_RELEASED', 'LIVE'] },

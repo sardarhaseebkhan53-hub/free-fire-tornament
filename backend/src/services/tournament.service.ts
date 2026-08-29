@@ -98,7 +98,7 @@ function validateFFIdentity(uidRaw?: string, ignRaw?: string): { uid: string; ig
 
 export async function joinTournament(userId: string, input: JoinInput, actorIp?: string, actorUa?: string) {
   const actor: ActorCtx = { ip: actorIp, userAgent: actorUa };
-  const t = await prisma.tournament.findUnique({ where: { slug: input.tournamentSlug } });
+  const t = await prisma.tournament.findFirst({ where: { slug: input.tournamentSlug, deletedAt: null } });
   if (!t || t.status === 'DRAFT') throw notFound('Tournament not found');
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -434,7 +434,7 @@ async function runJoin(
 // Team modes: captain cancels the whole team's registration.
 // ---------------------------------------------------------------------------
 export async function cancelRegistration(userId: string, tournamentSlug: string) {
-  const t = await prisma.tournament.findUnique({ where: { slug: tournamentSlug } });
+  const t = await prisma.tournament.findFirst({ where: { slug: tournamentSlug, deletedAt: null } });
   if (!t) throw notFound('Tournament not found');
 
   // Hoisted out of the transaction — settings reads use the global client and
