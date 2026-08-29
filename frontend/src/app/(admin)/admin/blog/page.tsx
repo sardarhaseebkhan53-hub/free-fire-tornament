@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Modal, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
-import { api } from '@/lib/client-api';
+import { api , apiGet } from '@/lib/client-api';
 
 interface Row { id: string; title: string; slug: string; category: string; status: string; author: string; createdAt: string }
 interface Page { items: Row[]; total: number; page: number; pageSize: number }
@@ -17,8 +17,8 @@ export default function AdminBlogPage() {
   async function toggle(id: string, publish: boolean) {
     try {
       await api(`/admin/blog/${id}/status`, { method: 'POST', body: { publish } });
-      const fresh = await fetch(`/api/backend/admin/blog?page=${page}&pageSize=12`, { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json());
-      if (fresh.success) setData(fresh.data);
+      const fresh = await apiGet<Page>(`/api/backend/admin/blog?page=${page}&pageSize=12`);
+      if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Toggle failed');
     }
@@ -57,7 +57,7 @@ export default function AdminBlogPage() {
         </>
       )}
 
-      {creating && <CreatePost onClose={() => setCreating(false)} onDone={async () => { setCreating(false); const f = await fetch('/api/backend/admin/blog?page=1&pageSize=12', { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json()); if (f.success) setData(f.data); }} />}
+      {creating && <CreatePost onClose={() => setCreating(false)} onDone={async () => { setCreating(false); const f = await apiGet<Page>(`/api/backend/admin/blog?page=1&pageSize=12`); if (f) setData(f); }} />}
     </div>
   );
 }

@@ -9,6 +9,12 @@ import { cleanupUsers, db, ledgerIsConsistent, makeTournament, makeUser, rejects
 const created: string[] = [];
 const ctxIp = '203.0.113.30';
 
+// SOLO joins confirm the player's Free Fire identity at join time (§6) — the
+// test users already carry a UID + IGN on their profile (see helpers/db.ts), so
+// joins here pass the requirement and exercise the engine itself.
+const joinFF = (id: string, t: { slug: string }, extra: Record<string, unknown> = {}) =>
+  joinTournament(id, { tournamentSlug: t.slug, ...extra }, ctxIp);
+
 afterAll(async () => {
   await db.coupon.deleteMany({ where: { code: { startsWith: 'TST' } } });
   await db.tournament.deleteMany({ where: { slug: { startsWith: 'tour' } } });
@@ -23,8 +29,8 @@ describe('join — race safety', () => {
     created.push(u.id);
 
     const results = await Promise.allSettled([
-      joinTournament(u.id, { tournamentSlug: t.slug }, ctxIp),
-      joinTournament(u.id, { tournamentSlug: t.slug }, ctxIp),
+      joinFF(u.id, t),
+      joinFF(u.id, t),
     ]);
     const succeeded = results.filter((r) => r.status === 'fulfilled');
     expect(succeeded).toHaveLength(1);
@@ -42,7 +48,7 @@ describe('join — race safety', () => {
     created.push(...players.map((p) => p.id));
 
     await Promise.allSettled(
-      players.map((p) => joinTournament(p.id, { tournamentSlug: t.slug }, ctxIp)),
+      players.map((p) => joinFF(p.id, t)),
     );
 
     const row = await db.tournament.findUniqueOrThrow({ where: { id: t.id } });
@@ -57,8 +63,8 @@ describe('join — race safety', () => {
     const [a, b] = [await makeUser({ cash: 500 }), await makeUser({ cash: 500 })];
     created.push(a.id, b.id);
 
-    await joinTournament(a.id, { tournamentSlug: t.slug }, ctxIp);
-    await rejectsWithCode(() => joinTournament(b.id, { tournamentSlug: t.slug }, ctxIp), 'TOURNAMENT_FULL');
+    await joinFF(a.id, t);
+    await rejectsWithCode(() => joinFF(b.id, t), 'TOURNAMENT_FULL');
   });
 
   it('refuses to join after the registration deadline', async () => {
@@ -69,7 +75,7 @@ describe('join — race safety', () => {
     });
     const u = await makeUser({ cash: 500 });
     created.push(u.id);
-    await rejectsWithCode(() => joinTournament(u.id, { tournamentSlug: t.slug }, ctxIp), 'TOURNAMENT_CLOSED');
+    await rejectsWithCode(() => joinFF(u.id, t), 'TOURNAMENT_CLOSED');
   });
 
   it('refuses an unverified or inactive account', async () => {
@@ -119,7 +125,7 @@ describe('coupons', () => {
     expect(preview.discount).toBe(20); // 50% of 100 capped at 20
     expect(preview.payable).toBe(80);
 
-    await joinTournament(u.id, { tournamentSlug: t.slug, couponCode: code }, ctxIp);
+    await joinFF(u.id, t, { couponCode: code });
     expect((await walletOf(u.id)).cash).toBe(920);
   });
 
@@ -128,7 +134,7 @@ describe('coupons', () => {
     const code = await makeCoupon({ type: 'FIXED', value: 30 });
     const u = await makeUser({ cash: 1000 });
     created.push(u.id);
-    await joinTournament(u.id, { tournamentSlug: t.slug, couponCode: code }, ctxIp);
+    await joinFF(u.id, t, { couponCode: code });
     expect((await walletOf(u.id)).cash).toBe(930);
   });
 
@@ -139,9 +145,9 @@ describe('coupons', () => {
     const u = await makeUser({ cash: 1000 });
     created.push(u.id);
 
-    await joinTournament(u.id, { tournamentSlug: t1.slug, couponCode: code }, ctxIp);
+    await joinFF(u.id, t1, { couponCode: code });
     await rejectsWithCode(
-      () => joinTournament(u.id, { tournamentSlug: t2.slug, couponCode: code }, ctxIp),
+      () => joinFF(u.id, t2, { couponCode: code }),
       'VALIDATION_ERROR',
     );
   });
@@ -165,7 +171,7 @@ describe('coupons', () => {
     created.push(...players.map((p) => p.id));
 
     await Promise.allSettled(
-      players.map((p, i) => joinTournament(p.id, { tournamentSlug: tournaments[i]!.slug, couponCode: code }, ctxIp)),
+      players.map((p, i) => joinFF(p.id, tournaments[i]!, { couponCode: code })),
     );
 
     const coupon = await db.coupon.findUniqueOrThrow({ where: { code } });
@@ -180,7 +186,7 @@ describe('cancellation and refunds', () => {
     const u = await makeUser({ cash: 1000 });
     created.push(u.id);
 
-    await joinTournament(u.id, { tournamentSlug: t.slug }, ctxIp);
+    await joinFF(u.id, t);
     expect((await walletOf(u.id)).cash).toBe(800);
 
     const out = await cancelRegistration(u.id, t.slug);

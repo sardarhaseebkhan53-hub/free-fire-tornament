@@ -65,6 +65,24 @@ export const createTournamentSchema = z.object({
   prizes: z.array(prizeSchema).min(1).max(20),
   publish: z.boolean().default(false),
   confirmLoss: z.boolean().default(false),
+  // Spec §5 — full tournament configuration
+  banner: z.string().trim().max(300).optional().default(''),
+  rules: z.string().trim().max(4000).optional().default(''),
+  placementPoints: z.array(z.coerce.number().int().min(0).max(1000)).max(50).optional(),
+  bonusPoints: z.coerce.number().int().min(0).max(9999).default(0),
+  penaltyPoints: z.coerce.number().int().min(0).max(9999).default(0),
+  roomId: z.string().trim().max(20).optional().default(''),
+  roomPassword: z.string().trim().max(30).optional().default(''),
+  matchNumber: z.coerce.number().int().min(1).max(500).optional().default(1),
+  matchMap: z.string().trim().max(40).optional().default(''),
+  matchScheduledOffsetMinutes: z.coerce.number().int().min(0).max(1440).optional().default(0),
+});
+
+export const tournamentScoringSchema = z.object({
+  pointsPerKill: z.coerce.number().int().min(0).max(20),
+  placementPoints: z.array(z.coerce.number().int().min(0).max(1000)).max(50),
+  bonusPoints: z.coerce.number().int().min(0).max(9999),
+  penaltyPoints: z.coerce.number().int().min(0).max(9999),
 });
 
 export const tournamentStatusSchema = z.object({
@@ -72,10 +90,81 @@ export const tournamentStatusSchema = z.object({
 });
 
 export const matchStatusSchema = z.object({
-  status: z.enum(['SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELLED']),
+  status: z.enum(['UPCOMING', 'SCHEDULED', 'ROOM_CREATED', 'ROOM_OPEN', 'LIVE', 'COMPLETED', 'CANCELLED']),
 });
 
-export const matchListQuerySchema = z.object({ tournamentId: z.string().max(40).optional(), ...pageSchema });
+export const matchListQuerySchema = z.object({
+  tournamentId: z.string().max(40).optional(),
+  q: z.string().trim().max(64).optional(),
+  status: z.enum(['UPCOMING', 'SCHEDULED', 'ROOM_CREATED', 'ROOM_OPEN', 'CREDENTIALS_RELEASED', 'LIVE', 'COMPLETED', 'CANCELLED']).optional(),
+  sort: z.enum(['scheduledAt', 'matchNumber', 'status']).optional().default('scheduledAt'),
+  dir: z.enum(['asc', 'desc']).optional().default('desc'),
+  ...pageSchema,
+});
+
+/** Admin result-row editor (spec §39) — server recomputes final score. */
+export const adminResultRowSchema = z.object({
+  participantId: z.string().min(1),
+  position: z.coerce.number().int().min(1).max(500).nullish(),
+  kills: z.coerce.number().int().min(0).max(999).nullish(),
+  bonus: z.coerce.number().int().min(0).max(9999).nullish(),
+  penalty: z.coerce.number().int().min(0).max(9999).nullish(),
+  prize: z.coerce.number().min(0).max(10_000_000).nullish(),
+  notes: z.string().trim().max(1000).nullish(),
+  status: z.enum(['REGISTERED', 'PLAYED', 'DISQUALIFIED']).optional(),
+  absent: z.boolean().optional(),
+  ready: z.boolean().optional(),
+  evidenceUrl: z.string().trim().max(300).nullish(),
+});
+
+export const resultsStatusSchema = z.object({
+  status: z.enum(['DRAFT', 'UNDER_REVIEW', 'CONFIRMED', 'PUBLISHED']),
+});
+
+/** Admin slot control (spec §12) */
+export const slotAssignSchema = z.object({
+  slot: z.coerce.number().int().min(1).max(500),
+  reason: z.string().trim().max(300).optional().default(''),
+});
+
+export const slotClearSchema = z.object({
+  reason: z.string().trim().max(300).optional().default(''),
+});
+
+export const slotLockSchema = z.object({
+  locked: z.boolean(),
+  note: z.string().trim().max(300).nullish().default(''),
+});
+
+export const participantStateSchema = z.object({
+  ready: z.boolean().optional(),
+  absent: z.boolean().optional(),
+  status: z.enum(['REGISTERED', 'PLAYED', 'DISQUALIFIED']).optional(),
+  note: z.string().trim().max(500).optional(),
+});
+
+export const registrationReadySchema = z.object({
+  ready: z.boolean(),
+  note: z.string().trim().max(300).nullish().default(''),
+});
+
+/** Leaderboard admin controls (spec §40) — financial records untouched. */
+export const leaderboardAdjustSchema = z.object({
+  userId: z.string().min(1),
+  kills: z.coerce.number().int().min(-10000).max(10000).optional(),
+  totalPoints: z.coerce.number().int().min(-100000).max(100000).optional(),
+  wins: z.coerce.number().int().min(-1000).max(1000).optional(),
+  matchesPlayed: z.coerce.number().int().min(-1000).max(1000).optional(),
+  note: z.string().trim().min(3).max(300),
+});
+
+export const matchUpdateSchema = z.object({
+  notes: z.string().trim().max(500).nullish(),
+  roomId: z.string().trim().max(20).nullish(),
+  roomPassword: z.string().trim().max(30).nullish(),
+  scheduledAt: z.string().datetime({ offset: true }).nullish(),
+  map: z.string().trim().max(40).nullish(),
+});
 
 export const ticketListQuerySchema = z.object({ status: z.enum(['OPEN', 'IN_PROGRESS', 'WAITING_USER', 'RESOLVED', 'CLOSED']).optional(), ...pageSchema });
 

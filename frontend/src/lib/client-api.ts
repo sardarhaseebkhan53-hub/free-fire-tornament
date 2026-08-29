@@ -34,42 +34,68 @@ const CLIENT_HEADER = 'x-clutchnex-client';
 
 type ApiInit = Omit<RequestInit, 'body'> & { body?: unknown; form?: FormData };
 
-async function rawFetch<T>(path: string, init: ApiInit): Promise<ApiEnvelope<T>> {
+/** Rotate the access token via the HttpOnly refresh cookie. Returns true on success. */
+async function refreshAccessToken(): Promise<boolean> {
+  if (!getToken()) return false;
+  const refreshed = await fetch('/api/backend/auth/refresh', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { [CLIENT_HEADER]: 'web' },
+  });
+  if (!refreshed.ok) return false;
+  const rjson = (await refreshed.json()) as ApiEnvelope<{ accessToken: string }>;
+  if (rjson.success && rjson.data?.accessToken) {
+    localStorage.setItem('cn_access', rjson.data.accessToken);
+    return true;
+  }
+  return false;
+}
+
+/** Authed fetch that transparently refreshes the access token once on a 401
+ * and retries. Returns the raw Response so callers can consume blobs (CSV
+ * export) or non-JSON payloads. */
+export async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken();
-  const headers: Record<string, string> = { [CLIENT_HEADER]: 'web' };
-  if (token) headers.authorization = `Bearer ${token}`;
+  const headers = new Headers(init.headers);
+  headers.set(CLIENT_HEADER, 'web');
+  if (token) headers.set('authorization', `Bearer ${token}`);
+  const opts = { ...init, headers, credentials: 'include' as const };
+  let res = await fetch(`/api/backend${path}`, opts);
+  if (res.status === 401 && token && (await refreshAccessToken())) {
+    if (getToken()) headers.set('authorization', `Bearer ${getToken()}`);
+    res = await fetch(`/api/backend${path}`, opts);
+  }
+  return res;
+}
+
+async function rawFetch<T>(path: string, init: ApiInit): Promise<ApiEnvelope<T>> {
   let body: BodyInit | undefined;
+  const headers: Record<string, string> = {};
   if (init.form) body = init.form;
   else if (init.body !== undefined) {
     headers['content-type'] = 'application/json';
     body = JSON.stringify(init.body);
   }
-  const res = await fetch(`/api/backend${path}`, { ...init, headers, body, credentials: 'include' });
+  const res = await authedFetch(path, { ...init, headers, body });
   const json = (await res.json().catch(() => ({ success: false, code: 'NETWORK', message: 'Bad response' }))) as ApiEnvelope<T>;
   return json;
+}
+
+/** Authed GET with the same refresh-once semantics; returns data or null on failure. */
+export async function apiGet<T>(path: string): Promise<T | null> {
+  try {
+    return await api<T>(path);
+  } catch {
+    return null;
+  }
 }
 
 export async function api<T>(
   path: string,
   init: ApiInit = {},
 ): Promise<T> {
-  let json = await rawFetch<T>(path, init);
-
-  // Access token expired → rotate via refresh cookie and retry once.
-  if (!json.success && json.code === 'UNAUTHORIZED' && getToken()) {
-    const refreshed = await fetch('/api/backend/auth/refresh', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { [CLIENT_HEADER]: 'web' },
-    });
-    if (refreshed.ok) {
-      const rjson = (await refreshed.json()) as ApiEnvelope<{ accessToken: string }>;
-      if (rjson.success && rjson.data?.accessToken) {
-        localStorage.setItem('cn_access', rjson.data.accessToken);
-        json = await rawFetch<T>(path, init);
-      }
-    }
-  }
+  // rawFetch already performs the refresh-once retry on a 401 (see authedFetch).
+  const json = await rawFetch<T>(path, init);
 
   if (!json.success) {
     const fieldErrors: Record<string, string> = {};

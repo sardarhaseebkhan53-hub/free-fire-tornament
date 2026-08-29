@@ -6,7 +6,7 @@ import Link from 'next/link';
 import {
   Headphones, ImagePlus, Loader2, Lock, MessageSquare, Paperclip, Plus, Send, ShieldCheck, X,
 } from 'lucide-react';
-import { api, ApiClientError, getToken } from '@/lib/client-api';
+import { api, ApiClientError, authedFetch, getToken } from '@/lib/client-api';
 import { deferLoad } from '@/lib/session';
 
 // ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ function Attachment({ url }: { url: string }) {
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
     let revoke: string | null = null;
-    fetch(`/api/backend${url}`, { headers: { authorization: `Bearer ${getToken() ?? ''}` } })
+    authedFetch(url)
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('x'))))
       .then((b) => {
         revoke = URL.createObjectURL(b);
@@ -145,11 +145,7 @@ export default function SupportTicketsPage() {
       const fd = new FormData();
       fd.set('body', reply.trim());
       if (replyFile) fd.set('attachment', replyFile);
-      const res = await fetch(`/api/backend/support/${active}/reply`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${getToken() ?? ''}` },
-        body: fd,
-      });
+      const res = await authedFetch(`/support/${active}/reply`, { method: 'POST', body: fd });
       const j = (await res.json()) as { success: boolean; message?: string };
       if (!j.success) throw new Error(j.message ?? 'Could not send');
       setReply('');
@@ -174,11 +170,7 @@ export default function SupportTicketsPage() {
       fd.set('subject', fSubject.trim());
       fd.set('message', fMessage.trim());
       if (fFile) fd.set('attachment', fFile);
-      const res = await fetch('/api/backend/support', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${getToken() ?? ''}` },
-        body: fd,
-      });
+      const res = await authedFetch('/support', { method: 'POST', body: fd });
       const j = (await res.json()) as { success: boolean; message?: string; errors?: Array<{ path: string; message: string }>; data?: { id: string } };
       if (!j.success) {
         const first = j.errors?.[0]?.message;

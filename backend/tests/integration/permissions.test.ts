@@ -216,3 +216,33 @@ describe('public API leaks nothing privileged', () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('PUT /api/auth/profile — identity edit surface', () => {
+  it('requires auth and updates the profile when signed in', async () => {
+    const u = await makeUser({ prefix: 'rt' });
+    created.push(u.id);
+
+    const anon = await call('/api/auth/profile', undefined, 'PUT', { freeFireIGN: 'Guest' });
+    expect(anon.status).toBe(401);
+
+    const okRes = await call('/api/auth/profile', tokenFor(u, 'USER'), 'PUT', {
+      fullName: 'Route Tester', freeFireIGN: 'Routeman', showPublicProfile: true,
+    });
+    expect(okRes.status).toBe(200);
+    const body = okRes.json.data as { profile?: { freeFireIGN: string | null; fullName: string | null; showPublicProfile: boolean } };
+    expect(body.profile?.freeFireIGN).toBe('Routeman');
+    expect(body.profile?.fullName).toBe('Route Tester');
+    expect(body.profile?.showPublicProfile).toBe(true);
+  });
+
+  it('returns FF_UID_TAKEN when the UID belongs to another account', async () => {
+    const a = await makeUser({ prefix: 'rt-a' });
+    const b = await makeUser({ prefix: 'rt-b' });
+    created.push(a.id, b.id);
+
+    await call('/api/auth/profile', tokenFor(a, 'USER'), 'PUT', { freeFireUID: '1234590000', freeFireIGN: 'Alpha' });
+    const dup = await call('/api/auth/profile', tokenFor(b, 'USER'), 'PUT', { freeFireUID: '1234590000', freeFireIGN: 'Beta' });
+    expect(dup.status).toBe(409);
+    expect(dup.json.code).toBe('FF_UID_TAKEN');
+  });
+});

@@ -390,6 +390,44 @@ export async function resetPassword(token: string, newPassword: string, ctx: Req
   return { reset: true };
 }
 
+/** Profile edit (spec §20) — updates/creates the profile row; UID uniqueness enforced. */
+export async function updateProfile(
+  userId: string,
+  input: {
+    fullName?: string; freeFireUID?: string | null; freeFireIGN?: string | null;
+    city?: string | null; bio?: string | null; showPublicProfile?: boolean;
+  },
+) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, username: true, profile: { select: { id: true } } },
+  });
+  if (!user) throw unauthorized('UNAUTHORIZED', 'Account no longer exists.');
+
+  const data = {
+    ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
+    ...(input.freeFireUID !== undefined ? { freeFireUID: input.freeFireUID || null } : {}),
+    ...(input.freeFireIGN !== undefined ? { freeFireIGN: input.freeFireIGN || null } : {}),
+    ...(input.city !== undefined ? { city: input.city || null } : {}),
+    ...(input.bio !== undefined ? { bio: input.bio || null } : {}),
+    ...(input.showPublicProfile !== undefined ? { showPublicProfile: input.showPublicProfile } : {}),
+  };
+
+  try {
+    const profile = user.profile
+      ? await prisma.userProfile.update({ where: { userId }, data })
+      : await prisma.userProfile.create({ data: { userId, fullName: input.fullName ?? user.username, ...data } });
+    const updated = await me(userId);
+    await audit({ actorId: userId, action: 'PROFILE_UPDATED', entity: 'UserProfile', entityId: profile.id, after: data });
+    return updated;
+  } catch (e) {
+    if ((e as { code?: string }).code === 'P2002') {
+      throw conflict('FF_UID_TAKEN', 'This Free Fire UID is already linked to another CLUTCHNEX account.');
+    }
+    throw e;
+  }
+}
+
 export async function changePassword(userId: string, currentPassword: string, newPassword: string, ctx: RequestContext = {}) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || !bcrypt.compareSync(currentPassword, user.passwordHash)) {

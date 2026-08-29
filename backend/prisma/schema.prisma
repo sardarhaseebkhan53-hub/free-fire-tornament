@@ -149,11 +149,23 @@ enum InviteStatus {
 }
 
 enum MatchStatus {
+  UPCOMING
   SCHEDULED
+  ROOM_CREATED
+  ROOM_OPEN
   CREDENTIALS_RELEASED
   LIVE
   COMPLETED
   CANCELLED
+}
+
+/// Results lifecycle for a match: Draft → Admin Review → Confirm → Publish.
+/// Public results/winners are only served after PUBLISHED.
+enum MatchResultStatus {
+  DRAFT
+  UNDER_REVIEW
+  CONFIRMED
+  PUBLISHED
 }
 
 enum ParticipantStatus {
@@ -563,6 +575,13 @@ model Tournament {
   numWinners      Int     @default(3)
   refundPercent   Decimal @default(100) @db.Decimal(5, 2) // refund share if cancelled
   pointsPerKill   Int     @default(1)
+  /// Per-tournament placement-point table (1st→Nth), e.g. [12,9,8,7,...].
+  /// JSON array of integers; falls back to the global default when null.
+  placementPoints Json?
+  /// Bonus points preconfigured for this tournament (added to final score).
+  bonusPoints Int @default(0)
+  /// Penalty points preconfigured (subtracted from final score).
+  penaltyPoints Int @default(0)
 
   startTime            DateTime
   registrationDeadline DateTime
@@ -603,7 +622,10 @@ model TournamentRegistration {
   /// transaction. SOLO: one player per seat. Team modes: all members share the
   /// team's seat. Seat numbers are never reused while the tournament is full.
   seatNumber       Int?
-  registeredAt     DateTime           @default(now())
+  /// Admin slot control — a locked slot cannot be auto-assigned or moved.
+  slotLocked       Boolean  @default(false)
+  slotNote         String?
+  registeredAt     DateTime @default(now())
   cancelledAt      DateTime?
 
   @@unique([tournamentId, userId]) // race-safe: one entry per user per tournament
@@ -626,6 +648,8 @@ model Team {
   captain   User     @relation("TeamCaptain", fields: [captainId], references: [id], onDelete: Cascade)
   type      TeamType
   logo      String?
+  /// Shareable join code (e.g. CNX-7K2F) — players can join through /teams/join.
+  joinCode  String?  @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -692,6 +716,12 @@ model Match {
   credentialsReleasedAt DateTime?
 
   resultsFinalized Boolean  @default(false)
+  /// Controlled results workflow: DRAFT → UNDER_REVIEW → CONFIRMED → PUBLISHED.
+  /// Public results + winners are only served after PUBLISHED.
+  resultsStatus         MatchResultStatus @default(DRAFT)
+  resultsPublishedAt    DateTime?
+  /// Admin-operational notes for the match (not shown publicly).
+  notes String?
   // Set once the "starts in ~5 minutes" reminder has been sent (scheduler).
   startNotifiedAt DateTime?
   createdAt       DateTime  @default(now())
@@ -718,6 +748,22 @@ model MatchParticipant {
   placement Int?
   kills     Int?
   points    Int?
+  /// Bonus points added to the final score (admin-entered or tournament default).
+  bonus   Int?
+  /// Penalty points subtracted from the final score (admin-entered or default).
+  penalty Int?
+  /// Final Score = placement points + kill points + bonus − penalty.
+  /// Stored so published rankings never drift from the formula used at entry time.
+  finalScore Int?
+  /// Prize amount won for this participant (display + winners record).
+  prizeAmount Decimal? @db.Decimal(14, 2)
+  /// Admin notes per participant row (e.g. evidence link, reason).
+  notes String?
+  /// Admin slot control: ready / absent bookkeeping per match.
+  readyAt DateTime?
+  absent  Boolean       @default(false)
+  /// Optional admin-uploaded evidence screenshot path.
+  evidenceUrl String?
   status    ParticipantStatus @default(REGISTERED)
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
@@ -725,6 +771,7 @@ model MatchParticipant {
   @@unique([matchId, teamId])
   @@unique([matchId, userId])
   @@index([matchId])
+  @@index([matchId, finalScore])
   @@map("match_participants")
 }
 

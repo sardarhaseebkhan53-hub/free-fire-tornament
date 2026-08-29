@@ -25,5 +25,10 @@ export const createMatchSchema = z.object({
   scheduledAt: z.string().datetime({ offset: true }),
   roomId: z.string().max(20).optional(),
   roomPassword: z.string().max(30).optional(),
+  notes: z.string().trim().max(500).optional(),
   releaseMinutesBeforeStart: z.coerce.number().int().min(0).max(240).optional(),
+});
+
+export const joinTeamByCodeSchema = z.object({
+  code: z.string().trim().min(4).max(24),
 });

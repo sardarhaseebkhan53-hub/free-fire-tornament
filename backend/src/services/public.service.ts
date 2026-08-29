@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma';
 import { notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { rankFor, rankCatalog } from '../lib/rank';
+import { normalizePlacementTable } from '../lib/scoring';
 
 // ---------------------------------------------------------------------------
 export interface TournamentListQuery {
@@ -82,6 +83,7 @@ export async function getTournamentBySlug(slug: string) {
         orderBy: { matchNumber: 'asc' },
         select: {
           id: true, round: true, matchNumber: true, map: true, scheduledAt: true, status: true,
+          resultsStatus: true,
           credentialsReleaseAt: true,
           // Room credentials intentionally NOT selected for public responses.
         },
@@ -114,13 +116,46 @@ export async function getTournamentBySlug(slug: string) {
       prizePool: Number(t.prizePool),
       platformFee: Number(t.platformFee),
     },
+    scoring: {
+      pointsPerKill: t.pointsPerKill,
+      placementTable: normalizePlacementTable(t.placementPoints),
+      bonusPoints: t.bonusPoints,
+      penaltyPoints: t.penaltyPoints,
+    },
     prizes,
     matches: matches.map((m) => ({
       ...m,
       credentialsUnlocked: m.credentialsReleaseAt !== null && m.credentialsReleaseAt <= now,
       credentialsReleaseInMs: m.credentialsReleaseAt ? m.credentialsReleaseAt.getTime() - now.getTime() : null,
+      resultsPublished: m.resultsStatus === 'PUBLISHED',
     })),
     participants: registrations,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Ads (rendered client-side; admin-managed placements)
+// ---------------------------------------------------------------------------
+export async function activeAds(placement: string) {
+  const now = new Date();
+  const list = await prisma.advertisement.findMany({
+    where: {
+      placement: placement as never,
+      isActive: true,
+      OR: [{ startsAt: null }, { startsAt: { lte: now } }],
+      AND: [{ endsAt: null }, { endsAt: { gte: now } }],
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, name: true, imageUrl: true, targetUrl: true, embedHtml: true },
+  });
+  return {
+    items: list.map((a) => ({
+      id: a.id,
+      name: a.name,
+      imageUrl: a.imageUrl,
+      targetUrl: a.targetUrl,
+      embedHtml: a.embedHtml,
+    })),
   };
 }
 
@@ -181,8 +216,12 @@ export async function leaderboard(opts: { period?: 'all' | 'weekly' | 'monthly';
 
 // ---------------------------------------------------------------------------
 export async function recentWinners(take = 8) {
+  // Only winners whose tournament results were PUBLISHED are public.
   const winners = await prisma.winner.findMany({
-    where: { status: 'CREDITED' },
+    where: {
+      status: 'CREDITED',
+      tournament: { matches: { some: { resultsStatus: 'PUBLISHED' } } },
+    },
     orderBy: { creditedAt: 'desc' },
     take,
     select: {
@@ -317,9 +356,26 @@ import { tournamentStandings } from './result.service';
 export async function tournamentResults(slug: string) {
   const t = await prisma.tournament.findUnique({
     where: { slug },
-    select: { id: true },
+    select: {
+      id: true, title: true, type: true, status: true,
+      matches: { select: { id: true, resultsStatus: true }, orderBy: { matchNumber: 'asc' } },
+    },
   });
   if (!t) return null;
+
+  // Spec §26 — results are only public AFTER the admin publish gate. Until
+  // every match is PUBLISHED the endpoint returns an unpublished shell, so
+  // nothing leaks from Draft/Under-Review/Confirmed states.
+  const allPublished = t.matches.length > 0 && t.matches.every((m) => m.resultsStatus === 'PUBLISHED');
+  if (!allPublished) {
+    return {
+      tournament: { id: t.id, title: t.title, type: t.type, status: t.status },
+      published: false,
+      standings: [],
+      winners: [],
+      matchCount: t.matches.length,
+    };
+  }
 
   const { tournament, standings } = await tournamentStandings(t.id);
   const winners = await prisma.winner.findMany({
@@ -338,6 +394,7 @@ export async function tournamentResults(slug: string) {
       type: tournament.type,
       status: tournament.status,
     },
+    published: true,
     standings: standings.map((s, i) => ({ rank: i + 1, ...s })),
     winners: winners.map((w) => ({
       position: w.position,

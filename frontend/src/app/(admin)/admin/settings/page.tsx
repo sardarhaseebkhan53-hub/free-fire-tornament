@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { useAdminList } from '@/components/admin/kit';
-import { api } from '@/lib/client-api';
+import { api , apiGet } from '@/lib/client-api';
 
 interface Row { key: string; value: unknown; description: string | null; updatedAt: string }
 
@@ -36,8 +36,8 @@ export default function AdminSettingsPage() {
       await api('/admin/settings', { method: 'POST', body: { key, value } });
       setEditing(null);
       setSaved(key);
-      const fresh = await fetch('/api/backend/admin/settings', { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json());
-      if (fresh.success) setData(fresh.data);
+      const fresh = await apiGet<Row[]>(`/api/backend/admin/settings`);
+      if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Save failed');
     } finally {

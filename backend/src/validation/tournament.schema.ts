@@ -8,6 +8,9 @@ export const joinSchema = z.object({
     .max(24)
     .optional()
     .transform((v) => (v && v.trim().length > 0 ? v.trim().toUpperCase() : undefined)),
+  // Server-side validation in the join engine; trimmed here only.
+  freeFireUID: z.string().trim().max(15).optional(),
+  freeFireIGN: z.string().trim().max(24).optional(),
 });
 
 export const couponPreviewSchema = z.object({

@@ -7,6 +7,7 @@ import { Crown, Loader2, Shield } from 'lucide-react';
 import { Avatar } from '@/components/ui';
 import { money } from '@/lib/format';
 import { deferLoad } from '@/lib/session';
+import { authedFetch } from '@/lib/client-api';
 
 interface Member {
   userId: string; role: string; joinedAt: string;
@@ -24,10 +25,6 @@ interface Team {
   winnings: { position: number; amount: string; creditedAt: string }[];
 }
 
-function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem('cn_access');
-  return token ? { authorization: `Bearer ${token}`, 'content-type': 'application/json' } : { 'content-type': 'application/json' };
-}
 
 export default function TeamDetailPage() {
   const params = useParams<{ id: string }>();
@@ -46,7 +43,7 @@ export default function TeamDetailPage() {
         setMeId(payload.sub);
       } catch { /* ignore */ }
     }
-    const res = await fetch(`/api/backend/teams/${teamId}`, { headers: authHeaders() });
+    const res = await authedFetch(`/teams/${teamId}`);
     const json = await res.json();
     if (json.success) setTeam(json.data);
   }, [teamId]);
@@ -114,14 +111,14 @@ export default function TeamDetailPage() {
                   <div className="flex gap-2">
                     <button
                       disabled={busy}
-                      onClick={() => act(() => fetch(`/api/backend/teams/${teamId}/transfer`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ userId: m.userId }) }), 'Captaincy transferred')}
+                      onClick={() => act(() => authedFetch(`/teams/${teamId}/transfer`, { method: 'POST', body: JSON.stringify({ userId: m.userId }) }), 'Captaincy transferred')}
                       className="rounded-input border border-line px-3 py-1.5 text-xs font-semibold text-fg-2 hover:text-reward"
                     >
                       Make captain
                     </button>
                     <button
                       disabled={busy}
-                      onClick={() => act(() => fetch(`/api/backend/teams/${teamId}/remove`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ userId: m.userId }) }), 'Member removed')}
+                      onClick={() => act(() => authedFetch(`/teams/${teamId}/remove`, { method: 'POST', body: JSON.stringify({ userId: m.userId }) }), 'Member removed')}
                       className="rounded-input border border-danger/30 px-3 py-1.5 text-xs font-semibold text-danger"
                     >
                       Remove
@@ -142,7 +139,7 @@ export default function TeamDetailPage() {
             className="mt-3 flex gap-2"
             onSubmit={(e) => {
               e.preventDefault();
-              act(() => fetch(`/api/backend/teams/${teamId}/invite`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ username: inviteName }) }), 'Invite sent');
+              act(() => authedFetch(`/teams/${teamId}/invite`, { method: 'POST', body: JSON.stringify({ username: inviteName }) }), 'Invite sent');
               setInviteName('');
             }}
           >
@@ -157,7 +154,7 @@ export default function TeamDetailPage() {
         <section className="mt-8">
           <button
             disabled={busy}
-            onClick={() => act(() => fetch(`/api/backend/teams/${teamId}/leave`, { method: 'POST', headers: authHeaders() }), 'You left the team')}
+            onClick={() => act(() => authedFetch(`/teams/${teamId}/leave`, { method: 'POST' }), 'You left the team')}
             className="rounded-input border border-danger/30 px-5 py-2.5 text-sm font-semibold text-danger"
           >
             Leave team

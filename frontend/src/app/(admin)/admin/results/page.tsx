@@ -5,8 +5,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Loader2, RefreshCcw, Trophy, X } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
-import { AuthedImage, Pill, useAdminList } from '@/components/admin/kit';
-import { api } from '@/lib/client-api';
+import { AuthedImage, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
+import { MatchTableModal } from '@/components/admin/match-table';
+import { api , apiGet } from '@/lib/client-api';
 
 interface Submission {
   id: string; status: string; placement: number | null; kills: number | null;
@@ -24,9 +25,13 @@ const TABS = [
   ['REJECTED', 'Rejected'],
 ] as const;
 
-const PLACEMENT_POINTS = [12, 9, 8, 7, 6, 5, 4, 3, 2, 1];
-const pointsFor = (placement: number, kills: number, perKill: number) =>
-  (placement >= 1 && placement <= 10 ? PLACEMENT_POINTS[placement - 1]! : 0) + kills * perKill;
+/** Per-tournament scoring comes from the public tournament payload — the
+ * platform never hard-codes placement points or kill rates (spec §35). */
+const DEFAULT_TABLE = [12, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+const pointsFor = (placement: number, kills: number, perKill: number, table: number[]) => {
+  const base = placement >= 1 && placement <= table.length ? table[placement - 1]! : 0;
+  return base + Math.max(0, kills) * Math.max(0, perKill);
+};
 
 export default function AdminResultsPage() {
   const [tab, setTab] = useState('PENDING');
@@ -52,26 +57,39 @@ export default function AdminResultsPage() {
   const setKills = (v: string) => setDraft({ ...form, kills: v });
   const setNote = (v: string) => setDraft({ ...form, note: v });
   const [distributed, setDistributed] = useState<string | null>(null);
+  const [view, setView] = useState<'submissions' | 'publish'>('submissions');
+  const [scoring, setScoring] = useState<{ pointsPerKill: number; placementTable: number[]; bonusPoints: number; penaltyPoints: number } | null>(null);
+  const [openTable, setOpenTable] = useState<string | null>(null);
+
+  // Live per-tournament scoring for the selected submission's points preview.
+  useEffect(() => {
+    if (!selected) { setScoring(null); return; }
+    let cancelled = false;
+    fetch(`/api/backend/public/tournaments/${selected.match.tournament.slug}`)
+      .then((r) => r.json())
+      .then((j) => { if (!cancelled && j.success) setScoring(j.data.scoring); })
+      .catch(() => { if (!cancelled) setScoring(null); });
+    return () => { cancelled = true; };
+  }, [selected]);
 
   useEffect(() => {
-    fetch('/api/backend/admin/tournaments?pageSize=50', { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } })
-      .then((r) => r.json())
-      .then((j) => { if (j.success) setTournaments(j.data.items); })
+    apiGet<{ items: Array<{ id: string; title: string }> }>('/admin/tournaments?pageSize=50')
+      .then((j) => { if (j) setTournaments(j.items); })
       .catch(() => {});
   }, []);
 
-  // Auto-calculated points preview (placement table + kills × tournament rate 1..N).
-  const perKill = 1; // displayed as info; the server recomputes with the real rate
+  // Auto-calculated points preview from the tournament's own scoring config.
+  const perKill = scoring?.pointsPerKill ?? 0;
+  const table = scoring?.placementTable ?? DEFAULT_TABLE;
   const previewPoints = useMemo(() => {
     const p = Number(placement), k = Number(kills);
     if (!Number.isInteger(p) || p < 1 || !Number.isInteger(k) || k < 0) return null;
-    return pointsFor(p, k, perKill);
-  }, [placement, kills]);
+    return pointsFor(p, k, perKill, table);
+  }, [placement, kills, perKill, table]);
 
   async function refreshQueue() {
-    const fresh = await fetch(`/api/backend/admin/results?status=${tab}&pageSize=50`,
-      { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json());
-    if (fresh.success) queue.setData(fresh.data);
+    const fresh = await apiGet<Page>(`/admin/results?status=${tab}&pageSize=50`);
+    if (fresh) queue.setData(fresh);
   }
 
   async function review(action: 'APPROVE' | 'REJECT' | 'DISQUALIFY') {
@@ -123,6 +141,17 @@ export default function AdminResultsPage() {
         }
       />
 
+      <div className="mb-4 flex gap-1.5">
+        {(['submissions', 'publish'] as const).map((v) => (
+          <button key={v} onClick={() => setView(v)}
+            className={`rounded-input px-4 py-2 text-xs font-bold transition ${view === v ? 'bg-accent text-white' : 'border border-line bg-white/[2%] text-fg-2 hover:text-fg'}`}>
+            {v === 'submissions' ? 'Player Submissions' : 'Publish & Prizes'}
+          </button>
+        ))}
+      </div>
+
+      {view === 'submissions' ? (
+      <>
       {/* Status tabs + tournament selector — design 31 */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap gap-1.5">
@@ -284,22 +313,124 @@ export default function AdminResultsPage() {
           </div>
 
           <div className="glass rounded-card p-4">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-fg-3">Points System</p>
-            <div className="mt-2 flex flex-col gap-1 text-xs">
-              <div className="flex justify-between"><span className="text-fg-2">Kill</span><span className="font-bold text-accent">+Tournament rate</span></div>
-              {PLACEMENT_POINTS.map((p, i) => (
-                <div key={i} className="flex justify-between">
-                  <span className="text-fg-2">Rank #{i + 1}</span>
-                  <span className="font-bold text-accent">+{p} pts</span>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-fg-3">Points System — this tournament</p>
+            {scoring ? (
+              <div className="mt-2 flex flex-col gap-1 text-xs">
+                <div className="flex justify-between"><span className="text-fg-2">Kill</span><span className="font-bold text-accent">+{scoring.pointsPerKill} pts</span></div>
+                {scoring.placementTable.map((p, i) => (
+                  <div key={i} className="flex justify-between">
+                    <span className="text-fg-2">Rank #{i + 1}</span>
+                    <span className="font-bold text-accent">+{p} pts</span>
+                  </div>
+                ))}
+                <div className="mt-1 border-t border-line/60 pt-1">
+                  <div className="flex justify-between"><span className="text-fg-2">Bonus</span><span className="font-bold text-success">+{scoring.bonusPoints}</span></div>
+                  <div className="flex justify-between"><span className="text-fg-2">Penalty</span><span className="font-bold text-danger">−{scoring.penaltyPoints}</span></div>
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <p className="py-4 text-[11px] text-fg-3">Select a submission to load its tournament's scoring rules.</p>
+            )}
           </div>
         </div>
       </div>
+      </>
+      ) : (
+        <PublishWorkflow
+          tournaments={tournaments}
+          openTable={openTable}
+          setOpenTable={setOpenTable}
+        />
+      )}
     </div>
   );
 }
+
+function PublishWorkflow({ tournaments, openTable, setOpenTable }: {
+  tournaments: Array<{ id: string; title: string }>;
+  openTable: string | null;
+  setOpenTable: (id: string | null) => void;
+}) {
+  const [tourId, setTourId] = useState('');
+  const [q, setQ] = useState('');
+  const qs = new URLSearchParams({ page: '1', pageSize: '50', sort: 'scheduledAt', dir: 'desc' });
+  if (tourId) qs.set('tournamentId', tourId);
+  if (q) qs.set('q', q);
+  const { data, loading, setData } = useAdminList<Page2>(`/admin/matches?${qs}`, [tourId, q]);
+  const refresh = async () => {
+    const fresh = await apiGet<Page2>(`/admin/matches?${qs}`);
+    if (fresh) setData(fresh);
+  };
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <select value={tourId} onChange={(e) => setTourId(e.target.value)}
+          className="rounded-input border border-line bg-white/[3%] px-3 py-2 text-sm text-fg-2 outline-none [color-scheme:dark]">
+          <option value="">All tournaments</option>
+          {tournaments.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+        </select>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search tournament…"
+          className="w-56 rounded-input border border-line bg-white/[3%] px-3 py-2 text-sm text-fg-2 outline-none placeholder:text-fg-3 focus:border-accent" />
+        <p className="text-[11px] text-fg-3">
+          Workflow: <b className="text-fg-2">Draft</b> → <b className="text-fg-2">Under Review</b> → <b className="text-fg-2">Confirmed</b> → <b className="text-fg-2">Calculate &amp; Publish</b>.
+          Results stay hidden from the public site until every match is PUBLISHED.
+        </p>
+      </div>
+
+      {loading && !data ? (
+        <div className="flex min-h-64 items-center justify-center"><Loader2 className="animate-spin text-accent" /></div>
+      ) : (
+        <>
+          <Table
+            head={['Tournament', 'Match', 'Scheduled', 'Status', 'Results', 'Actions']}
+          >
+            {data?.items.map((m) => (
+              <Tr key={m.id}>
+                <Td><span className="font-semibold text-fg">{m.tournament.title}</span></Td>
+                <Td className="text-xs text-fg-2">#{m.matchNumber}{m.round > 1 ? ` · R${m.round}` : ''}</Td>
+                <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(m.scheduledAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</Td>
+                <Td><Pill status={m.status} /></Td>
+                <Td><Pill status={m.resultsStatus} /></Td>
+                <Td>
+                  <div className="flex gap-1.5">
+                    <button onClick={() => setOpenTable(m.id)}
+                      className="rounded-input bg-accent/15 px-2.5 py-1 text-[11px] font-bold text-accent">
+                      {m.resultsStatus === 'PUBLISHED' ? 'View Results' : 'Enter Results'}
+                    </button>
+                    <a href={`/api/backend/matches/${m.id}/export`} target="_blank" rel="noreferrer"
+                      className="rounded-input border border-line px-2.5 py-1 text-[11px] font-bold text-fg-2 hover:text-fg">CSV</a>
+                  </div>
+                </Td>
+              </Tr>
+            ))}
+            {data?.items.length === 0 && <Tr><Td className="py-8 text-center text-fg-3">No matches yet.</Td></Tr>}
+          </Table>
+          {data && <Pager page={data.page} total={data.total} pageSize={data.pageSize} onPage={() => undefined} />}
+        </>
+      )}
+
+      {openTable && (
+        <MatchTableModal
+          matchId={openTable}
+          onClose={() => setOpenTable(null)}
+          onChanged={refresh}
+          onOpenSlots={(tournamentId: string) => {
+            setOpenTable(null);
+            setTourId(tournamentId);
+            window.location.href = `/admin/slots?tournament=${tournamentId}`;
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+interface Page2 { items: Array<{
+  id: string; matchNumber: number; round: number; map: string | null; scheduledAt: string;
+  status: string; resultsStatus: string; participants: number;
+  tournament: { title: string; slug: string; type: string };
+}>; total: number; page: number; pageSize: number }
 
 function standingsBody(data: Standings | null) {
   const st = data;

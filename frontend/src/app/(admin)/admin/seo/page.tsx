@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Table, Td, Tr, useAdminList } from '@/components/admin/kit';
-import { api } from '@/lib/client-api';
+import { api , apiGet } from '@/lib/client-api';
 
 interface Row { id: string; pageSlug: string; title: string | null; description: string | null; canonicalUrl: string | null; keywords: string | null }
 
@@ -36,7 +36,7 @@ export default function AdminSeoPage() {
         </Table>
       )}
 
-      {editing && <EditModal row={editing} pages={PAGES} onClose={() => setEditing(null)} onDone={async () => { setEditing(null); const f = await fetch('/api/backend/admin/seo', { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json()); if (f.success) setData(f.data); }} />}
+      {editing && <EditModal row={editing} pages={PAGES} onClose={() => setEditing(null)} onDone={async () => { setEditing(null); const f = await apiGet<Row[]>(`/api/backend/admin/seo`); if (f) setData(f); }} />}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Modal, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
-import { api } from '@/lib/client-api';
+import { api , apiGet } from '@/lib/client-api';
 
 interface Row { id: string; placement: string; name: string; targetUrl: string | null; isActive: boolean; impressions: number; clicks: number }
 
@@ -15,8 +15,8 @@ export default function AdminAdsPage() {
   async function toggle(id: string, isActive: boolean) {
     try {
       await api(`/admin/ads/${id}/toggle`, { method: 'POST', body: { isActive } });
-      const fresh = await fetch('/api/backend/admin/ads', { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json());
-      if (fresh.success) setData(fresh.data);
+      const fresh = await apiGet<Row[]>(`/api/backend/admin/ads`);
+      if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Toggle failed');
     }
@@ -49,7 +49,7 @@ export default function AdminAdsPage() {
         </Table>
       )}
 
-      {creating && <CreateAd onClose={async () => { setCreating(false); const f = await fetch('/api/backend/admin/ads', { headers: { authorization: `Bearer ${localStorage.getItem('cn_access') ?? ''}` } }).then((r) => r.json()); if (f.success) setData(f.data); }} />}
+      {creating && <CreateAd onClose={async () => { setCreating(false); const f = await apiGet<Row[]>(`/api/backend/admin/ads`); if (f) setData(f); }} />}
     </div>
   );
 }
