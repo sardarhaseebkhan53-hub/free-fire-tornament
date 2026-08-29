@@ -76,7 +76,23 @@ export const createTournamentSchema = z.object({
   matchNumber: z.coerce.number().int().min(1).max(500).optional().default(1),
   matchMap: z.string().trim().max(40).optional().default(''),
   matchScheduledOffsetMinutes: z.coerce.number().int().min(0).max(1440).optional().default(0),
-});
+})
+  // A tournament cannot start in the past, and registration must close on or
+  // before it starts. Without these the admin form happily saved a match whose
+  // start time had already elapsed, which is why the detail page rendered
+  // "match starts in Now" while registration was still counting down.
+  .refine((v) => v.startTime.getTime() > Date.now(), {
+    path: ['startTime'],
+    message: 'Start time must be in the future.',
+  })
+  .refine((v) => v.registrationDeadline.getTime() <= v.startTime.getTime(), {
+    path: ['registrationDeadline'],
+    message: 'Registration must close at or before the tournament start time.',
+  })
+  .refine((v) => v.minSlotsToStart <= v.maxSlots, {
+    path: ['minSlotsToStart'],
+    message: 'Minimum slots to start cannot exceed max slots.',
+  });
 
 export const tournamentScoringSchema = z.object({
   pointsPerKill: z.coerce.number().int().min(0).max(20),

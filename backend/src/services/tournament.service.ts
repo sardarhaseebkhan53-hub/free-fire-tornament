@@ -108,6 +108,10 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
 
   if (t.status !== 'REGISTRATION_OPEN') throw badRequest('TOURNAMENT_CLOSED', 'Registration is not open for this tournament.');
   if (t.registrationDeadline <= new Date()) throw badRequest('TOURNAMENT_CLOSED', 'Registration deadline has passed.');
+  // Guard the start time too. Only the deadline was checked, so a tournament
+  // whose start time had already elapsed (but whose deadline was still ticking)
+  // stayed joinable — the "closes in 00:03:45 / starts in Now" state.
+  if (t.startTime <= new Date()) throw badRequest('TOURNAMENT_CLOSED', 'This tournament has already started.');
 
   const teamSize = TEAM_SIZE[t.type];
   const feePerPlayer = Number(t.entryFeePerPlayer);
