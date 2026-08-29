@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { Check, Download, Loader2, Lock, Search, ShieldCheck, X } from 'lucide-react';
 import { Modal, Pill } from '@/components/admin/kit';
+import { deferLoad } from '@/lib/session';
 import { api, apiGet, downloadProtectedFile } from '@/lib/client-api';
 
 export interface TableParticipant {
@@ -39,11 +40,24 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
 
   async function load() {
     setLoading(true);
-    const d = await apiGet<MatchTableData>(`/admin/matches/${matchId}/table`);
-    setData(d);
-    setLoading(false);
+    try {
+      const d = await apiGet<MatchTableData>(`/admin/matches/${matchId}/table`);
+      setData(d);
+    } catch {
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
   }
   const refresh = () => load().then(onChanged);
+
+  // Load the match table whenever this modal is opened for a match id.
+  // deferLoad keeps the state update out of the commit phase (same pattern as
+  // useAdminList), so the modal mounts with a spinner and then fetches.
+  useEffect(() => {
+    deferLoad(load);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchId]);
 
   // Server-side score preview for the editor
   function previewScore(p: TableParticipant, patch: { position?: number; kills?: number; bonus?: number; penalty?: number }) {
