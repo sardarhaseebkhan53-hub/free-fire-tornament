@@ -5,6 +5,7 @@ import { Search } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import type { TournamentSummary } from '@/lib/types';
 import { TournamentCard } from '@/components/tournament-card';
+import { Reveal } from '@/components/reveal';
 import { SectionHeading, EmptyState } from '@/components/ui';
 import { pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
@@ -66,11 +67,13 @@ export default async function TournamentsPage({
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
-      <SectionHeading
-        kicker="The arena"
-        title="Tournaments"
-        sub="Every listing shows the full economics — entry fee, prize pool and platform fee — before you join."
-      />
+      <Reveal>
+        <SectionHeading
+          kicker="The arena"
+          title="Tournaments"
+          sub="Every listing shows the full economics — entry fee, prize pool and platform fee — before you join."
+        />
+      </Reveal>
 
       {/* Filters */}
       <div className="mb-6 space-y-4">
@@ -132,7 +135,9 @@ export default async function TournamentsPage({
       {items.length > 0 ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((t) => (
-            <TournamentCard key={t.id} t={t} />
+            <Reveal key={t.id} delay={Math.min((items.indexOf(t) % 3) * 70, 210)}>
+              <TournamentCard t={t} />
+            </Reveal>
           ))}
         </div>
       ) : (

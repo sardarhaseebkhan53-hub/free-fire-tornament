@@ -8,6 +8,7 @@ import { ArrowRight, Gift, Headset, Plus, Send, ShieldCheck, Trophy, Upload, Wal
 import { api } from '@/lib/client-api';
 import { CopyChip, StatusPill, TypeChip } from '@/components/wallet/bits';
 import { EmptyState, Skeleton } from '@/components/ui';
+import { Reveal } from '@/components/reveal';
 import { fmt, fmtDate } from '@/lib/format';
 import { useHasSession } from '@/lib/session';
 
@@ -91,7 +92,7 @@ export default function WalletPage() {
       <p className="mt-1 text-sm text-fg-2">One PKR wallet — deposits in, entries out, winnings in.</p>
 
       {/* ---- Available Balance hero (design 14) ---- */}
-      <div className="mt-6 rounded-[20px] bg-gradient-to-r from-accent/70 via-accent/25 to-reward/20 p-[1px] shadow-[0_0_40px_rgba(139,92,246,0.18)]">
+      <Reveal><div className="mt-6 rounded-[20px] bg-gradient-to-r from-accent/70 via-accent/25 to-reward/20 p-[1px] shadow-[0_0_40px_rgba(139,92,246,0.18)]">
         <div className="relative overflow-hidden rounded-[19px] bg-surface px-5 py-6 sm:px-8">
           <div
             className="pointer-events-none absolute inset-y-0 right-0 w-1/3 opacity-60"
@@ -154,8 +155,9 @@ export default function WalletPage() {
         </div>
       </div>
 
+      </Reveal>
       {/* ---- Recent transactions ---- */}
-      <section className="glass mt-6 rounded-card p-5 sm:p-6">
+      <Reveal><section className="glass mt-6 rounded-card p-5 sm:p-6">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="font-display text-lg font-bold text-fg">Recent Transactions</h2>
           <Link href="/wallet/transactions" className="flex items-center gap-1.5 text-sm font-semibold text-accent hover:underline">
@@ -221,7 +223,7 @@ export default function WalletPage() {
             </div>
           </>
         )}
-      </section>
+      </section></Reveal>
 
       {/* ---- Bottom info cards ---- */}
       <div className="mt-6 grid gap-4 md:grid-cols-3">

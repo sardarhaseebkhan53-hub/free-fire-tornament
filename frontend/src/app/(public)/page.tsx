@@ -2,16 +2,17 @@
 // why CLUTCHNEX, leaderboard, winners, referral, PWA install, FAQ, WhatsApp.
 import Link from 'next/link';
 import {
-  BadgeCheck, Gamepad2, Gift, Play, Radio, ShieldCheck, Smartphone,
+  BadgeCheck, Gamepad2, Gift, Radio, ShieldCheck, Smartphone,
   Sparkles, Trophy, Users, Wallet, ArrowRight, MessageCircle, Download,
 } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import type { Faq, HomeStats, LeaderboardEntry, TournamentSummary, WinnerRow } from '@/lib/types';
-import { money, compact, MODE_LABEL } from '@/lib/format';
-import { SectionHeading, StatCard, Badge, Avatar } from '@/components/ui';
+import { money, MODE_LABEL } from '@/lib/format';
+import { SectionHeading, Avatar } from '@/components/ui';
 import { TournamentCard } from '@/components/tournament-card';
 import { FaqList } from '@/components/faq-list';
-import { FeaturedMobile } from '@/components/featured-mobile';
+import { HomeHero } from '@/components/home-hero';
+import { Reveal } from '@/components/reveal';
 import { InstallButton } from '@/components/pwa';
 import { JsonLd, faqJsonLd, organizationJsonLd, pageMetadata, websiteJsonLd } from '@/lib/seo';
 import type { Metadata } from 'next';
@@ -61,139 +62,34 @@ export default async function HomePage() {
   const whatsapp = String(settings?.['platform.whatsappNumber'] ?? '');
   const featured = tournaments?.items ?? [];
   const openCount = featured.filter((t) => t.registrationOpen).length;
-  // Mobile featured card (design 41): first open tournament, else the first listed.
-  const heroCard = featured.find((t) => t.registrationOpen) ?? featured[0] ?? null;
 
   return (
     <>
       {/* Structured data — Organization, WebSite, FAQ (Phase 12) */}
       <JsonLd data={[organizationJsonLd(String(settings?.['platform.whatsappNumber'] ?? '')), websiteJsonLd()]} />
       {(faqs ?? []).length > 0 && <JsonLd data={faqJsonLd((faqs ?? []).slice(0, 8))} />}
-      {/* MOBILE HERO — design 41: compact banner card with art */}
-      <section className="px-4 pt-4 lg:hidden">
-        <div className="animate-fade-up relative overflow-hidden rounded-card border border-line shadow-[0_18px_44px_-18px_rgba(0,0,0,0.7)]">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/art/hero-mobile.png"
-            alt=""
-            className="absolute inset-0 h-full w-full object-cover object-[70%_30%]"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-base via-base/85 to-base/10" />
-          {stats && stats.liveTournaments > 0 && (
-            <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-pill bg-danger/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
-              <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-dot" /> Live
-            </span>
-          )}
-          <div className="relative p-5">
-            <h1 className="font-display text-[2rem] font-bold uppercase italic leading-[1.02] text-fg drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]">
-              The Arena<br />
-              <span className="text-accent drop-shadow-[0_0_18px_rgba(139,92,246,0.6)]">Is Calling</span>
-            </h1>
-            <p className="mt-2.5 max-w-52 text-xs leading-relaxed text-fg-2 drop-shadow">
-              Are you ready to clutch?
-              <br />
-              Compete, build your squad, climb the leaderboard.
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <Link
-                href="/tournaments"
-                className="inline-flex items-center gap-1.5 rounded-input bg-accent px-5 py-2.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-[0_0_22px_rgba(139,92,246,0.5)] transition duration-200 hover:bg-accent-strong hover:shadow-[0_0_26px_rgba(139,92,246,0.65)] active:scale-95"
-              >
-                Explore Tournaments <span aria-hidden>›</span>
-              </Link>
-              <Link
-                href="/legal/how-it-works"
-                className="inline-flex items-center gap-1.5 rounded-input border border-line bg-base/60 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-fg-2 transition duration-200 hover:text-fg hover:border-accent/40 active:scale-95"
-              >
-                How It Works
-              </Link>
-            </div>
-          </div>
-        </div>
-        {/* carousel dots — design 41 */}
-        <div className="mt-3 flex justify-center gap-1.5" aria-hidden>
-          <span className="h-1.5 w-4 rounded-pill bg-accent" />
-          <span className="h-1.5 w-1.5 rounded-full bg-white/15" />
-          <span className="h-1.5 w-1.5 rounded-full bg-white/15" />
-        </div>
-      </section>
+      {/* ANIMATED HERO — aurora atmosphere, live match card, recent-wins ticker, stats */}
+      <HomeHero
+        featured={featured.map((t) => ({
+          slug: t.slug,
+          title: t.title,
+          type: t.type,
+          entryFeePerPlayer: Number(t.entryFeePerPlayer),
+          prizePool: Number(t.prizePool),
+          registeredSlots: t.registeredSlots,
+          maxSlots: t.maxSlots,
+          startsInMs: t.startsInMs,
+          registrationOpen: t.registrationOpen,
+        }))}
+        stats={stats}
+        winners={(winners ?? []).map((w) => ({
+          amount: w.amount,
+          user: w.user ? { username: w.user.username } : null,
+          team: w.team,
+          tournament: { title: w.tournament.title },
+        }))}
+      />
 
-      {/* DESKTOP HERO — design 01 */}
-      <section className="relative hidden overflow-hidden lg:block">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.18),transparent_55%)]" />
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent" />
-        <div className="relative mx-auto max-w-7xl px-4 pb-16 pt-16 text-center sm:px-6 sm:pt-24">
-          <div className="mb-6 flex justify-center animate-fade-up">
-            <Badge tone="accent" live>
-              {stats && stats.liveTournaments > 0 ? `${stats.liveTournaments} tournaments live now` : 'The arena is open'}
-            </Badge>
-          </div>
-          <h1 className="animate-fade-up mx-auto max-w-3xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-fg sm:text-6xl" style={{ animationDelay: '60ms' }}>
-            THE ARENA IS <span className="text-accent drop-shadow-[0_0_24px_rgba(139,92,246,0.5)]">CALLING</span>
-          </h1>
-          <p className="animate-fade-up mt-3 font-display text-lg font-bold uppercase tracking-[0.18em] text-accent/90 sm:text-xl" style={{ animationDelay: '120ms' }}>
-            Are you ready to clutch?
-          </p>
-          <p className="animate-fade-up mx-auto mt-5 max-w-2xl text-base text-fg-2 sm:text-lg" style={{ animationDelay: '180ms' }}>
-            Compete in competitive Free Fire tournaments, build your squad, climb the leaderboard and
-            prove your skills.
-          </p>
-          <div className="animate-fade-up mt-8 flex flex-wrap items-center justify-center gap-3" style={{ animationDelay: '240ms' }}>
-            <Link
-              href="/tournaments"
-              className="inline-flex items-center gap-2 rounded-input bg-accent px-7 py-3.5 text-sm font-bold uppercase tracking-wide text-white shadow-[0_0_28px_rgba(139,92,246,0.45)] transition duration-200 hover:bg-accent-strong hover:shadow-[0_0_34px_rgba(139,92,246,0.6)] active:scale-[0.98]"
-            >
-              <Play size={16} /> Explore Tournaments
-            </Link>
-            <Link
-              href="/legal/how-it-works"
-              className="inline-flex items-center gap-2 rounded-input border border-line bg-white/[3%] px-7 py-3.5 text-sm font-semibold uppercase tracking-wide text-fg transition duration-200 hover:border-accent/40 hover:bg-white/[5%] active:scale-[0.98]"
-            >
-              How It Works <ArrowRight size={15} />
-            </Link>
-            <InstallButton />
-          </div>
-
-          {/* STATS */}
-          {stats && (
-            <div className="animate-fade-up mx-auto mt-14 grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-4" style={{ animationDelay: '300ms' }}>
-              <StatCard label="Total Players" value={compact(stats.totalPlayers)} />
-              <StatCard label="Tournaments" value={compact(stats.totalTournaments)} />
-              <StatCard label="Prize Distributed" value={money(stats.totalPrizeDistributed)} accent />
-              <StatCard label="Live Now" value={String(stats.liveTournaments)} />
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* MOBILE FEATURED TOURNAMENT — design 41 */}
-      {heroCard && (
-        <FeaturedMobile
-          t={{
-            slug: heroCard.slug,
-            title: heroCard.title,
-            type: heroCard.type,
-            entryFeePerPlayer: Number(heroCard.entryFeePerPlayer),
-            prizePool: Number(heroCard.prizePool),
-            registeredSlots: heroCard.registeredSlots,
-            maxSlots: heroCard.maxSlots,
-            startsInMs: heroCard.startsInMs,
-            banner: heroCard.banner,
-          }}
-        />
-      )}
-
-      {/* MOBILE STATS */}
-      {stats && (
-        <section className="mx-auto max-w-7xl px-4 pt-6 lg:hidden">
-          <div className="grid grid-cols-2 gap-3">
-            <StatCard label="Total Players" value={compact(stats.totalPlayers)} />
-            <StatCard label="Tournaments" value={compact(stats.totalTournaments)} />
-            <StatCard label="Prize Distributed" value={money(stats.totalPrizeDistributed)} accent />
-            <StatCard label="Live Now" value={String(stats.liveTournaments)} />
-          </div>
-        </section>
-      )}
 
       {/* FEATURED TOURNAMENTS (desktop — design 01; mobile uses the design-41 card) */}
       <section className="mx-auto hidden max-w-7xl px-4 py-14 sm:px-6 lg:block">
@@ -223,27 +119,27 @@ export default async function HomePage() {
       {/* MODES */}
       <section className="border-y border-line bg-surface/60">
         <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
-          <SectionHeading kicker="Modes" title="Choose Your Battle" />
+          <Reveal><SectionHeading kicker="Modes" title="Choose Your Battle" /></Reveal>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {MODES.map((m) => {
               const Icon = m.icon;
               return (
-                <Link
+                <Reveal delay={MODES.indexOf(m) * 70} key={m.type}><Link
                   key={m.type}
                   href={`/tournaments?type=${m.type}`}
-                  className="glass group rounded-card p-6 transition hover:-translate-y-1 hover:border-accent/40"
+                  className="glass group relative overflow-hidden rounded-card p-6 transition duration-300 hover:-translate-y-1.5 hover:border-accent/50 hover:shadow-[0_18px_44px_-14px_rgba(0,0,0,0.7)]"
                 >
-                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-input bg-accent/15 text-accent">
+                  <span className="relative inline-flex h-11 w-11 items-center justify-center rounded-input bg-accent/25 text-accent shadow-[0_0_18px_rgba(139,92,246,0.3)] backdrop-blur-sm">
                     <Icon size={20} />
                   </span>
-                  <h3 className="mt-4 font-display text-lg font-bold text-fg group-hover:text-accent">
+                  <h3 className="relative mt-4 font-display text-lg font-bold text-fg group-hover:text-accent">
                     {m.label}
                   </h3>
-                  <p className="mt-1.5 text-sm text-fg-2">{m.desc}</p>
-                  <p className="mt-3 text-xs font-semibold text-fg-3">
+                  <p className="relative mt-1.5 text-sm text-fg-2">{m.desc}</p>
+                  <p className="relative mt-3 text-xs font-semibold text-fg-3">
                     Entry {MODE_LABEL[m.type] === 'Solo' ? 'per player' : 'per team'} · transparent prize split
                   </p>
-                </Link>
+                </Link></Reveal>
               );
             })}
           </div>
@@ -252,7 +148,7 @@ export default async function HomePage() {
 
       {/* HOW IT WORKS */}
       <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
-        <SectionHeading kicker="Simple by design" title="How It Works" />
+        <Reveal><SectionHeading kicker="Simple by design" title="How It Works" /></Reveal>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map((s) => (
             <div key={s.n} className="glass rounded-card p-6">
@@ -267,7 +163,7 @@ export default async function HomePage() {
       {/* WHY CLUTCHNEX */}
       <section className="border-y border-line bg-surface/60">
         <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
-          <SectionHeading kicker="Trust" title="Why CLUTCHNEX" />
+          <Reveal><SectionHeading kicker="Trust" title="Why CLUTCHNEX" /></Reveal>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {WHY.map((w) => {
               const Icon = w.icon;
@@ -287,6 +183,7 @@ export default async function HomePage() {
 
       {/* LEADERBOARD + WINNERS */}
       <section className="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 lg:grid-cols-2">
+        <Reveal className="min-w-0">
         <div>
           <SectionHeading
             kicker="Rankings"
@@ -344,11 +241,12 @@ export default async function HomePage() {
             )}
           </div>
         </div>
+        </Reveal>
       </section>
 
       {/* REFERRAL */}
       <section className="mx-auto max-w-7xl px-4 pb-14 sm:px-6">
-        <div className="glass relative overflow-hidden rounded-card px-6 py-10 text-center sm:px-12">
+        <Reveal><div className="glass relative overflow-hidden rounded-card px-6 py-10 text-center sm:px-12">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(245,185,66,0.12),transparent_60%)]" />
           <Gift size={28} className="mx-auto text-reward" />
           <h2 className="mt-3 font-display text-2xl font-bold text-fg">Invite your squad. Earn together.</h2>
@@ -362,7 +260,7 @@ export default async function HomePage() {
           >
             Get your code <ArrowRight size={15} />
           </Link>
-        </div>
+        </div></Reveal>
       </section>
 
       {/* PWA INSTALL — design v2 §PWA install. Web app / PWA only: no store badges. */}
@@ -450,7 +348,7 @@ export default async function HomePage() {
 
       {/* FAQ */}
       <section className="mx-auto max-w-3xl px-4 pb-14 sm:px-6">
-        <SectionHeading kicker="Answers" title="Frequently Asked Questions" />
+        <Reveal><SectionHeading kicker="Answers" title="Frequently Asked Questions" /></Reveal>
         {(faqs ?? []).length > 0 ? (
           <FaqList faqs={(faqs ?? []).slice(0, 6)} />
         ) : (

@@ -4,6 +4,7 @@ import { apiServerSafe } from '@/lib/api';
 import type { BlogSummary } from '@/lib/types';
 import { dateOnly } from '@/lib/format';
 import { SectionHeading, Badge, EmptyState } from '@/components/ui';
+import { Reveal } from '@/components/reveal';
 import { TournamentImage } from '@/components/tournament-image';
 import { pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
@@ -24,16 +25,15 @@ export default async function BlogPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-      <SectionHeading
+      <Reveal><SectionHeading
         kicker="Insights"
         title="Blog"
         sub="Guides, strategy and platform announcements from the CLUTCHNEX team."
-      />
+      /></Reveal>
       {posts.length > 0 ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {posts.map((p) => (
-            <Link
-              key={p.slug}
+            <Reveal key={p.slug}><Link
               href={`/blog/${p.slug}`}
               className="glass group flex flex-col overflow-hidden rounded-card transition hover:-translate-y-1 hover:border-accent/40"
             >
@@ -59,7 +59,7 @@ export default async function BlogPage() {
                   <span>{dateOnly(p.publishedAt)}</span>
                 </div>
               </div>
-            </Link>
+            </Link></Reveal>
           ))}
         </div>
       ) : (

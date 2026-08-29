@@ -7,6 +7,7 @@ import { ArrowRight, Gamepad2, ShieldCheck, Sparkles, Users } from 'lucide-react
 import { apiServerSafe } from '@/lib/api';
 import type { TournamentSummary, Faq } from '@/lib/types';
 import { TournamentCard } from '@/components/tournament-card';
+import { Reveal } from '@/components/reveal';
 import { SectionHeading } from '@/components/ui';
 import { FaqList } from '@/components/faq-list';
 import { JsonLd, breadcrumbJsonLd, faqJsonLd, pageMetadata } from '@/lib/seo';
@@ -65,21 +66,23 @@ export default async function FreeFireTournamentsHub() {
         <span>✓ Verified prizes</span> <span>✓ Manual payment verification</span> <span>✓ Secure room credentials</span> <span>✓ Fast withdrawals</span>
       </p>
 
-      {/* Mode cards */}
+      {/* Mode cards — each with Free Fire artwork + hover zoom */}
       <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {MODE_CARDS.map((m) => {
+        {MODE_CARDS.map((m, i) => {
           const Icon = m.icon;
           return (
-            <Link key={m.href} href={m.href} className="glass group rounded-card p-5 transition hover:-translate-y-1 hover:border-accent/40">
-              <span className="flex h-10 w-10 items-center justify-center rounded-input bg-accent/15 text-accent">
-                <Icon size={20} />
-              </span>
-              <h2 className="mt-3 font-display text-lg font-bold text-fg">{m.label}</h2>
-              <p className="mt-1 text-xs leading-relaxed text-fg-3">{m.desc}</p>
-              <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-accent">
-                Browse {m.label} <ArrowRight size={13} className="transition-transform group-hover:translate-x-1" />
-              </span>
-            </Link>
+            <Reveal key={m.href} delay={i * 70}>
+              <Link href={m.href} className="glass group relative overflow-hidden rounded-card p-5 transition duration-300 hover:-translate-y-1.5 hover:border-accent/50 hover:shadow-[0_18px_44px_-14px_rgba(0,0,0,0.7)]">
+                <span className="relative flex h-10 w-10 items-center justify-center rounded-input bg-accent/25 text-accent shadow-[0_0_18px_rgba(139,92,246,0.35)] backdrop-blur-sm">
+                  <Icon size={20} />
+                </span>
+                <h2 className="relative mt-3 font-display text-lg font-bold text-fg">{m.label}</h2>
+                <p className="relative mt-1 text-xs leading-relaxed text-fg-2">{m.desc}</p>
+                <span className="relative mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-accent">
+                  Browse {m.label} <ArrowRight size={13} className="transition-transform group-hover:translate-x-1" />
+                </span>
+              </Link>
+            </Reveal>
           );
         })}
       </div>
@@ -92,7 +95,7 @@ export default async function FreeFireTournamentsHub() {
           action={<Link href="/tournaments" className="rounded-input border border-line px-4 py-2 text-xs font-bold text-fg-2 transition hover:text-fg">View all</Link>}
         />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {(featured?.items ?? []).map((t) => <TournamentCard key={t.id} t={t} />)}
+          {(featured?.items ?? []).map((t) => <Reveal key={t.id}><TournamentCard t={t} /></Reveal>)}
         </div>
       </div>
 

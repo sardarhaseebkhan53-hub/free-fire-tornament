@@ -12,6 +12,7 @@ import { useHasSession } from '@/lib/session';
 import { useNow, useTimeUntil } from '@/lib/client-time';
 import { msToCountdown } from '@/lib/format';
 import { TypeChip } from '@/components/wallet/bits';
+import { Reveal } from '@/components/reveal';
 import { Skeleton } from '@/components/ui';
 import { TournamentImage } from '@/components/tournament-image';
 import { RankBadge } from '@/components/rank-badge';
@@ -124,11 +125,11 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <h1 className="font-display text-2xl font-bold text-fg sm:text-3xl">
+      <Reveal><h1 className="font-display text-2xl font-bold text-fg sm:text-3xl">
         Welcome back, <span className="text-accent">{me.profile?.freeFireIGN ?? me.username}</span>{' '}
         {me.isVerified && <Crown size={20} className="mb-1 inline text-reward" />}
         {me.rankInfo && <RankBadge rankInfo={me.rankInfo} small />}
-      </h1>
+      </h1></Reveal>
 
       {/* MOBILE — design 42: wallet balance card + quick actions */}
       <div className="mt-4 lg:hidden">
@@ -169,7 +170,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Bucket cards (desktop — design 12) */}
-      <div className="mt-6 hidden gap-4 sm:grid-cols-2 lg:grid xl:grid-cols-4">
+      <Reveal><div className="mt-6 hidden gap-4 sm:grid-cols-2 lg:grid xl:grid-cols-4">
         {bucketCards.map((b) => {
           const Icon = b.icon;
           return (
@@ -187,7 +188,7 @@ export default function DashboardPage() {
             </div>
           );
         })}
-      </div>
+      </div></Reveal>
 
       {/* Quick actions (desktop — design 12) */}
       <div className="mt-4 hidden grid-cols-2 gap-4 lg:grid xl:grid-cols-4">
@@ -205,7 +206,7 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1.6fr_1fr]">
+      <Reveal delay={80}><div className="mt-5 grid gap-5 xl:grid-cols-[1.6fr_1fr]">
         {/* Left: upcoming match + stats + refer */}
         <div className="flex flex-col gap-5">
           <section className="glass rounded-card p-5 sm:p-6">
@@ -310,7 +311,7 @@ export default function DashboardPage() {
             </div>
           </section>
         </div>
-      </div>
+      </div></Reveal>
     </div>
   );
 }

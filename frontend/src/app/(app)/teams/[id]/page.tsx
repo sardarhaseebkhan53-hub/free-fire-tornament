@@ -8,6 +8,7 @@ import { Avatar } from '@/components/ui';
 import { money } from '@/lib/format';
 import { deferLoad } from '@/lib/session';
 import { authedFetch } from '@/lib/client-api';
+import { useToast } from '@/components/toast';
 
 interface Member {
   userId: string; role: string; joinedAt: string;
@@ -19,6 +20,7 @@ interface Member {
 }
 interface Team {
   id: string; name: string; tag: string; type: string; captainId: string;
+  joinCode: string | null;
   captain: { username: string };
   members: Member[];
   registrations: { registeredAt: string; tournament: { title: string; slug: string; type: string; status: string } }[];
@@ -29,6 +31,7 @@ interface Team {
 export default function TeamDetailPage() {
   const params = useParams<{ id: string }>();
   const teamId = params.id;
+  const { toast } = useToast();
   const [team, setTeam] = useState<Team | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [meId, setMeId] = useState<string | null>(null);
@@ -53,18 +56,39 @@ export default function TeamDetailPage() {
     }
     setError(null);
     setTeam(json.data);
+    // Every team is created with a join code now; show it immediately instead
+    // of waiting for the separate join-code GET (kept as a fallback below for
+    // legacy teams created before the fix).
+    if (json.data?.joinCode) setJoinCode(json.data.joinCode);
   }, [teamId]);
 
   useEffect(() => { deferLoad(load); }, [load]);
 
-  async function act(fn: () => Promise<Response>, okText: string) {
+  /** Run an action, show its outcome, reload on success. Returns true on success
+   * so callers can reset form state only when the action actually succeeded. */
+  async function act(fn: () => Promise<Response>, okText: string, failText = 'Action failed'): Promise<boolean> {
     setBusy(true); setMsg(null);
     try {
       const json = await (await fn()).json();
-      setMsg(json.success ? { ok: true, text: okText } : { ok: false, text: json.message ?? 'Action failed' });
-      if (json.success) load();
+      if (json.success) {
+        setMsg({ ok: true, text: okText });
+        toast({ tone: 'success', title: okText });
+        load();
+        return true;
+      }
+      // Validation failures carry the real reason in errors[] (e.g. "Username
+      // must be at least 3 characters") while message is just "Validation
+      // failed" — show the field message so users know what to fix.
+      const detail = json.errors?.[0];
+      const text = detail ? `${detail.path}: ${detail.message}` : (json.message ?? failText);
+      setMsg({ ok: false, text });
+      toast({ tone: 'error', title: failText, description: text });
+      return false;
     } catch {
-      setMsg({ ok: false, text: 'Could not reach the server.' });
+      const text = 'Could not reach the server.';
+      setMsg({ ok: false, text });
+      toast({ tone: 'error', title: failText, description: text });
+      return false;
     } finally {
       setBusy(false);
     }
@@ -90,9 +114,17 @@ export default function TeamDetailPage() {
       const res = await authedFetch(`/teams/${teamId}/join-code?rotate=1`);
       const json = await res.json();
       if (json.success && json.data?.code) setJoinCode(json.data.code);
-      setMsg(json.success ? { ok: true, text: 'New code generated — the old one stopped working.' } : { ok: false, text: json.message ?? 'Rotation failed' });
+      if (json.success) {
+        setMsg({ ok: true, text: 'New code generated — the old one stopped working.' });
+        toast({ tone: 'success', title: 'New join code generated' });
+      } else {
+        setMsg({ ok: false, text: json.message ?? 'Rotation failed' });
+        toast({ tone: 'error', title: 'Rotation failed', description: json.message ?? 'Try again.' });
+      }
     } catch {
-      setMsg({ ok: false, text: 'Could not reach the server.' });
+      const text = 'Could not reach the server.';
+      setMsg({ ok: false, text });
+      toast({ tone: 'error', title: 'Rotation failed', description: text });
     } finally {
       setBusy(false);
     }
@@ -100,7 +132,9 @@ export default function TeamDetailPage() {
 
   async function copyCode() {
     if (!joinCode) return;
-    await navigator.clipboard?.writeText(joinCode).catch(() => {});
+    const ok = await navigator.clipboard?.writeText(joinCode).then(() => true).catch(() => false) ?? false;
+    if (ok) toast({ tone: 'success', title: 'Join code copied', description: joinCode });
+    else toast({ tone: 'error', title: 'Copy failed', description: 'Select the code and copy it manually.' });
     setMsg({ ok: true, text: 'Join code copied to clipboard.' });
   }
 
@@ -214,16 +248,22 @@ export default function TeamDetailPage() {
           <h2 className="text-xs font-bold uppercase tracking-[0.15em] text-fg-3">Invite a player</h2>
           <form
             className="mt-3 flex gap-2"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              act(() => authedFetch(`/teams/${teamId}/invite`, { method: 'POST', body: JSON.stringify({ username: inviteName }) }), 'Invite sent');
-              setInviteName('');
+              const ok = await act(
+                () => authedFetch(`/teams/${teamId}/invite`, { method: 'POST', body: JSON.stringify({ username: inviteName }) }),
+                'Invite sent',
+              );
+              // Only clear the field after a real success — a failed invite
+              // keeps the typed username so the captain can fix it.
+              if (ok) setInviteName('');
             }}
           >
-            <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} required placeholder="username"
-              className="flex-1 rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none focus:border-accent" />
+            <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} required placeholder="username" autoComplete="off"
+              className="flex-1 rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent" />
             <button type="submit" disabled={busy} className="rounded-input bg-accent px-5 text-sm font-bold text-white hover:bg-accent-strong disabled:opacity-60">Invite</button>
           </form>
+          <p className="mt-2 text-[11px] text-fg-3">Invite by the player&apos;s exact username (e.g. <span className="font-mono text-fg-2">areeb_ff</span>) — case doesn&apos;t matter.</p>
         </section>
       )}
 

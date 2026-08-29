@@ -12,7 +12,15 @@ export const updateTeamSchema = z.object({
 });
 
 export const inviteSchema = z.object({
-  username: z.string().min(3).max(20),
+  // Normalize here so " Hamza_Sniper " behaves exactly like "hamza_sniper",
+  // and fail early with a readable message instead of a generic lookup miss.
+  username: z
+    .string()
+    .trim()
+    .min(3, 'Username must be at least 3 characters')
+    .max(20, 'Username must be 20 characters or fewer')
+    .regex(/^[a-zA-Z0-9_]+$/, 'Username may only contain letters, numbers and _')
+    .toLowerCase(),
 });
 
 export const idBodySchema = z.object({ userId: z.string().min(1) });

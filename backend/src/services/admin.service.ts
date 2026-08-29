@@ -1277,3 +1277,76 @@ export async function listAuditLogs(filter: { action?: string; entity?: string; 
     page: filter.page, pageSize: filter.pageSize, total,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Fresh start — wipe ALL demo/content data so the platform can go live clean.
+// Keeps: admin+ accounts (SUPER_ADMIN/ADMIN/MODERATOR), settings, payment
+// accounts, static pages, SEO config and the immutable audit trail (a reset
+// entry is appended). Removes: player accounts, wallets & ledger entries,
+// deposits/withdrawals/transfers, tournaments, registrations, teams, matches,
+// results, prizes, winners, referrals, coupons, notifications, tickets,
+// disputes, blogs, FAQs, ads, expenses and player stats.
+// ---------------------------------------------------------------------------
+export async function resetDemoData(actorId: string, ctx: { ip?: string; userAgent?: string } = {}) {
+  return prisma.$transaction(async (tx) => {
+    const keepRoles = { in: ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'] as const };
+
+    // Content that references users/teams/tournaments — children first.
+    await tx.matchParticipant.deleteMany({});
+    await tx.resultSubmission.deleteMany({});
+    await tx.prize.deleteMany({});
+    await tx.winner.deleteMany({});
+    await tx.match.deleteMany({});
+    await tx.tournamentRegistration.deleteMany({});
+    await tx.tournament.deleteMany({});
+
+    await tx.teamInvite.deleteMany({});
+    await tx.teamMember.deleteMany({});
+    await tx.team.deleteMany({});
+
+    await tx.referralReward.deleteMany({});
+    await tx.couponRedemption.deleteMany({});
+    await tx.coupon.deleteMany({});
+
+    await tx.withdrawal.deleteMany({});
+    await tx.deposit.deleteMany({});
+    await tx.walletTransfer.deleteMany({});
+    await tx.walletTransaction.deleteMany({});
+    await tx.notification.deleteMany({});
+    await tx.playerStat.deleteMany({});
+
+    await tx.supportMessage.deleteMany({});
+    await tx.dispute.deleteMany({});
+    await tx.supportTicket.deleteMany({});
+
+    await tx.blogPost.deleteMany({});
+    await tx.faq.deleteMany({});
+    await tx.advertisement.deleteMany({});
+    await tx.expense.deleteMany({});
+
+    // Wallets/profiles/tokens of PLAYER accounts only — admin accounts and
+    // their sessions stay completely intact (no admin gets logged out).
+    await tx.wallet.deleteMany({ where: { user: { role: 'USER' } } });
+    await tx.userProfile.deleteMany({ where: { user: { role: 'USER' } } });
+    await tx.authToken.deleteMany({ where: { user: { role: 'USER' } } });
+    await tx.fraudAlert.deleteMany({});
+
+    // The players themselves.
+    const deleted = await tx.user.deleteMany({ where: { role: 'USER' } });
+
+    // Append to the (kept) audit trail.
+    await tx.auditLog.create({
+      data: {
+        actorId,
+        action: 'DEMO_DATA_RESET',
+        entity: 'Platform',
+        entityId: null,
+        after: { playersDeleted: deleted.count, note: 'Fresh start — demo data wiped; admin accounts, settings, payment accounts, static pages, SEO and audit history kept.' },
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      },
+    });
+
+    return { playersDeleted: deleted.count };
+  });
+}

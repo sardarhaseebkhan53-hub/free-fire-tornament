@@ -5,6 +5,7 @@ import { LifeBuoy, MessageCircle, Ticket, Users } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import type { Faq } from '@/lib/types';
 import { SectionHeading } from '@/components/ui';
+import { Reveal } from '@/components/reveal';
 import { FaqList } from '@/components/faq-list';
 import { JsonLd, faqJsonLd, pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
@@ -31,12 +32,11 @@ export default async function SupportPage() {
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
       {/* Structured data — FAQPage (Phase 12) */}
       {(faqs ?? []).length > 0 && <JsonLd data={faqJsonLd((faqs ?? []).slice(0, 10))} />}
-      <SectionHeading
+      <Reveal><SectionHeading
         kicker="We have your back"
         title="Support Center"
         sub="Payments, tournaments, withdrawals, teams — whatever it is, there is a fast path to a human."
-      />
-
+      /></Reveal>
       <div className="grid gap-4 sm:grid-cols-2">
         {whatsapp && (
           <a

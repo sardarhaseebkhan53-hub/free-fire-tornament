@@ -1,13 +1,27 @@
 // Footer — spec §49: brand, links, legal, WhatsApp support.
+// v2 upgrade: real brand icons (WhatsApp/Discord/Instagram/YouTube/Facebook/
+// TikTok), 44px touch targets, hover glow, configurable community links.
 import Link from 'next/link';
-import { Camera, MessageCircle, Music2, PlayCircle, ThumbsUp, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
+import {
+  WhatsAppIcon, DiscordIcon, InstagramIcon, YouTubeIcon, FacebookIcon, TikTokIcon,
+} from '@/components/social-icons';
 
 export async function Footer() {
   const settings = await apiServerSafe<Record<string, unknown>>('/public/settings/public');
   const whatsapp = String(settings?.['platform.whatsappNumber'] ?? '');
   const community = String(settings?.['platform.whatsappCommunity'] ?? '');
-  const waHref = whatsapp ? `https://wa.me/${whatsapp.replace(/\D/g, '')}` : '#';
+  const waHref = whatsapp ? `https://wa.me/${whatsapp.replace(/\D/g, '')}` : 'https://whatsapp.com';
+
+  const socials = [
+    { href: waHref, label: 'WhatsApp', Icon: WhatsAppIcon },
+    { href: String(settings?.['social.discord'] ?? 'https://discord.gg/clutchnex'), label: 'Discord', Icon: DiscordIcon },
+    { href: String(settings?.['social.instagram'] ?? 'https://instagram.com/clutchnex'), label: 'Instagram', Icon: InstagramIcon },
+    { href: String(settings?.['social.youtube'] ?? 'https://youtube.com/@clutchnex'), label: 'YouTube', Icon: YouTubeIcon },
+    { href: String(settings?.['social.facebook'] ?? 'https://facebook.com/clutchnex'), label: 'Facebook', Icon: FacebookIcon },
+    { href: String(settings?.['social.tiktok'] ?? 'https://tiktok.com/@clutchnex'), label: 'TikTok', Icon: TikTokIcon },
+  ];
 
   return (
     <footer className="mt-20 border-t border-line bg-surface">
@@ -28,40 +42,35 @@ export async function Footer() {
               href={waHref}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-input bg-success/15 px-4 py-2 text-sm font-semibold text-success transition hover:bg-success/25"
+              className="press inline-flex items-center gap-2 rounded-input bg-success/15 px-4 py-2 text-sm font-semibold text-success transition hover:bg-success/25"
             >
-              <MessageCircle size={15} /> WhatsApp Support
+              <WhatsAppIcon size={15} /> WhatsApp Support
             </a>
             {community && (
               <a
                 href={community}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-input bg-reward/15 px-4 py-2 text-sm font-semibold text-reward transition hover:bg-reward/25"
+                className="press inline-flex items-center gap-2 rounded-input bg-reward/15 px-4 py-2 text-sm font-semibold text-reward transition hover:bg-reward/25"
               >
                 <Users size={15} /> WhatsApp Community
               </a>
             )}
           </div>
 
-          {/* Social — design v2 §Footer */}
-          <div className="mt-5 flex items-center gap-2">
-            {[
-              { href: waHref, label: 'WhatsApp', Icon: MessageCircle },
-              { href: 'https://instagram.com/clutchnex', label: 'Instagram', Icon: Camera },
-              { href: 'https://facebook.com/clutchnex', label: 'Facebook', Icon: ThumbsUp },
-              { href: 'https://youtube.com/@clutchnex', label: 'YouTube', Icon: PlayCircle },
-              { href: 'https://tiktok.com/@clutchnex', label: 'TikTok', Icon: Music2 },
-            ].map(({ href, label, Icon }) => (
+          {/* Social — official brand icons, real links, 44px touch targets */}
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            {socials.map(({ href, label, Icon }) => (
               <a
                 key={label}
                 href={href}
                 target="_blank"
                 rel="noreferrer"
                 aria-label={label}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white/[3%] text-fg-3 transition hover:border-accent/40 hover:text-accent"
+                title={label}
+                className="press touch-target h-11 w-11 rounded-full border border-line bg-white/[3%] text-fg-3 transition hover:border-accent/50 hover:text-accent hover:glow-accent"
               >
-                <Icon size={15} />
+                <Icon size={16} />
               </a>
             ))}
           </div>
@@ -70,33 +79,33 @@ export async function Footer() {
         <div>
           <p className="mb-3 text-xs font-bold tracking-[0.15em] uppercase text-fg-3">Platform</p>
           <ul className="space-y-2 text-sm text-fg-2">
-            <li><Link className="hover:text-fg" href="/tournaments">Tournaments</Link></li>
-            <li><Link className="hover:text-fg" href="/leaderboard">Leaderboard</Link></li>
-            <li><Link className="hover:text-fg" href="/winners">Winners</Link></li>
-            <li><Link className="hover:text-fg" href="/blog">Blog</Link></li>
-            <li><Link className="hover:text-fg" href="/legal/how-it-works">How It Works</Link></li>
-            <li><Link className="hover:text-fg" href="/matches">Matches</Link></li>
-            <li><Link className="hover:text-fg" href="/teams">Teams</Link></li>
+            <li><Link className="transition hover:text-accent" href="/tournaments">Tournaments</Link></li>
+            <li><Link className="transition hover:text-accent" href="/leaderboard">Leaderboard</Link></li>
+            <li><Link className="transition hover:text-accent" href="/winners">Winners</Link></li>
+            <li><Link className="transition hover:text-accent" href="/blog">Blog</Link></li>
+            <li><Link className="transition hover:text-accent" href="/legal/how-it-works">How It Works</Link></li>
+            <li><Link className="transition hover:text-accent" href="/matches">Matches</Link></li>
+            <li><Link className="transition hover:text-accent" href="/teams">Teams</Link></li>
           </ul>
         </div>
 
         <div>
           <p className="mb-3 text-xs font-bold tracking-[0.15em] uppercase text-fg-3">Support</p>
           <ul className="space-y-2 text-sm text-fg-2">
-            <li><Link className="hover:text-fg" href="/support">Support Center</Link></li>
-            <li><Link className="hover:text-fg" href="/legal/tournament-rules">Tournament Rules</Link></li>
-            <li><Link className="hover:text-fg" href="/legal/fair-play-policy">Fair Play Policy</Link></li>
-            <li><Link className="hover:text-fg" href="/legal/contact">Contact</Link></li>
+            <li><Link className="transition hover:text-accent" href="/support">Support Center</Link></li>
+            <li><Link className="transition hover:text-accent" href="/legal/tournament-rules">Tournament Rules</Link></li>
+            <li><Link className="transition hover:text-accent" href="/legal/fair-play-policy">Fair Play Policy</Link></li>
+            <li><Link className="transition hover:text-accent" href="/legal/contact">Contact</Link></li>
           </ul>
         </div>
 
         <div>
           <p className="mb-3 text-xs font-bold tracking-[0.15em] uppercase text-fg-3">Legal</p>
           <ul className="space-y-2 text-sm text-fg-2">
-            <li><Link className="hover:text-fg" href="/legal/terms-of-service">Terms &amp; Conditions</Link></li>
-            <li><Link className="hover:text-fg" href="/legal/privacy-policy">Privacy Policy</Link></li>
-            <li><Link className="hover:text-fg" href="/legal/refund-policy">Refund Policy</Link></li>
-            <li><Link className="hover:text-fg" href="/legal/responsible-play">Responsible Play</Link></li>
+            <li><Link className="transition hover:text-accent" href="/legal/terms-of-service">Terms &amp; Conditions</Link></li>
+            <li><Link className="transition hover:text-accent" href="/legal/privacy-policy">Privacy Policy</Link></li>
+            <li><Link className="transition hover:text-accent" href="/legal/refund-policy">Refund Policy</Link></li>
+            <li><Link className="transition hover:text-accent" href="/legal/responsible-play">Responsible Play</Link></li>
           </ul>
         </div>
       </div>

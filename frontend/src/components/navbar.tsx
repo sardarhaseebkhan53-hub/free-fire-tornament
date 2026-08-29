@@ -4,7 +4,7 @@ import { NavbarClient } from './navbar-client';
 
 // Design v2 §Desktop header — the full nine-item primary navigation. Items
 // marked `secondary` fold away below 1280px so the bar never wraps or overflows.
-const LINKS = [
+export const NAV_LINKS = [
   { href: '/', label: 'Home' },
   { href: '/tournaments', label: 'Tournaments' },
   { href: '/leaderboard', label: 'Leaderboard' },
@@ -30,7 +30,7 @@ export function Navbar() {
         </Link>
 
         <nav className="hidden items-center gap-0.5 lg:flex" aria-label="Primary">
-          {LINKS.map((l) => (
+          {NAV_LINKS.map((l) => (
             <Link
               key={l.href}
               href={l.href}

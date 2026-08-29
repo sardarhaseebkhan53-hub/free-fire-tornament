@@ -98,35 +98,45 @@ export async function joinByCode(userId: string, codeRaw: string) {
 
 // ---------------------------------------------------------------------------
 export async function createTeam(userId: string, input: { name: string; tag: string; type: TeamType }) {
-  try {
-    return await prisma.$transaction(async (tx) => {
-      const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
-        SELECT "id", "status" FROM "users" WHERE "id" = ${userId} FOR UPDATE
-      `;
-      if (!userRows[0] || userRows[0].status !== 'ACTIVE') throw forbidden('Account is not active.');
-      const existing = await tx.teamMember.findFirst({
-        where: { userId, team: { type: input.type } },
-        select: { team: { select: { name: true } } },
+  const tag = input.tag.trim().toUpperCase();
+  // Every team is born with a shareable join code (spec §8) — the captain can
+  // copy it straight from the create response / team card instead of waiting
+  // for a lazy GET. Retry on the (rare) join-code unique collision; a tag
+  // collision is a real conflict and is reported as such.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+          SELECT "id", "status" FROM "users" WHERE "id" = ${userId} FOR UPDATE
+        `;
+        if (!userRows[0] || userRows[0].status !== 'ACTIVE') throw forbidden('Account is not active.');
+        const existing = await tx.teamMember.findFirst({
+          where: { userId, team: { type: input.type } },
+          select: { team: { select: { name: true } } },
+        });
+        if (existing) {
+          throw conflict('CONFLICT', `You already belong to a ${input.type.toLowerCase()} team (${existing.team.name}).`);
+        }
+        return tx.team.create({
+          data: {
+            name: input.name.trim(),
+            tag,
+            type: input.type,
+            captainId: userId,
+            joinCode: newJoinCode(),
+            members: { create: { userId, role: 'CAPTAIN' } },
+          },
+        });
       });
-      if (existing) {
-        throw conflict('CONFLICT', `You already belong to a ${input.type.toLowerCase()} team (${existing.team.name}).`);
-      }
-      return tx.team.create({
-        data: {
-          name: input.name.trim(),
-          tag: input.tag.trim().toUpperCase(),
-          type: input.type,
-          captainId: userId,
-          members: { create: { userId, role: 'CAPTAIN' } },
-        },
-      });
-    });
-  } catch (e: unknown) {
-    if ((e as { code?: string }).code === 'P2002') {
-      throw conflict('CONFLICT', 'This team tag is taken.');
+    } catch (e: unknown) {
+      if ((e as { code?: string }).code !== 'P2002') throw e;
+      // P2002 can be the tag OR the join code. If the tag is taken it is a
+      // genuine conflict; otherwise the random code collided — loop again.
+      const tagTaken = await prisma.team.findUnique({ where: { tag } });
+      if (tagTaken) throw conflict('CONFLICT', 'This team tag is taken.');
     }
-    throw e;
   }
+  throw badRequest('VALIDATION_ERROR', 'Could not generate a unique join code — try again.');
 }
 
 export async function updateTeam(actorId: string, teamId: string, patch: { name?: string; tag?: string }) {
@@ -159,7 +169,9 @@ export async function inviteMember(actorId: string, teamId: string, usernameRaw:
 
   const username = usernameRaw.trim().toLowerCase();
   const invitee = await prisma.user.findUnique({ where: { username } });
-  if (!invitee || invitee.status !== 'ACTIVE') throw notFound('Player not found');
+  if (!invitee || invitee.status !== 'ACTIVE') {
+    throw notFound('No player found with that username — check the spelling and try again.');
+  }
   if (invitee.id === actorId) throw badRequest('VALIDATION_ERROR', 'You cannot invite yourself.');
 
   const hasTeam = await prisma.teamMember.findFirst({

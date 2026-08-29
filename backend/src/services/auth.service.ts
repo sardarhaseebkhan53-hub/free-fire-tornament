@@ -11,9 +11,10 @@ import {
   ApiError, badRequest, conflict, unauthorized,
 } from '../lib/errors';
 import {
-  findToken, hashToken, issueToken, revokeAllRefreshTokens, revokeToken,
+  findToken, hashToken, issueToken, newOpaqueToken, revokeToken,
   signAccessToken, type AccessTokenPayload,
 } from '../lib/tokens';
+import type { Prisma } from '../../generated/prisma';
 import { sendMail, verificationEmail, passwordResetEmail } from './email.service';
 import { getSetting } from './settings.service';
 import { applyWalletTx } from './wallet.service';
@@ -290,48 +291,139 @@ export async function login(identifierRaw: string, password: string, ctx: Reques
 }
 
 // ---------------------------------------------------------------------------
-export async function refreshSession(rawRefresh: string, ctx: RequestContext) {
-  const row = await findToken(rawRefresh, 'REFRESH');
-  if (!row) {
-    // Rotation makes every refresh token single-use, so a token that exists
-    // but is already revoked is a REPLAY — treat it as a theft signal.
-    const replayed = await prisma.authToken.findFirst({
-      where: { tokenHash: hashToken(rawRefresh), type: 'REFRESH', revokedAt: { not: null } },
-      select: { userId: true },
-    });
-    if (replayed) {
-      await audit({
-        actorId: replayed.userId,
+/** Window (ms) during which a replayed, just-rotated refresh token is treated
+ * as a benign race (parallel refreshes / multiple tabs) and chained onto its
+ * successor instead of being treated as a theft. Overridable for tests. */
+export const REFRESH_REUSE_GRACE_MS = 60_000;
+
+export async function refreshSession(
+  rawRefresh: string,
+  ctx: RequestContext,
+  graceMs: number = REFRESH_REUSE_GRACE_MS,
+) {
+  // Everything happens inside ONE transaction that locks the presented token
+  // row (SELECT … FOR UPDATE). Parallel refreshes that race with the same
+  // cookie therefore serialize: each sees the previous rotation's committed
+  // state and chains onto the successor, so no racer is ever left with a
+  // "successor vanished" 401 and no benign race can nuke the session.
+  const out = await prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ id: string; userId: string; revokedAt: Date | null; createdAt: Date }>>`
+      SELECT "id", "userId", "revokedAt", "createdAt"
+      FROM "auth_tokens" WHERE "tokenHash" = ${hashToken(rawRefresh)} AND "type" = 'REFRESH'
+      FOR UPDATE
+    `;
+    const tokenRow = locked[0];
+    if (!tokenRow) {
+      throw unauthorized('TOKEN_INVALID', 'Session expired. Please sign in again.');
+    }
+
+    // Normal path — the token is still live: rotate it (single-use).
+    if (!tokenRow.revokedAt) {
+      const live = await tx.authToken.findFirst({
+        where: { id: tokenRow.id, revokedAt: null, expiresAt: { gt: new Date() } },
+        select: { id: true, userId: true },
+      });
+      if (!live) throw unauthorized('TOKEN_INVALID', 'Session expired. Please sign in again.');
+      await tx.authToken.update({ where: { id: live.id }, data: { revokedAt: new Date() } });
+      return rotateRefreshChain(tx, live.userId, ctx);
+    }
+
+    // Revoked — either a benign rotation race (parallel refreshes / multiple
+    // tabs racing the same single-use cookie) or a genuine replay.
+    const revokedRecently = Date.now() - tokenRow.revokedAt.getTime() < graceMs;
+    if (revokedRecently) {
+      // Chain onto the successor token — the one issued by the refresh that
+      // won the race. The FOR UPDATE lock means we see the latest committed
+      // state, so the chain never skips a step.
+      const successor = await tx.authToken.findFirst({
+        where: {
+          userId: tokenRow.userId,
+          type: 'REFRESH',
+          revokedAt: null,
+          createdAt: { gt: tokenRow.createdAt },
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (successor) {
+        await tx.authToken.update({ where: { id: successor.id }, data: { revokedAt: new Date() } });
+        return rotateRefreshChain(tx, successor.userId, ctx);
+      }
+      // The chain already ended (e.g. the user logged out elsewhere) — this
+      // is simply an old cookie, not an attack.
+      throw unauthorized('TOKEN_INVALID', 'Session expired. Please sign in again.');
+    }
+
+    // Genuine old replay — treat it as a theft signal. The revocations MUST
+    // commit, so the error is thrown AFTER the transaction commits (see the
+    // .then below), never inside it — otherwise the rollback would undo the
+    // session kill.
+    await tx.auditLog.create({
+      data: {
+        actorId: tokenRow.userId,
         action: 'REFRESH_TOKEN_REUSED',
         entity: 'AuthToken',
         entityId: null,
-        after: { type: 'REFRESH', reason: 'rotated token replayed' },
+        after: { type: 'REFRESH', reason: 'rotated token replayed after grace window' },
         ip: ctx.ip,
         userAgent: ctx.userAgent,
-      });
-      fireRefreshReuse(replayed.userId, ctx);
-      // Defence in depth: kill every live session for that account.
-      await revokeAllRefreshTokens(replayed.userId);
-    }
+      },
+    });
+    // Defence in depth: kill every live session for that account.
+    await tx.authToken.updateMany({
+      where: { userId: tokenRow.userId, type: 'REFRESH', revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return { __replayed: true, userId: tokenRow.userId };
+  });
+
+  const replayed = (out as { __replayed?: boolean }).__replayed;
+  if (replayed) {
+    fireRefreshReuse((out as { userId: string }).userId, ctx);
     throw unauthorized('TOKEN_INVALID', 'Session expired. Please sign in again.');
   }
+  return out as { accessToken: string; refreshToken: string; userId: string };
+}
 
-  // Rotation: old token is single-use.
-  await revokeToken(row.id);
-  const user = await prisma.user.findUnique({ where: { id: row.userId } });
+/** Issue a fresh access + refresh pair inside the ongoing transaction. */
+async function rotateRefreshChain(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  ctx: RequestContext,
+) {
+  const user = await tx.user.findUnique({ where: { id: userId } });
   if (!user || user.status === 'BANNED' || user.status === 'SUSPENDED') {
     throw unauthorized('UNAUTHORIZED', 'Account is not active.');
   }
   const access = signAccessToken({ sub: user.id, role: user.role, username: user.username });
-  const refresh = await issueToken(user.id, 'REFRESH', REFRESH_TTL_MS(), ctx);
-  return { accessToken: access, refreshToken: refresh, userId: user.id };
+  const raw = newOpaqueToken();
+  await tx.authToken.create({
+    data: {
+      userId,
+      type: 'REFRESH',
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + REFRESH_TTL_MS()),
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+    },
+  });
+  return { accessToken: access, refreshToken: raw, userId };
 }
 
 export async function logout(rawRefresh?: string) {
-  if (rawRefresh) {
-    const row = await findToken(rawRefresh, 'REFRESH');
-    if (row) await revokeToken(row.id);
-  }
+  if (!rawRefresh) return;
+  const row = await findToken(rawRefresh, 'REFRESH');
+  if (!row) return;
+  // Logout ends the session everywhere: revoke the presented token AND every
+  // other live refresh token for the account, so a replay of any sibling
+  // cookie (e.g. another tab) can never revive the session via grace-chaining.
+  await prisma.$transaction([
+    prisma.authToken.update({ where: { id: row.id }, data: { revokedAt: new Date() } }),
+    prisma.authToken.updateMany({
+      where: { userId: row.userId, type: 'REFRESH', revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+  ]);
 }
 
 // ---------------------------------------------------------------------------

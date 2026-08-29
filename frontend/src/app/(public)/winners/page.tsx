@@ -7,6 +7,7 @@ import { money, dateOnly, MODE_LABEL } from '@/lib/format';
 import { pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
 import { SectionHeading, Badge, EmptyState } from '@/components/ui';
+import { Reveal } from '@/components/reveal';
 import { TournamentImage } from '@/components/tournament-image';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -25,15 +26,18 @@ export default async function WinnersPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
-      <SectionHeading
-        kicker="Hall of fame"
-        title="Winners"
-        sub="Prizes are credited only after result verification — every row below is a real, paid payout."
-      />
+      <Reveal>
+        <SectionHeading
+          kicker="Hall of fame"
+          title="Winners"
+          sub="Prizes are credited only after result verification — every row below is a real, paid payout."
+        />
+      </Reveal>
 
       {rows.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {rows.map((w, i) => (
+            <Reveal key={i} delay={(i % 2) * 70}>
             <div key={i} className="glass relative flex items-center gap-4 overflow-hidden rounded-card p-5">
               {w.tournament.banner && (
                 <TournamentImage
@@ -61,10 +65,11 @@ export default async function WinnersPage() {
                 </div>
               </div>
               <div className="relative text-right">
-                <p className="tabular font-display text-lg font-bold text-reward">{money(w.amount)}</p>
+                <p className="gold-text tabular font-display text-lg font-bold">{money(w.amount)}</p>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-fg-3">#{w.position} place</p>
               </div>
             </div>
+            </Reveal>
           ))}
         </div>
       ) : (
