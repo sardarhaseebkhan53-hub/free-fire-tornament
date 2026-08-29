@@ -227,6 +227,18 @@ export const settingUpdateSchema = z.object({
   value: z.unknown(),
 });
 
+/** Full wallet-ledger filter for the admin Transactions page. */
+export const adminTransactionsQuerySchema = z.object({
+  type: z.string().trim().max(40).optional(),
+  bucket: z.string().trim().max(20).optional(),
+  direction: z.enum(['CREDIT', 'DEBIT']).optional(),
+  q: z.string().trim().max(80).optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  csv: z.enum(['1', 'true']).optional(),
+  ...pageSchema,
+});
+
 export const auditLogQuerySchema = z.object({
   action: z.string().trim().max(40).optional(),
   entity: z.string().trim().max(40).optional(),

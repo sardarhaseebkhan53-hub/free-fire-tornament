@@ -3,6 +3,8 @@
 // request time, reversed on rejection). Every financial step is transactional,
 // notified, and audited; duplicate transaction IDs are blocked at the DB level.
 // =============================================================================
+import path from 'node:path';
+import fs from 'node:fs/promises';
 import { Prisma, type DepositStatus, type WithdrawalStatus } from '../../generated/prisma';
 import { prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
@@ -11,6 +13,7 @@ import { moveBalance, TX_OPTS } from './wallet.service';
 import { fireDepositFraud, fireRejectedDepositTid, fireWithdrawalFraud } from './fraud.service';
 import { notifyAdmins } from './notification.service';
 import { creditReferralRewardTx } from './referral.service';
+import { DEPOSIT_DIR } from '../lib/upload';
 
 const num = (d: unknown) => Math.round(Number(d ?? 0) * 100) / 100;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -298,7 +301,7 @@ export async function requestWithdrawal(
   input: { amount: number; method: 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER' | 'NAYAPAY' | 'SADAPAY'; accountName: string; accountNumber: string; accountDetails?: string; requestId?: string },
   ctx: Ctx,
 ) {
-  const min = Number(await getSetting('wallet.minWithdrawal', 100));
+  const min = Number(await getSetting('wallet.minWithdrawal', 300));
   const feePct = Number(await getSetting('wallet.withdrawalFeePercent', 0));
   if (input.amount < min) throw badRequest('VALIDATION_ERROR', `Minimum withdrawal is PKR ${min}.`);
 
@@ -344,22 +347,48 @@ export async function requestWithdrawal(
         status: 'PENDING',
       },
     });
-    // Debit happens NOW (holding) — rejection reverses it. Insufficient
-    // winning balance throws before anything is written.
-    const entry = await moveBalance(tx, userId, 'WINNING', 'DEBIT', input.amount, 'WITHDRAWAL', {
-      entityType: 'Withdrawal',
-      entityId: wd.id,
-      reference,
-      description: `Withdrawal to ${METHOD_LABEL[input.method]} ${masked} — pending review`,
-    }, currency);
-    await tx.withdrawal.update({ where: { id: wd.id }, data: { walletTxId: entry.id } });
+    // Debit happens NOW (holding) — rejection reverses it. Deposits (CASH) and
+    // winnings (WINNING) are both withdrawable, so the amount may be split
+    // across both buckets when a single bucket cannot cover the whole request.
+    const wallet = await tx.wallet.findUnique({ where: { userId }, select: { cashBalance: true, winningBalance: true } });
+    const cash = Number(wallet?.cashBalance ?? 0);
+    const winning = Number(wallet?.winningBalance ?? 0);
+    let remaining = input.amount;
+    const parts: Array<{ bucket: 'CASH' | 'WINNING'; amount: number; entryId: string }> = [];
+    const cashTake = Math.min(cash, remaining);
+    if (cashTake > 0) {
+      const entry = await moveBalance(tx, userId, 'CASH', 'DEBIT', round2(cashTake), 'WITHDRAWAL', {
+        entityType: 'Withdrawal',
+        entityId: wd.id,
+        reference,
+        description: `Withdrawal to ${METHOD_LABEL[input.method]} ${masked} from Cash balance — pending review`,
+      }, currency);
+      parts.push({ bucket: 'CASH', amount: round2(cashTake), entryId: entry.id });
+      remaining = round2(remaining - cashTake);
+    }
+    if (remaining > 0) {
+      const winningTake = Math.min(winning, remaining);
+      if (winningTake > 0) {
+        const entry = await moveBalance(tx, userId, 'WINNING', 'DEBIT', round2(winningTake), 'WITHDRAWAL', {
+          entityType: 'Withdrawal',
+          entityId: wd.id,
+          reference,
+          description: `Withdrawal to ${METHOD_LABEL[input.method]} ${masked} from Winning balance — pending review`,
+        }, currency);
+        parts.push({ bucket: 'WINNING', amount: round2(winningTake), entryId: entry.id });
+        remaining = round2(remaining - winningTake);
+      }
+    }
+    if (remaining > 0) throw badRequest('INSUFFICIENT_BALANCE', 'Insufficient balance for this operation');
+    await tx.withdrawal.update({ where: { id: wd.id }, data: { walletTxId: parts[0]?.entryId ?? null } });
+    const sources = parts.map((p) => p.bucket === 'CASH' ? 'Cash' : 'Winning').join(' and ').replace(/ and (?!.* and )/, ' + ');
 
     await tx.notification.create({
       data: {
         userId,
         type: 'WITHDRAWAL_UPDATE',
         title: 'Withdrawal request received',
-        body: `PKR ${input.amount} from your Winning balance is under review${fee > 0 ? ` (fee PKR ${fee})` : ''}. Payouts complete within 24–48 hours.`,
+        body: `PKR ${input.amount} from your ${sources} balance is under review${fee > 0 ? ` (fee PKR ${fee})` : ''}. Payouts complete within 24–48 hours.`,
         data: { withdrawalId: wd.id },
       },
     });
@@ -422,18 +451,31 @@ export async function cancelWithdrawal(userId: string, id: string, ctx: Ctx) {
       data: { status: 'CANCELLED', reviewedAt: new Date() },
     });
     if (claimed.count !== 1) throw conflict('CONFLICT', 'This withdrawal was updated by another request.');
-    const entry = await moveBalance(tx, userId, 'WINNING', 'CREDIT', wd.amount.toNumber(), 'WITHDRAWAL_REVERSAL', {
-      entityType: 'Withdrawal',
-      entityId: wd.id,
-      reference: `WDLR${Date.now()}`,
-      description: 'Withdrawal cancelled — amount returned to Winning balance',
-    }, currency);
-    await tx.withdrawal.update({ where: { id }, data: { reversalWalletTxId: entry.id } });
+    // Release every held bucket exactly as it was debited (Cash deposits and/or
+    // Winning), so a split withdrawal refunds both sides correctly.
+    const debits = await tx.walletTransaction.findMany({
+      where: { entityType: 'Withdrawal', entityId: wd.id, direction: 'DEBIT', type: 'WITHDRAWAL' },
+      select: { bucket: true, amount: true },
+    });
+    const parts = debits.length > 0 ? debits : [{ bucket: 'WINNING', amount: wd.amount }];
+    const sources = [...new Set(parts.map((p) => p.bucket === 'CASH' ? 'Cash' : 'Winning'))].join(' and ');
+    let reversalWalletTxId: string | undefined;
+    for (const p of parts) {
+      const bucket = p.bucket === 'CASH' ? 'CASH' : 'WINNING';
+      const entry = await moveBalance(tx, userId, bucket, 'CREDIT', num(p.amount), 'WITHDRAWAL_REVERSAL', {
+        entityType: 'Withdrawal',
+        entityId: wd.id,
+        reference: `WDLR${Date.now()}`,
+        description: `Withdrawal cancelled — amount returned to ${bucket === 'CASH' ? 'Cash' : 'Winning'} balance`,
+      }, currency);
+      reversalWalletTxId ??= entry.id;
+    }
+    await tx.withdrawal.update({ where: { id }, data: { reversalWalletTxId } });
     await tx.notification.create({
       data: {
         userId, type: 'WITHDRAWAL_UPDATE',
         title: 'Withdrawal cancelled',
-        body: `PKR ${num(wd.amount)} has been returned to your Winning balance.`,
+        body: `PKR ${num(wd.amount)} has been returned to your ${sources} balance.`,
         data: { withdrawalId: wd.id },
       },
     });
@@ -603,6 +645,32 @@ export async function reviewDeposit(
   return serializeDeposit(out);
 }
 
+/** Remove a deposit proof (admin). Only safe before money moved: an APPROVED
+ * deposit has already credited the wallet ledger, so it is never deletable —
+ * use the ledger/audit trail for disputes instead. */
+export async function deleteDeposit(adminId: string, depositId: string, ctx: Ctx) {
+  const dep = await prisma.deposit.findUnique({ where: { id: depositId } });
+  if (!dep) throw notFound('Deposit not found');
+  if (dep.status === 'APPROVED') {
+    throw conflict('CONFLICT', 'Approved deposits cannot be deleted because the wallet was already credited.');
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.deposit.delete({ where: { id: depositId } });
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'DEPOSIT_DELETED', entity: 'Deposit', entityId: depositId,
+        before: { status: dep.status, amount: num(dep.amount), transactionId: dep.transactionId },
+        after: Prisma.JsonNull, ip: ctx.ip, userAgent: ctx.userAgent,
+      },
+    });
+  }, TX_OPTS);
+  // Best-effort cleanup of the uploaded proof; the ledger is already immutable.
+  if (dep.screenshot) {
+    await fs.unlink(path.join(DEPOSIT_DIR, path.basename(dep.screenshot))).catch(() => undefined);
+  }
+  return { id: depositId, deleted: true };
+}
+
 export async function listWithdrawals(filter: { status?: string; page: number; pageSize: number }) {
   const where: Prisma.WithdrawalWhereInput = filter.status
     ? { status: filter.status as WithdrawalStatus }
@@ -664,15 +732,24 @@ export async function reviewWithdrawal(
 
     let reversalWalletTxId: string | undefined;
     if (action === 'REJECT') {
-      // Release the holding — winnings go back exactly as they left.
-      const entry = await moveBalance(tx, wd.userId, 'WINNING', 'CREDIT', wd.amount.toNumber(), 'WITHDRAWAL_REVERSAL', {
-        entityType: 'Withdrawal',
-        entityId: wd.id,
-        reference: `WDLR${Date.now()}`,
-        description: `Withdrawal rejected${note ? ` — ${note}` : ''} — amount returned to Winning balance`,
-        createdById: adminId,
-      }, currency);
-      reversalWalletTxId = entry.id;
+      // Release every held bucket exactly as it was debited (Cash deposits
+      // and/or Winning), so a split withdrawal refunds both sides correctly.
+      const debits = await tx.walletTransaction.findMany({
+        where: { entityType: 'Withdrawal', entityId: wd.id, direction: 'DEBIT', type: 'WITHDRAWAL' },
+        select: { bucket: true, amount: true },
+      });
+      const parts = debits.length > 0 ? debits : [{ bucket: 'WINNING', amount: wd.amount }];
+      for (const p of parts) {
+        const bucket = p.bucket === 'CASH' ? 'CASH' : 'WINNING';
+        const entry = await moveBalance(tx, wd.userId, bucket, 'CREDIT', num(p.amount), 'WITHDRAWAL_REVERSAL', {
+          entityType: 'Withdrawal',
+          entityId: wd.id,
+          reference: `WDLR${Date.now()}`,
+          description: `Withdrawal rejected${note ? ` — ${note}` : ''} — amount returned to ${bucket === 'CASH' ? 'Cash' : 'Winning'} balance`,
+          createdById: adminId,
+        }, currency);
+        reversalWalletTxId ??= entry.id;
+      }
     }
 
     const now = new Date();

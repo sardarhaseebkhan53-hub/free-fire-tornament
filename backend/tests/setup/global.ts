@@ -60,7 +60,7 @@ async function seedBaseline(client: pg.Client) {
     ['platform.registrationOpen', true],
     ['wallet.minDeposit', 100],
     ['wallet.maxDeposit', 25000],
-    ['wallet.minWithdrawal', 100],
+    ['wallet.minWithdrawal', 300],
     ['wallet.coinConversionRate', 1],
     ['wallet.welcomeBonus', 0],
     ['wallet.depositBonusPercent', 0],

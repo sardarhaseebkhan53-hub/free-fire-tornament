@@ -10,7 +10,7 @@ import {
   fraudListQuerySchema, fraudReviewSchema, leaderboardAdjustSchema,
   matchListQuerySchema, matchStatusSchema, matchUpdateSchema, tournamentScoringSchema,
   teamPairSchema, participantStateSchema, registrationReadySchema, resultsStatusSchema,
-  revenueQuerySchema, financeQuerySchema, settingUpdateSchema, slotAssignSchema,
+  adminTransactionsQuerySchema, revenueQuerySchema, financeQuerySchema, settingUpdateSchema, slotAssignSchema,
   slotClearSchema, slotLockSchema, ticketListQuerySchema,
   ticketReplySchema, tournamentStatusSchema, upsertSeoSchema, userListQuerySchema,
   userStatusSchema, blogStatusSchema, paymentAccountSchema, paymentAccountToggleSchema,
@@ -19,13 +19,14 @@ import { listFraudAlerts, reviewFraudAlert } from '../services/fraud.service';
 import { adminWriteLimiter } from '../middleware/rateLimit';
 import {
   adjustBalance, adjustPlayerStats, adminReports, adminStats, createAd, createBlog,
-  createTournament, listAds, listAuditLogs, listBlog, listMatchesAdmin, listSeo,
+  createTournament, deleteTournament, listAds, listAllTransactions, listAllTransactionsCsv, listAuditLogs, listBlog, listMatchesAdmin, listSeo,
   listSettings, listTeamsAdmin, listTickets, listTournamentsAdmin, listUsers,
   listWinnersAdmin, recalculateLeaderboard, replyTicket, revenueAnalytics,
   setBlogStatus, setMatchStatus, setTournamentStatus, setUserStatus, toggleAd,
   updateSetting, updateTournamentScoring, upsertSeo,
 } from '../services/admin.service';
 import { financeCsv, financeDashboard } from '../services/finance.service';
+import { deleteDeposit } from '../services/payment.service';
 import { listAllTransfers } from '../services/transfer.service';
 import { rotateTeamJoinCode } from '../services/team.service';
 import { matchTable, updateMatch } from '../services/match.service';
@@ -198,6 +199,9 @@ adminRouter.get('/deposits', async (req, res) => {
   const q = depositListQuerySchema.parse(req.query);
   return ok(res, await listDeposits(q));
 });
+adminRouter.delete('/deposits/:id', adminWriteLimiter, async (req, res) => {
+  return ok(res, await deleteDeposit(req.auth!.id, String(req.params.id), ctxOf(req)), 'Deposit removed.');
+});
 adminRouter.post('/deposits/:id/review', async (req, res) => {
   const { action, note } = depositReviewSchema.parse(req.body);
   return ok(res, await reviewDeposit(req.auth!.id, String(req.params.id), action, note, ctxOf(req)), action === 'APPROVE' ? 'Deposit approved and credited.' : 'Deposit rejected.');
@@ -210,6 +214,11 @@ adminRouter.post('/withdrawals/:id/review', async (req, res) => {
   const { action, note, paidReference } = withdrawalReviewSchema.parse(req.body);
   const out = await reviewWithdrawal(req.auth!.id, String(req.params.id), action, note, paidReference, ctxOf(req));
   return ok(res, out, `Withdrawal ${out.status.toLowerCase()}.`);
+});
+// Tournaments — hard-delete a draft that was created by mistake. Anything with
+// players / matches / prizes cannot be deleted; use CANCELLED for refunds.
+adminRouter.delete('/tournaments/:id', adminWriteLimiter, async (req, res) => {
+  return ok(res, await deleteTournament(req.auth!.id, String(req.params.id), ctxOf(req)), 'Draft tournament deleted.');
 });
 // Payment destinations — the Add Money accounts players pay into. Admin controls
 // them all (create / edit / toggle / delete), every change audited.
@@ -297,6 +306,18 @@ adminRouter.get('/seo', async (_req, res) => ok(res, await listSeo()));
 adminRouter.post('/seo', async (req, res) => {
   const input = upsertSeoSchema.parse(req.body);
   return ok(res, await upsertSeo(req.auth!.id, input), 'SEO settings saved.');
+});
+
+// Full wallet ledger — every debit/credit across the platform (audit-friendly).
+adminRouter.get('/transactions', async (req, res) => {
+  const q = adminTransactionsQuerySchema.parse(req.query);
+  if (q.csv) {
+    const csv = await listAllTransactionsCsv(q);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="clutchnex-ledger.csv"');
+    return res.send(csv);
+  }
+  return ok(res, await listAllTransactions(q));
 });
 
 // Settings + audit trail

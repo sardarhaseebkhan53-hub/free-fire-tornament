@@ -57,7 +57,9 @@ export default function AdminResultsPage() {
   const setKills = (v: string) => setDraft({ ...form, kills: v });
   const setNote = (v: string) => setDraft({ ...form, note: v });
   const [distributed, setDistributed] = useState<string | null>(null);
-  const [view, setView] = useState<'submissions' | 'publish'>('submissions');
+  // Default to Publish & Prizes so an admin lands on the match list where they
+  // can Add / Enter Results immediately instead of an empty submission queue.
+  const [view, setView] = useState<'submissions' | 'publish'>('publish');
   const [scoring, setScoring] = useState<{ pointsPerKill: number; placementTable: number[]; bonusPoints: number; penaltyPoints: number } | null>(null);
   const [openTable, setOpenTable] = useState<string | null>(null);
 

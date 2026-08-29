@@ -974,6 +974,35 @@ export async function setBlogStatus(adminId: string, id: string, publish: boolea
   return { id: post.id, status: post.status };
 }
 
+export async function deleteTournament(adminId: string, id: string, ctx: { ip?: string }) {
+  const t = await prisma.tournament.findUnique({
+    where: { id },
+    select: {
+      id: true, title: true, slug: true, status: true, registeredSlots: true,
+      _count: { select: { registrations: true, matches: true, winners: true } },
+    },
+  });
+  if (!t) throw badRequest('NOT_FOUND', 'Tournament not found');
+  if (t.status !== 'DRAFT') {
+    throw conflict('CONFLICT', 'Only draft tournaments can be deleted. Cancel with refunds if it has players.');
+  }
+  if (t.registeredSlots > 0 || t._count.registrations > 0 || t._count.matches > 0 || t._count.winners > 0) {
+    throw conflict('CONFLICT', 'This tournament has activity. Cancel it instead of deleting.');
+  }
+  await prisma.$transaction(async (tx) => {
+    const before = { title: t.title, slug: t.slug, status: t.status, registeredSlots: t.registeredSlots };
+    await tx.prize.deleteMany({ where: { tournamentId: t.id } });
+    await tx.tournament.delete({ where: { id: t.id } });
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'TOURNAMENT_DELETED', entity: 'Tournament', entityId: t.id,
+        before, after: Prisma.JsonNull, ip: ctx.ip,
+      },
+    });
+  }, TX_OPTS);
+  return { id: t.id, deleted: true };
+}
+
 // ---------------------------------------------------------------------------
 // Ads + SEO
 // ---------------------------------------------------------------------------
@@ -1037,6 +1066,105 @@ export async function upsertSeo(adminId: string, input: { pageSlug: string; titl
 }
 
 // ---------------------------------------------------------------------------
+// Full wallet ledger (admin)
+// ---------------------------------------------------------------------------
+
+export async function listAllTransactions(filter: {
+  type?: string; bucket?: string; direction?: 'CREDIT' | 'DEBIT';
+  q?: string; from?: Date; to?: Date; page: number; pageSize: number;
+}) {
+  const where: Prisma.WalletTransactionWhereInput = {};
+  if (filter.type) where.type = filter.type as never;
+  if (filter.bucket) where.bucket = filter.bucket as never;
+  if (filter.direction) where.direction = filter.direction as never;
+  if (filter.from || filter.to) {
+    where.createdAt = {
+      ...(filter.from ? { gte: filter.from } : {}),
+      ...(filter.to ? { lte: filter.to } : {}),
+    };
+  }
+  if (filter.q) {
+    where.OR = [
+      { reference: { contains: filter.q, mode: 'insensitive' } },
+      { description: { contains: filter.q, mode: 'insensitive' } },
+      { user: { username: { contains: filter.q, mode: 'insensitive' } } },
+      { user: { email: { contains: filter.q, mode: 'insensitive' } } },
+    ];
+  }
+  const [rows, total] = await Promise.all([
+    prisma.walletTransaction.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: pageOf(filter.page) * filter.pageSize,
+      take: filter.pageSize,
+      include: { user: { select: { username: true, email: true } } },
+    }),
+    prisma.walletTransaction.count({ where }),
+  ]);
+  return {
+    items: rows.map((t) => ({
+      id: t.id,
+      userId: t.userId,
+      username: t.user.username,
+      email: t.user.email,
+      type: t.type,
+      bucket: t.bucket,
+      direction: t.direction,
+      amount: num(t.amount),
+      currency: t.currency,
+      balanceBefore: num(t.balanceBefore),
+      balanceAfter: num(t.balanceAfter),
+      reference: t.reference,
+      description: t.description,
+      status: t.status,
+      createdAt: t.createdAt,
+    })),
+    page: filter.page,
+    pageSize: filter.pageSize,
+    total,
+  };
+}
+
+/** CSV export for the admin ledger (respects the same filters as the page). */
+export async function listAllTransactionsCsv(filter: {
+  type?: string; bucket?: string; direction?: 'CREDIT' | 'DEBIT';
+  q?: string; from?: Date; to?: Date;
+}) {
+  const where: Prisma.WalletTransactionWhereInput = {};
+  if (filter.type) where.type = filter.type as never;
+  if (filter.bucket) where.bucket = filter.bucket as never;
+  if (filter.direction) where.direction = filter.direction as never;
+  if (filter.from || filter.to) {
+    where.createdAt = {
+      ...(filter.from ? { gte: filter.from } : {}),
+      ...(filter.to ? { lte: filter.to } : {}),
+    };
+  }
+  if (filter.q) {
+    where.OR = [
+      { reference: { contains: filter.q, mode: 'insensitive' } },
+      { description: { contains: filter.q, mode: 'insensitive' } },
+      { user: { username: { contains: filter.q, mode: 'insensitive' } } },
+      { user: { email: { contains: filter.q, mode: 'insensitive' } } },
+    ];
+  }
+  const rows = await prisma.walletTransaction.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    include: { user: { select: { username: true, email: true } } },
+  });
+  const esc = (v: unknown) => {
+    const s = String(v ?? '');
+    return /[\",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+  };
+  const head = 'Date,Player,Email,Type,Bucket,Direction,Amount,Currency,Before,After,Reference,Description,Status';
+  const lines = rows.map((t) =>
+    [t.createdAt.toISOString(), t.user.username, t.user.email, t.type, t.bucket, t.direction,
+      num(t.amount), t.currency, num(t.balanceBefore), num(t.balanceAfter),
+      t.reference ?? '', t.description ?? '', t.status].map(esc).join(','));
+  return [head, ...lines].join('\n');
+}
+
 // Settings + audit logs
 // ---------------------------------------------------------------------------
 

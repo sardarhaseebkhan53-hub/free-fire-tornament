@@ -76,12 +76,12 @@ export default function WalletPage() {
   const total = typeof w.balance === 'number'
     ? w.balance
     : Number(w.cashBalance) + Number(w.winningBalance);
-  const withdrawable = typeof w.withdrawable === 'number' ? w.withdrawable : Number(w.winningBalance);
+  const withdrawable = typeof w.withdrawable === 'number' ? w.withdrawable : Number(w.cashBalance) + Number(w.winningBalance);
   const wa = (pub?.['platform.whatsappNumber'] ?? '+923001234567').replace(/\D/g, '');
 
   const buckets = [
     { label: 'Deposits', value: w.cashBalance, icon: WalletIcon, tone: 'bg-accent/15 text-accent' },
-    { label: 'Winnings', value: withdrawable, icon: Trophy, tone: 'bg-reward/15 text-reward' },
+    { label: 'Winnings', value: Number(w.winningBalance), icon: Trophy, tone: 'bg-reward/15 text-reward' },
     { label: 'Bonus', value: w.bonusBalance, icon: Gift, tone: 'bg-success/15 text-success' },
   ];
 
@@ -108,7 +108,7 @@ export default function WalletPage() {
                 </span>
               </div>
               <p className="mt-2 text-xs text-fg-3">
-                <span className="font-semibold text-reward">{fmt(withdrawable)}</span> of this is winnings and can be withdrawn.
+                <span className="font-semibold text-reward">{fmt(withdrawable)}</span> is withdrawable — deposits and winnings, subject to the minimum below.
               </p>
             </div>
             <div className="flex flex-col gap-3">

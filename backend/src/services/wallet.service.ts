@@ -165,7 +165,7 @@ export async function walletOverview(userId: string) {
       }),
       getSetting('wallet.minDeposit', 100),
       getSetting('wallet.maxDeposit', 25000),
-      getSetting('wallet.minWithdrawal', 100),
+      getSetting('wallet.minWithdrawal', 300),
       getSetting('wallet.withdrawalFeePercent', 0),
       getSetting('wallet.coinConversionRate', 1),
       getSetting('wallet.depositBonusPercent', 0),
@@ -183,10 +183,10 @@ export async function walletOverview(userId: string) {
       winningBalance: winning,
       bonusBalance: num(wallet.bonusBalance),
       // Primary player-facing balance: one PKR number (deposits + winnings).
-      // Buckets remain internally for accounting/withdrawal rules; players
-      // see a single wallet.
+      // Deposits are withdrawable again (minimum enforced separately), so the
+      // player sees a single withdrawable wallet.
       balance: Math.round((cash + winning) * 100) / 100,
-      withdrawable: winning,
+      withdrawable: Math.round((cash + winning) * 100) / 100,
       currency: 'PKR',
     },
     settings: {

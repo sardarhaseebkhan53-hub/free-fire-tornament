@@ -23,6 +23,7 @@ const NAV = [
   { href: '/admin/payment-accounts', label: 'Payment Accounts', icon: CreditCard },
   { href: '/admin/withdrawals', label: 'Withdrawals', icon: Upload },
   { href: '/admin/transfers', label: 'Transfers', icon: Send },
+  { href: '/admin/transactions', label: 'Transactions', icon: ClipboardList },
   { href: '/admin/finance', label: 'Financials', icon: TrendingUp },
   { href: '/admin/revenue', label: 'Revenue', icon: BarChart3 },
   { href: '/admin/support', label: 'Support', icon: Headphones },

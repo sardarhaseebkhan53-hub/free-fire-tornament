@@ -8,7 +8,7 @@ import { confirmStandings, saveAdminResult, setResultsStatus } from '../../src/s
 import { assignSlot, clearSlot, setParticipantState, setSlotLock, slotBoard } from '../../src/services/slot.service';
 import { createTeam, joinByCode, teamJoinCode } from '../../src/services/team.service';
 import { joinTournament } from '../../src/services/tournament.service';
-import { adjustPlayerStats, recalculateLeaderboard, updateTournamentScoring } from '../../src/services/admin.service';
+import { adjustPlayerStats, deleteTournament, recalculateLeaderboard, updateTournamentScoring } from '../../src/services/admin.service';
 import { tournamentResults } from '../../src/services/public.service';
 import { cleanupUsers, db, makeTournament, makeUser, rejectsWithCode, uid } from '../helpers/db';
 
@@ -303,5 +303,25 @@ describe('per-tournament scoring configuration (spec §35)', () => {
     expect(floored.finalScore).toBe(0);
 
     void reg;
+  });
+});
+
+describe('admin tournament deletion', () => {
+  it('deletes a draft tournament and its prizes', async () => {
+    const admin = await makeUser({ role: 'ADMIN', prefix: 'del-admin' });
+    created.push(admin.id);
+    const t = await makeTournament({ status: 'DRAFT', prizes: [{ kind: 'PLACEMENT', amount: 300, label: '1st' }] });
+    const removed = await deleteTournament(admin.id, t.id, ctx);
+    expect(removed.deleted).toBe(true);
+    expect(await db.tournament.findUnique({ where: { id: t.id } })).toBeNull();
+    expect(await db.prize.count({ where: { tournamentId: t.id } })).toBe(0);
+  });
+
+  it('refuses to delete a non-draft tournament', async () => {
+    const admin = await makeUser({ role: 'ADMIN', prefix: 'del-admin2' });
+    created.push(admin.id);
+    const t = await makeTournament({ status: 'LIVE' });
+    tournamentIds.push(t.id);
+    await rejectsWithCode(() => deleteTournament(admin.id, t.id, ctx), 'CONFLICT');
   });
 });

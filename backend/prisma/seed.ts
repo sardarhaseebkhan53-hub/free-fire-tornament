@@ -157,7 +157,7 @@ async function main() {
     ['platform.registrationOpen', true, 'Allow new registrations'],
     ['wallet.minDeposit', 100, 'Minimum manual deposit (PKR)'],
     ['wallet.maxDeposit', 25000, 'Maximum manual deposit (PKR)'],
-    ['wallet.minWithdrawal', 100, 'Minimum withdrawal (PKR)'],
+    ['wallet.minWithdrawal', 300, 'Minimum withdrawal (PKR)'],
     ['wallet.transferEnabled', true, 'Allow user-to-user wallet transfers'],
     ['wallet.transferMin', 10, 'Minimum single transfer amount (PKR)'],
     ['wallet.transferMax', 25000, 'Maximum single transfer amount (PKR)'],

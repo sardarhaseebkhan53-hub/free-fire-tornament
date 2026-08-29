@@ -2,7 +2,7 @@
 // Tournaments management — design 28: list, status transitions, create link.
 import { useState } from 'react';
 import Link from 'next/link';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
 import { api , apiGet } from '@/lib/client-api';
@@ -24,6 +24,7 @@ export default function AdminTournamentsPage() {
   const [page, setPage] = useState(1);
   const { data, loading, setData } = useAdminList<Page>(`/admin/tournaments?page=${page}&pageSize=15`, [page]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function setStatus(id: string, status: string) {
     setBusy(id);
@@ -35,6 +36,20 @@ export default function AdminTournamentsPage() {
       alert(e instanceof Error ? e.message : 'Status change failed');
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function remove(t: Row) {
+    if (!window.confirm(`Delete draft tournament "${t.title}"? This permanently removes its prizes and cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await api(`/admin/tournaments/${t.id}`, { method: 'DELETE' });
+      const fresh = await apiGet<Page>(`/admin/tournaments?page=${page}&pageSize=15`);
+      if (fresh) setData(fresh);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -85,6 +100,15 @@ export default function AdminTournamentsPage() {
                         className="rounded-input border border-danger/30 px-2.5 py-1 text-[11px] font-bold text-danger disabled:opacity-50"
                       >
                         Cancel
+                      </button>
+                    )}
+                    {t.status === 'DRAFT' && (
+                      <button
+                        onClick={() => remove(t)}
+                        disabled={deleting}
+                        className="inline-flex items-center gap-1 rounded-input border border-danger/30 px-2.5 py-1 text-[11px] font-bold text-danger hover:bg-danger/10 disabled:opacity-50"
+                      >
+                        <Trash2 size={12} /> Delete
                       </button>
                     )}
                   </div>
