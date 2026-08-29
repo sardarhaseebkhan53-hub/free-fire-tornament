@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, type FormEvent, Suspense } from 'react';
 import Link from 'next/link';
 import { ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
+import { resetSessionBreaker } from '@/lib/client-api';
 
 function Field({
   label, name, type = 'text', placeholder, required = true, hint,
@@ -65,6 +66,8 @@ function AuthFormInner({ mode }: { mode: 'login' | 'register' }) {
 
       if (mode === 'login') {
         localStorage.setItem('cn_access', json.data.accessToken);
+        // Re-arm the refresh circuit breaker: this is a brand-new session.
+        resetSessionBreaker();
         window.dispatchEvent(new Event('storage'));
         router.push(search.get('next') ?? '/dashboard');
       } else {
