@@ -173,6 +173,8 @@ async function main() {
     ['tournament.registrationCutoffMinutes', 30, 'Registration closes N minutes before start'],
     ['tournament.roomCredentialsReleaseMinutesBeforeStart', 30, 'Room ID/password unlock window'],
     ['tournament.allowIndependentDuo', false, 'Allow players to register DUO without a team and get paired later by admin'],
+    ['tournament.allowIndependentSquad', false, 'Allow players to register SQUAD / Clash Squad without a team and get paired later by admin'],
+    ['ads.enabled', false, 'Show admin-managed advertisements across the public site (off by default)'],
     ['referral.firstDepositReward', 50, 'Referrer bonus (PKR) when a referred player\u2019s first approved deposit qualifies'],
     ['referral.minFirstDeposit', 100, 'Minimum approved deposit (PKR) that qualifies the referrer bonus'],
     ['tournament.startReminderMinutes', 5, 'Minutes before match start to send the reminder notification'],
@@ -973,10 +975,13 @@ async function main() {
     await prisma.staticPage.create({ data: { slug, title, content, seoTitle: `${title} | CLUTCHNEX` } });
   }
 
+  // Ads are OFF by default (ads.enabled = false). Rows are still created so the
+  // admin panel has something to manage, but none are active until an admin
+  // explicitly activates them.
   await prisma.advertisement.createMany({
     data: [
-      { placement: 'HEADER', name: 'Launch banner — CLUTCHNEX merch', imageUrl: '/art/banners/header-banner.jpg', targetUrl: '/blog/how-clutchnex-verifies-manual-payments', isActive: true, impressions: 1240, clicks: 37 },
-      { placement: 'SIDEBAR', name: 'Duo Dominators promo', imageUrl: '/art/banners/duo-promo.jpg', targetUrl: '/free-fire-tournaments/duo', isActive: true, impressions: 630, clicks: 19 },
+      { placement: 'HEADER', name: 'Launch banner — CLUTCHNEX merch', imageUrl: '/art/banners/header-banner.jpg', targetUrl: '/blog/how-clutchnex-verifies-manual-payments', isActive: false, impressions: 0, clicks: 0 },
+      { placement: 'SIDEBAR', name: 'Duo Dominators promo', imageUrl: '/art/banners/duo-promo.jpg', targetUrl: '/free-fire-tournaments/duo', isActive: false, impressions: 0, clicks: 0 },
       { placement: 'INTERSTITIAL', name: 'Interstitial — monthly championship', imageUrl: '/art/banners/interstitial.jpg', targetUrl: '/tournaments/bermuda-royale-monthly-august', isActive: false },
     ],
   });

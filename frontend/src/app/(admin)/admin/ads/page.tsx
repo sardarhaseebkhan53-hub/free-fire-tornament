@@ -1,16 +1,36 @@
 'use client';
 // Ad management — design 37: placements, toggles, impressions/clicks.
-import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Loader2, Power } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Modal, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
 import { api , apiGet } from '@/lib/client-api';
 
 interface Row { id: string; placement: string; name: string; targetUrl: string | null; isActive: boolean; impressions: number; clicks: number }
+interface SettingRow { key: string; value: unknown }
 
 export default function AdminAdsPage() {
   const { data, loading, setData } = useAdminList<Row[]>('/admin/ads');
   const [creating, setCreating] = useState(false);
+  const [adsEnabled, setAdsEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    apiGet<SettingRow[]>('/admin/settings')
+      .then((rows) => {
+        const row = rows?.find((s) => s.key === 'ads.enabled');
+        if (row) setAdsEnabled(row.value === true);
+      })
+      .catch(() => { /* best-effort; the toggle is also inferred from rows less important than the ads themselves */ });
+  }, []);
+
+  async function toggleGlobal(next: boolean) {
+    try {
+      await api(`/admin/settings`, { method: 'POST', body: { key: 'ads.enabled', value: next } });
+      setAdsEnabled(next);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Could not toggle ads.');
+    }
+  }
 
   async function toggle(id: string, isActive: boolean) {
     try {
@@ -25,7 +45,26 @@ export default function AdminAdsPage() {
   return (
     <div>
       <AdminPageTitle title="Advertisements" sub="Sponsored slots across the site — impressions and clicks are tracked."
-        action={<button onClick={() => setCreating(true)} className="rounded-input bg-accent px-4 py-2.5 text-sm font-bold text-white">+ New Ad</button>} />
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            {adsEnabled !== null && (
+              <button
+                onClick={() => void toggleGlobal(!adsEnabled)}
+                className={`inline-flex items-center gap-1.5 rounded-input px-4 py-2.5 text-sm font-bold transition ${adsEnabled ? 'border border-warning/40 bg-warning/10 text-warning hover:bg-warning/20' : 'bg-success/15 text-success hover:bg-success/25'}`}
+              >
+                <Power size={14} /> Ads {adsEnabled ? 'ON' : 'OFF'}
+              </button>
+            )}
+            <button onClick={() => setCreating(true)} className="rounded-input bg-accent px-4 py-2.5 text-sm font-bold text-white">+ New Ad</button>
+          </div>
+        }
+      />
+
+      {adsEnabled === false && (
+        <p className="mb-4 rounded-input border border-warning/30 bg-warning/10 px-4 py-2.5 text-sm text-warning">
+          Ads are turned off site-wide. Activate them above or pause/unpause individual campaigns below.
+        </p>
+      )}
 
       {loading && !data ? (
         <div className="flex min-h-64 items-center justify-center"><Loader2 className="animate-spin text-accent" /></div>

@@ -122,10 +122,12 @@ export async function getTournamentBySlug(slug: string) {
       bonusPoints: t.bonusPoints,
       penaltyPoints: t.penaltyPoints,
     },
-    // Platform-level flag gating the "register solo, get admin-paired" DUO
-    // path (spec §Modes). The join engine re-reads the same setting at join
-    // time, so the UI gate and the server-side enforcement can never drift.
+    // Platform-level flag gating the "register solo, get admin-paired" path
+    // for team modes (DUO and SQUAD / Clash Squad). The join engine re-reads
+    // the same settings at join time, so the UI gate and server-side
+    // enforcement can never drift.
     allowIndependentDuo: await getSetting('tournament.allowIndependentDuo', false),
+    allowIndependentSquad: await getSetting('tournament.allowIndependentSquad', false),
     prizes,
     matches: matches.map(({ resultsStatus, ...m }) => ({
       ...m,
@@ -147,6 +149,12 @@ export async function getTournamentBySlug(slug: string) {
 // Ads (rendered client-side; admin-managed placements)
 // ---------------------------------------------------------------------------
 export async function activeAds(placement: string) {
+  // Master switch: ads are OFF by default and can only be enabled from the
+  // admin panel. This keeps the public site clean until an operator explicitly
+  // turns advertisements back on.
+  const adsEnabled = await getSetting('ads.enabled', false);
+  if (adsEnabled !== true) return { items: [] };
+
   const now = new Date();
   // The date window is two independent conditions that must BOTH hold:
   //  • started (startsAt is null, or already in the past), AND

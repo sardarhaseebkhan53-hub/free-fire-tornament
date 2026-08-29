@@ -9,7 +9,7 @@ import {
   blogListQuerySchema, createAdSchema, createBlogSchema, createTournamentSchema,
   fraudListQuerySchema, fraudReviewSchema, leaderboardAdjustSchema,
   matchListQuerySchema, matchStatusSchema, matchUpdateSchema, tournamentScoringSchema,
-  duoPairSchema, participantStateSchema, registrationReadySchema, resultsStatusSchema,
+  teamPairSchema, participantStateSchema, registrationReadySchema, resultsStatusSchema,
   revenueQuerySchema, financeQuerySchema, settingUpdateSchema, slotAssignSchema,
   slotClearSchema, slotLockSchema, ticketListQuerySchema,
   ticketReplySchema, tournamentStatusSchema, upsertSeoSchema, userListQuerySchema,
@@ -30,7 +30,7 @@ import { listAllTransfers } from '../services/transfer.service';
 import { rotateTeamJoinCode } from '../services/team.service';
 import { matchTable, updateMatch } from '../services/match.service';
 import { confirmStandings, matchStandings, saveAdminResult, setResultsStatus } from '../services/result.service';
-import { assignSlot, clearSlot, pairIndependentDuo, setParticipantState, setRegistrationReady, setSlotLock, slotBoard } from '../services/slot.service';
+import { assignSlot, clearSlot, pairIndependentTeam, setParticipantState, setRegistrationReady, setSlotLock, slotBoard } from '../services/slot.service';
 
 export const adminRouter = Router();
 
@@ -152,11 +152,11 @@ adminRouter.post('/slots/:regId/ready', adminWriteLimiter, async (req, res) => {
   return ok(res, await setRegistrationReady(req.auth!.id, String(req.params.regId), ready, note || null, ctxOf(req)), 'Ready state saved.');
 });
 
-// DUO independent-registration pairing (spec §Modes): turn two solo registrants
-// into a real DUO team. Audited + notifying both players.
+// Independent-registration pairing (spec §Modes): turn solo registrants into a
+// real DUO or SQUAD team. Audited and notifies every player.
 adminRouter.post('/tournaments/:id/pair', adminWriteLimiter, async (req, res) => {
-  const { a, b } = duoPairSchema.parse(req.body);
-  const out = await pairIndependentDuo(req.auth!.id, String(req.params.id), a, b, ctxOf(req));
+  const { registrationIds } = teamPairSchema.parse(req.body);
+  const out = await pairIndependentTeam(req.auth!.id, String(req.params.id), registrationIds, ctxOf(req));
   return ok(res, out, `Paired into ${out.name} [${out.tag}].`);
 });
 

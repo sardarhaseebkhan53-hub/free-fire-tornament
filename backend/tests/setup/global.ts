@@ -71,6 +71,8 @@ async function seedBaseline(client: pg.Client) {
     ['tournament.defaultPointsPerKill', 1],
     ['tournament.roomCredentialsReleaseMinutesBeforeStart', 30],
     ['tournament.allowIndependentDuo', false],
+    ['tournament.allowIndependentSquad', false],
+    ['ads.enabled', false],
     ['pricing.lossWarningThreshold', 0],
     ['security.fraudDetectionEnabled', true],
     ['security.maxLoginAttempts', 5],
@@ -95,7 +97,11 @@ async function seedBaseline(client: pg.Client) {
   for (const [key, value] of settings) {
     await client.query(
       `INSERT INTO settings (id, key, value, description, "createdAt", "updatedAt")
-       VALUES (gen_random_uuid()::text, $1, $2::jsonb, 'test baseline', now(), now())`,
+       VALUES (gen_random_uuid()::text, $1, $2::jsonb, 'test baseline', now(), now())
+       ON CONFLICT ("key") DO UPDATE SET
+         "value" = EXCLUDED."value",
+         "description" = EXCLUDED."description",
+         "updatedAt" = now()`,
       [key, JSON.stringify(value)],
     );
   }

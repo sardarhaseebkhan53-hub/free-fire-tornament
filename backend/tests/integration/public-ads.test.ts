@@ -7,9 +7,9 @@
 // AND in the future on the same row at once — impossible — so the endpoint
 // always returned zero ads. Also covers the impression/click counters.
 // =============================================================================
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { activeAds, recordAdClick, recordAdImpression } from '../../src/services/public.service';
-import { db } from '../helpers/db';
+import { db, setSetting } from '../helpers/db';
 
 const created: string[] = [];
 const HOUR = 3_600_000;
@@ -37,6 +37,12 @@ afterAll(async () => {
 });
 
 describe('activeAds — date-window filtering (§E.1)', () => {
+  beforeAll(async () => {
+    // Apps ship with ads.enabled=false; these tests exercise the placement
+    // logic, so turn the master switch on for this suite.
+    await setSetting('ads.enabled', true);
+  });
+
   it('returns ads that are live now (null window, past start, future end)', async () => {
     await makeAd({ startsAt: null, endsAt: null });
     await makeAd({ startsAt: new Date(Date.now() - HOUR), endsAt: new Date(Date.now() + HOUR) });
