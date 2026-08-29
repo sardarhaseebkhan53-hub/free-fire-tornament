@@ -206,22 +206,39 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 ? <>Seats {t.registeredSlots} of {t.maxSlots} occupied · <strong className="text-warning">{t.slotsLeft} remaining</strong></>
                 : <>All {t.maxSlots} seats are occupied — tournament is full.</>}
             </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {t.participants.map((p, i) => (
-                <span
-                  key={i}
-                  className="inline-flex items-center gap-2 rounded-pill border border-line bg-white/[3%] py-1 pl-1 pr-3 text-xs font-semibold text-fg-2"
-                  title={p.seatNumber !== null ? `Seat #${p.seatNumber}` : undefined}
-                >
-                  <span className="flex items-center gap-1.5 rounded-pill bg-base/70 pl-1 pr-0.5">
-                    <Avatar name={p.team?.name ?? p.user.username} size={22} />
-                    <span className="tabular px-0.5 font-bold text-accent" title={p.seatNumber !== null ? `Seat ${p.seatNumber}` : undefined}>
-                      {p.seatNumber !== null ? slotLabel(p.seatNumber) : '··'}
-                    </span>
-                  </span>
-                  {p.team ? `${p.team.name} [${p.team.tag}]` : p.user.username}
-                </span>
-              ))}
+            {/* Seat grid — mirrors the admin slot board so a player sees exactly
+                which seats are taken and which are still open. Every seat shows
+                both its letter label (A, B, C…) and its seat number (#1, #2…). */}
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {Array.from({ length: t.maxSlots }, (_, idx) => {
+                const seat = idx + 1;
+                const p = t.participants.find((x) => x.seatNumber === seat);
+                const name = p ? (p.team ? `${p.team.name} [${p.team.tag}]` : p.user.username) : null;
+                return (
+                  <div
+                    key={seat}
+                    title={`Seat ${slotLabel(seat)} · #${seat}${name ? ` — ${name}` : ' — open'}`}
+                    className={`rounded-card border p-3 transition ${
+                      p
+                        ? 'border-line bg-white/[3%]'
+                        : 'border-dashed border-line/60 bg-transparent'
+                    }`}
+                  >
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="font-display text-base font-bold text-fg">{slotLabel(seat)}</span>
+                      <span className="tabular text-[11px] font-semibold text-fg-3">#{seat}</span>
+                    </div>
+                    {p ? (
+                      <div className="mt-2 flex items-center gap-2">
+                        <Avatar name={p.team?.name ?? p.user.username} size={22} />
+                        <span className="truncate text-xs font-semibold text-fg-2">{name}</span>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-[11px] text-fg-3">Open seat</p>
+                    )}
+                  </div>
+                );
+              })}
               {t.participants.length === 0 && <p className="text-sm text-fg-3">Be the first to join.</p>}
             </div>
           </section>

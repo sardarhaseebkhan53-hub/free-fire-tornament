@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma';
-import { env } from '../lib/env';
+import { env, devTokenEchoAllowed } from '../lib/env';
 import {
   ApiError, badRequest, conflict, unauthorized,
 } from '../lib/errors';
@@ -185,7 +185,7 @@ export async function register(input: RegisterInput, ctx: RequestContext) {
   // Same IP/device registering many accounts is the classic bonus-farming play.
   fireRegistrationFraud(user.id, ctx);
 
-  return { user, verificationTokenDevOnly: env.NODE_ENV === 'development' ? token : undefined };
+  return { user, verificationTokenDevOnly: devTokenEchoAllowed ? token : undefined };
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@ export async function resendVerification(emailRaw: string, ctx: RequestContext) 
   if (!user || user.isVerified) return { sent: true };
   const token = await issueToken(user.id, 'EMAIL_VERIFICATION', VERIFY_TTL_MS, ctx);
   await sendMail(verificationEmail(email, token));
-  return { sent: true, verificationTokenDevOnly: env.NODE_ENV === 'development' ? token : undefined };
+  return { sent: true, verificationTokenDevOnly: devTokenEchoAllowed ? token : undefined };
 }
 
 // ---------------------------------------------------------------------------
@@ -453,7 +453,7 @@ export async function forgotPassword(emailRaw: string, ctx: RequestContext) {
   if (!user) return { sent: true };
   const token = await issueToken(user.id, 'PASSWORD_RESET', RESET_TTL_MS, ctx);
   await sendMail(passwordResetEmail(email, token));
-  return { sent: true, resetTokenDevOnly: env.NODE_ENV === 'development' ? token : undefined };
+  return { sent: true, resetTokenDevOnly: devTokenEchoAllowed ? token : undefined };
 }
 
 export async function resetPassword(token: string, newPassword: string, ctx: RequestContext = {}) {

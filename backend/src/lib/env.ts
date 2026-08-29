@@ -48,11 +48,28 @@ const schema = z.object({
   SMTP_PASS: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
   POSTMARK_SERVER_TOKEN: z.string().optional(),
+  // Explicit, opt-in local-testing escape hatch: echo verification / password
+  // reset tokens in API responses so the flows are testable without a mail
+  // provider. NEVER honoured in production (see devTokenEchoAllowed below).
+  AUTH_ECHO_TOKENS: z.coerce.boolean().default(false),
 });
 
 export const env = schema.parse(process.env);
 
 export const isProd = env.NODE_ENV === 'production';
+
+/**
+ * May the API echo a password-reset / verification token back to the caller?
+ *
+ * This used to be a bare `NODE_ENV === 'development'` check, which is unsafe:
+ * NODE_ENV *defaults* to 'development' in the schema above, so any deployment
+ * that forgot to set it would hand a valid reset token to ANYONE who submitted
+ * a victim's email address — a full account-takeover (and therefore wallet-
+ * drain) vector. Now it requires all three: not production, no real mail
+ * provider configured, and an explicit opt-in flag.
+ */
+export const devTokenEchoAllowed =
+  !isProd && env.EMAIL_PROVIDER === 'log' && env.AUTH_ECHO_TOKENS === true;
 
 /** Values that appear in .env.example or the schema defaults — never valid live. */
 const PLACEHOLDER_SECRETS = [

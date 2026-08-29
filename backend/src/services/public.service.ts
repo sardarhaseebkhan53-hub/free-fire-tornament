@@ -98,7 +98,10 @@ export async function getTournamentBySlug(slug: string) {
           team: { select: { name: true, tag: true } },
         },
         orderBy: [{ seatNumber: 'asc' }, { registeredAt: 'asc' }],
-        take: 48,
+        // Was hard-coded to 48, which silently truncated the seat list for
+        // larger tournaments (maxSlots goes up to 500). The public seat grid
+        // needs every confirmed seat to render correctly.
+        take: 500,
       },
     },
   });
