@@ -113,8 +113,29 @@ export function passwordResetEmail(to: string, token: string): Mail {
        <p style="margin:0 0 20px">
          <a href="${link}" style="display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:700">Reset your password</a>
        </p>
-       <p style="margin:0;font-size:12px;color:#8a90b4">Link valid for 1 hour. If this was not you, ignore this email. Or paste: ${link}</p>`,
+       <p style="margin:0;font-size:12px;color:#8a90b4">Link valid for 30 minutes. If this was not you, ignore this email. Or paste: ${link}</p>`,
     ),
-    text: `Reset your CLUTCHNEX password: ${link} (valid 1 hour). If this was not you, ignore this email.`,
+    text: `Reset your CLUTCHNEX password: ${link} (valid 30 minutes). If this was not you, ignore this email.`,
+  };
+}
+
+/**
+ * Security alert sent AFTER a password changes (reset flow or in-app change).
+ * Spec §6.17 / §15: the account owner must always be told out-of-band, so a
+ * silent takeover is impossible — if they did not do this, they find out.
+ * Contains no token and no link that can change credentials.
+ */
+export function passwordChangedEmail(to: string, ctx: { ip?: string; at?: Date } = {}): Mail {
+  const when = (ctx.at ?? new Date()).toUTCString();
+  const from = ctx.ip ? ` from IP ${ctx.ip}` : '';
+  return {
+    to,
+    subject: 'Your CLUTCHNEX password was changed',
+    html: shell(
+      `<p style="margin:0 0 14px;font-size:15px;line-height:1.6">Your account password was changed on <strong>${when}</strong>${from}.</p>
+       <p style="margin:0 0 14px;font-size:15px;line-height:1.6">All other sessions have been signed out. If you made this change, no action is needed.</p>
+       <p style="margin:0;font-size:13px;color:#f5b942"><strong>If this was NOT you</strong>, reset your password immediately and contact support — your account may be compromised.</p>`,
+    ),
+    text: `Your CLUTCHNEX password was changed on ${when}${from}. All other sessions were signed out. If this was not you, reset your password immediately and contact support.`,
   };
 }
