@@ -66,11 +66,13 @@ export function JoinTournament({
   // opts to register alone and be paired by an admin later.
   const usingTeam = teamSize > 1 && !(independentTeam && joinMode === 'solo');
 
-  // Independent team modes: prefill the player's saved Free Fire identity so
-  // the solo path falls back to the profile exactly like the backend does at
-  // join time.
+  // Solo path (SOLO, independent DUO/SQUAD): prefill the player's saved Free
+  // Fire identity so the join form shows what the server already has, and the
+  // player can correct it at join time (the backend requires both on every
+  // non-team or free-agent registration).
+  const soloPath = !usingTeam;
   useEffect(() => {
-    if (!independentTeam || stage !== 'confirm') return;
+    if (!soloPath || stage !== 'confirm') return;
     let cancelled = false;
     api<{ profile: { freeFireUID: string | null; freeFireIGN: string | null } | null }>('/auth/me')
       .then((me) => {
@@ -80,7 +82,7 @@ export function JoinTournament({
       })
       .catch(() => { /* prefill is best-effort; empty fields fall back to the profile server-side */ });
     return () => { cancelled = true; };
-  }, [independentTeam, stage]);
+  }, [soloPath, stage]);
 
   // Load the player's eligible teams for TEAM MODES ONLY. SOLO registration
   // never calls /teams/my — it is not a prerequisite (spec: solo = no team).
@@ -129,11 +131,18 @@ export function JoinTournament({
       setError('Pick your team — only full squads/duos led by you can register.');
       return;
     }
-    if (!usingTeam && independentTeam && joinMode === 'solo') {
-      // Backend falls back to the saved profile when these are blank, but a
-      // player without a saved UID/IGN gets a clearer prompt here.
-      if ((uid.trim() && !/^\d{5,15}$/.test(uid.trim())) || (ign.trim() && (ign.trim().length < 2 || ign.trim().length > 24))) {
-        setError('Free Fire UID must be 5–15 digits and your nickname 2–24 characters.');
+    if (!usingTeam) {
+      // The join engine requires a valid Free Fire identity on every solo /
+      // free-agent registration. Validate it client-side so the user sees a
+      // clear message instead of the backend's generic 400.
+      const idValid = /^\d{5,15}$/.test(uid.trim());
+      const ignValid = ign.trim().length >= 2 && ign.trim().length <= 24;
+      if (!idValid || !ignValid) {
+        setError(
+          idValid || ignValid
+            ? 'Free Fire UID must be 5–15 digits and your nickname 2–24 characters.'
+            : 'Enter your Free Fire UID and nickname to confirm your slot.',
+        );
         return;
       }
     }
@@ -168,7 +177,13 @@ export function JoinTournament({
         return;
       }
       if (e instanceof ApiClientError) {
-        setError(FRIENDLY[e.code] ?? e.message ?? 'Could not join right now.');
+        // Validation errors carry the precise reason from the backend (e.g.
+        // missing UID/IGN, invalid coupon, tournament closed) — show it so the
+        // player knows what to fix instead of a generic "check your input".
+        const message = e.code === 'VALIDATION_ERROR'
+          ? (e.message || FRIENDLY[e.code]!)
+          : (FRIENDLY[e.code] ?? e.message ?? 'Could not join right now.');
+        setError(message);
       } else {
         setError('Could not reach the server. Please try again.');
       }
@@ -256,34 +271,32 @@ export function JoinTournament({
           )
         ) : (
           <>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-fg-3">Free Fire UID</span>
+                <input
+                  value={uid}
+                  onChange={(e) => setUid(e.target.value.replace(/\D/g, '').slice(0, 15))}
+                  inputMode="numeric"
+                  placeholder="e.g. 5231879640"
+                  className="w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-fg-3">Free Fire IGN</span>
+                <input
+                  value={ign}
+                  onChange={(e) => setIgn(e.target.value.slice(0, 24))}
+                  maxLength={24}
+                  placeholder="In-game name"
+                  className="w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
+                />
+              </label>
+            </div>
             {independentTeam && (
-              <>
-                <p className="mt-3 text-xs text-fg-3">
-                  You&apos;ll be seated on your own; an admin pairs you with {teamSize === 4 ? 'other solo registrants' : 'another solo registrant'} before the match.
-                </p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-fg-3">Free Fire UID</span>
-                    <input
-                      value={uid}
-                      onChange={(e) => setUid(e.target.value.replace(/\D/g, '').slice(0, 15))}
-                      inputMode="numeric"
-                      placeholder="e.g. 5231879640"
-                      className="w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-fg-3">Free Fire IGN</span>
-                    <input
-                      value={ign}
-                      onChange={(e) => setIgn(e.target.value.slice(0, 24))}
-                      maxLength={24}
-                      placeholder="In-game name"
-                      className="w-full rounded-input border border-line bg-white/[3%] px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-3 focus:border-accent"
-                    />
-                  </label>
-                </div>
-              </>
+              <p className="mt-3 text-xs text-fg-3">
+                You&apos;ll be seated on your own; an admin pairs you with {teamSize === 4 ? 'other solo registrants' : 'another solo registrant'} before the match.
+              </p>
             )}
             <input
               value={coupon}
