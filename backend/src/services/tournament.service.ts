@@ -202,7 +202,7 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
   }
 
   try {
-    return await runJoin(userId, input, t, feePerPlayer, currency, payerIds, flowTeamSize, actor, isIndependentTeam);
+    return await runJoinWithRetry(userId, input, t, feePerPlayer, currency, payerIds, flowTeamSize, actor, isIndependentTeam);
   } catch (e) {
     // Rejections roll their transaction back, so the trail has to be written
     // outside it — this is what makes abuse patterns visible afterwards.
@@ -223,6 +223,50 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
     }
     throw e;
   }
+}
+
+/**
+ * Transient-conflict codes from the database/Prisma layer. These are NOT
+ * business rejections — they mean "two joins touched the same rows at once,
+ * this attempt lost the race". Retrying is correct and safe: the whole
+ * transaction rolled back, so no seat was taken and no money moved.
+ *
+ *   P2034 — transaction write conflict / deadlock (Prisma's documented code)
+ *   P2039 — internal transaction error surfaced by the embedded PGlite driver
+ *   40001 — Postgres serialization_failure
+ *   40P01 — Postgres deadlock_detected
+ *
+ * Without this a player racing others for the last seats saw a raw
+ * "P2039" leak straight through to the UI instead of a clean result.
+ */
+const RETRYABLE_TX_CODES = new Set(['P2034', 'P2039', '40001', '40P01']);
+
+function isRetryableTxError(e: unknown): boolean {
+  const code = (e as { code?: string }).code;
+  return typeof code === 'string' && RETRYABLE_TX_CODES.has(code);
+}
+
+/** Runs the join transaction, retrying only on transient write conflicts. */
+async function runJoinWithRetry(
+  ...args: Parameters<typeof runJoin>
+): Promise<Awaited<ReturnType<typeof runJoin>>> {
+  const MAX_ATTEMPTS = 4;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await runJoin(...args);
+    } catch (e) {
+      // Business rejections (full, closed, already registered, no funds) are
+      // final — never retry those, only genuine contention.
+      if (e instanceof ApiError || !isRetryableTxError(e)) throw e;
+      lastError = e;
+      // Small jittered backoff so retrying callers do not resynchronise.
+      await new Promise((r) => setTimeout(r, 15 * attempt + Math.random() * 20));
+    }
+  }
+  // Exhausted retries under sustained contention: report it as a full/closed
+  // style conflict rather than leaking an internal database code.
+  throw conflict('CONFLICT', 'The tournament is being updated by other players. Please try again.');
 }
 
 async function runJoin(
@@ -376,15 +420,29 @@ async function runJoin(
         currency,
       );
 
-      const reg = await tx.tournamentRegistration.create({
-        data: {
-          tournamentId: t.id, userId: pid,
-          teamId: teamSize > 1 && input.teamId ? input.teamId : undefined,
-          entryAmount: new Prisma.Decimal(payable),
-          discount: new Prisma.Decimal(isJoiner ? discount : 0),
-          couponId: isJoiner ? couponId : undefined,
-          walletTxId: ledgerEntry.id,
-          seatNumber,
+      // Upsert, not create. `(tournamentId, userId)` is unique, and a
+      // cancelled/refunded entry KEEPS its row (status REFUNDED) — so a player
+      // who cancelled and wanted back in hit a raw P2002 unique-constraint
+      // crash and was permanently locked out of the tournament. Re-registering
+      // revives that row and clears the previous cancellation/refund state.
+      const regData = {
+        teamId: teamSize > 1 && input.teamId ? input.teamId : null,
+        entryAmount: new Prisma.Decimal(payable),
+        discount: new Prisma.Decimal(isJoiner ? discount : 0),
+        couponId: isJoiner ? couponId : null,
+        walletTxId: ledgerEntry.id,
+        seatNumber,
+      };
+      const reg = await tx.tournamentRegistration.upsert({
+        where: { tournamentId_userId: { tournamentId: t.id, userId: pid } },
+        create: { tournamentId: t.id, userId: pid, ...regData },
+        update: {
+          ...regData,
+          status: 'CONFIRMED',
+          cancelledAt: null,
+          refundWalletTxId: null,
+          slotLocked: false,
+          registeredAt: new Date(),
         },
       });
       if (isJoiner && couponId) {
