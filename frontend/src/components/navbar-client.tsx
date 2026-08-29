@@ -59,7 +59,14 @@ export function NavbarClient() {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // Lock background scrolling while the full-screen menu is open, so the
+    // page behind cannot be scrolled under the panel on touch devices.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
   }, [open]);
 
   async function logout() {
@@ -145,11 +152,22 @@ export function NavbarClient() {
         </button>
       </div>
 
-      {/* Mobile menu panel — animated slide-down, glass */}
+      {/* Mobile menu panel — animated slide-down.
+          The panel is FULLY OPAQUE on purpose. It used to be `bg-base/95` with
+          `backdrop-blur-2xl`; a translucent surface over a GPU-promoted parent
+          let page content (headings, the footer, the FAB) bleed straight
+          through the menu. A solid background plus an explicit z-index above
+          the sticky header (z-40) and a click-catching scrim fixes it. */}
       {open && (
+        <>
+          <div
+            className="fixed inset-0 top-16 z-[45] bg-black/70 lg:hidden"
+            aria-hidden
+            onClick={() => setOpen(false)}
+          />
         <div
           id="mobile-menu"
-          className="menu-panel absolute inset-x-0 top-full border-b border-line bg-base/95 shadow-[0_24px_50px_-12px_rgba(0,0,0,0.7)] backdrop-blur-2xl lg:hidden"
+          className="menu-panel absolute inset-x-0 top-full z-50 max-h-[calc(100vh-4rem)] overflow-y-auto border-b border-line bg-base shadow-[0_24px_50px_-12px_rgba(0,0,0,0.7)] lg:hidden"
         >
           <nav className="mx-auto max-w-7xl px-4 py-4 sm:px-6" aria-label="Mobile">
             <ul className="flex flex-col">
@@ -210,6 +228,7 @@ export function NavbarClient() {
             </div>
           </nav>
         </div>
+        </>
       )}
     </>
   );
