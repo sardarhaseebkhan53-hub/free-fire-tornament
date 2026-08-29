@@ -7,6 +7,25 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
+/**
+ * Parse a boolean from an environment variable.
+ *
+ * NOT `z.coerce.boolean()`: that applies JavaScript truthiness to the raw
+ * string, so the literal "false" (and "0", and "no") all coerce to TRUE.
+ * That silently defeated AUTH_ECHO_TOKENS="false" — the reset-token echo
+ * stayed on in every environment that tried to switch it off. Only explicit,
+ * recognised truthy spellings enable a flag; anything else is false.
+ */
+const envBool = (defaultValue: boolean) =>
+  z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((v) => {
+      if (v === undefined || v === '') return defaultValue;
+      if (typeof v === 'boolean') return v;
+      return ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase());
+    });
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -43,7 +62,7 @@ const schema = z.object({
   EMAIL_ATTEMPTS: z.coerce.number().int().positive().max(5).default(3),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
-  SMTP_SECURE: z.coerce.boolean().default(false),
+  SMTP_SECURE: envBool(false),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
@@ -51,7 +70,7 @@ const schema = z.object({
   // Explicit, opt-in local-testing escape hatch: echo verification / password
   // reset tokens in API responses so the flows are testable without a mail
   // provider. NEVER honoured in production (see devTokenEchoAllowed below).
-  AUTH_ECHO_TOKENS: z.coerce.boolean().default(false),
+  AUTH_ECHO_TOKENS: envBool(false),
 });
 
 export const env = schema.parse(process.env);
