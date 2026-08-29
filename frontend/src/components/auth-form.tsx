@@ -161,8 +161,10 @@ function AuthFormInner({ mode }: { mode: 'login' | 'register' }) {
 
       {mode === 'login' && (
         <p className="text-center text-xs text-fg-3">
-          Forgot your password? Use the reset link sent from{' '}
-          <span className="font-semibold text-fg-2">Support → Email</span> — or contact WhatsApp support.
+          Forgot your password?{' '}
+          <Link href="/forgot-password" className="font-semibold text-accent hover:text-accent-strong">
+            Reset it here
+          </Link>
         </p>
       )}
     </form>
