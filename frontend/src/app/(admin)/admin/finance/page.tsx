@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Download, Gift, Loader2, RefreshCcw, Trophy, Upload, Wallet } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Donut, Kpi, MultiLineChart, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
-import { authedFetch } from '@/lib/client-api';
+import { downloadProtectedFile } from '@/lib/client-api';
 import { MODE_LABEL } from '@/lib/format';
 
 const inr = (n: number) => `PKR ${Math.round(n).toLocaleString('en-PK')}`;
@@ -41,19 +41,7 @@ export default function AdminFinancePage() {
   const { data, loading } = useAdminList<Finance>(`/admin/finance?days=${days}&granularity=${gran}`, [days, gran]);
 
   function exportCsv() {
-    authedFetch(`/admin/finance?days=${days}&granularity=${gran}&format=csv`)
-      .then((r) => {
-        if (!r.ok) throw new Error('Export failed — try again.');
-        return r.blob();
-      })
-      .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'clutchnex-financials.csv';
-        a.click();
-        URL.revokeObjectURL(url);
-      })
+    downloadProtectedFile(`/admin/finance?days=${days}&granularity=${gran}&format=csv`, 'clutchnex-financials.csv')
       .catch((e) => alert(e instanceof Error ? e.message : 'Export failed — try again.'));
   }
 

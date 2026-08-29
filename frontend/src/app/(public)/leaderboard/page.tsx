@@ -2,7 +2,6 @@
 import Link from 'next/link';
 import { apiServerSafe } from '@/lib/api';
 import type { LeaderboardEntry } from '@/lib/types';
-import { money } from '@/lib/format';
 import { SectionHeading, Avatar, EmptyState } from '@/components/ui';
 import { RankBadgeSmall } from '@/components/rank-badge';
 import { pageMetadata } from '@/lib/seo';
@@ -12,7 +11,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return pageMetadata({
     slug: 'leaderboard',
     title: 'Free Fire Leaderboard — Top Players in Pakistan | CLUTCHNEX',
-    description: 'CLUTCHNEX rankings by points, wins, kills and earnings — global, weekly and monthly.',
+    description: 'CLUTCHNEX rankings by points, wins and kills — global, weekly and monthly.',
     path: '/leaderboard',
     keywords: 'free fire leaderboard, FF top players pakistan, free fire rankings',
   });
@@ -63,16 +62,15 @@ export default async function LeaderboardPage({
 
       {rows.length > 0 ? (
         <div className="glass overflow-hidden rounded-card">
-          <div className="hidden grid-cols-[3rem_1fr_5rem_5rem_5rem_6rem_6rem] gap-2 border-b border-line px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-fg-3 sm:grid">
+          <div className="hidden grid-cols-[3rem_1fr_5rem_5rem_5rem_6rem] gap-2 border-b border-line px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-fg-3 sm:grid">
             <span>#</span><span>Player</span>
             <span className="text-right">Matches</span><span className="text-right">Wins</span>
             <span className="text-right">Kills</span><span className="text-right">Points</span>
-            <span className="text-right">Earnings</span>
           </div>
           {rows.map((r) => (
             <div
               key={r.user.username}
-              className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-2 border-b border-line px-5 py-3.5 last:border-0 sm:grid-cols-[3rem_1fr_5rem_5rem_5rem_6rem_6rem]"
+              className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-2 border-b border-line px-5 py-3.5 last:border-0 sm:grid-cols-[3rem_1fr_5rem_5rem_5rem_6rem]"
             >
               <span className={`tabular font-display text-sm font-bold ${r.rank === 1 ? 'text-reward' : r.rank <= 3 ? 'text-fg' : 'text-fg-3'}`}>
                 {r.rank}
@@ -95,7 +93,6 @@ export default async function LeaderboardPage({
               <span className="hidden text-right text-sm text-fg-2 sm:block">{r.wins}</span>
               <span className="hidden text-right text-sm text-fg-2 sm:block">{r.kills}</span>
               <span className="tabular hidden text-right text-sm font-bold text-accent sm:block">{r.totalPoints}</span>
-              <span className="tabular text-right text-sm font-semibold text-reward">{money(r.earnings)}</span>
             </div>
           ))}
         </div>

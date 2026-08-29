@@ -36,7 +36,7 @@ export default function AdminSeoPage() {
         </Table>
       )}
 
-      {editing && <EditModal row={editing} pages={PAGES} onClose={() => setEditing(null)} onDone={async () => { setEditing(null); const f = await apiGet<Row[]>(`/api/backend/admin/seo`); if (f) setData(f); }} />}
+      {editing && <EditModal row={editing} pages={PAGES} onClose={() => setEditing(null)} onDone={async () => { setEditing(null); const f = await apiGet<Row[]>(`/admin/seo`); if (f) setData(f); }} />}
     </div>
   );
 }

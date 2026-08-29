@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import { prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
-import type { TeamType } from '../../generated/prisma';
+import type { Prisma, TeamType } from '../../generated/prisma';
 
 const CAPACITY: Record<TeamType, number> = { DUO: 2, SQUAD: 4 };
 
@@ -61,55 +61,66 @@ export async function rotateTeamJoinCode(adminId: string, teamId: string, ctx: {
 /** Player — join a DUO/SQUAD team via code (accepts CNX-XXXXX or raw code). */
 export async function joinByCode(userId: string, codeRaw: string) {
   const code = codeRaw.trim().toUpperCase();
-  const team = await prisma.team.findUnique({ where: { joinCode: code } });
-  if (!team) throw notFound('Team not found — check the code.');
-  if (team.captainId === userId) throw badRequest('VALIDATION_ERROR', 'You are this team’s captain.');
+  return prisma.$transaction(async (tx) => {
+    // Lock in a stable order: user first, then team. This serializes the
+    // one-duo/one-squad invariant and the target team's capacity check.
+    const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+      SELECT "id", "status" FROM "users" WHERE "id" = ${userId} FOR UPDATE
+    `;
+    if (!userRows[0] || userRows[0].status !== 'ACTIVE') throw forbidden('Account is not active.');
+    const teamRows = await tx.$queryRaw<Array<{ id: string; captainId: string; type: string; name: string; tag: string }>>`
+      SELECT "id", "captainId", "type", "name", "tag"
+      FROM "teams" WHERE "joinCode" = ${code} FOR UPDATE
+    `;
+    const team = teamRows[0];
+    if (!team) throw notFound('Team not found — check the code.');
+    if (team.captainId === userId) throw badRequest('VALIDATION_ERROR', 'You are this team’s captain.');
 
-  await assertNoTeamOfType(userId, team.type);
-  const members = await prisma.teamMember.count({ where: { teamId: team.id } });
-  if (members >= CAPACITY[team.type]) throw badRequest('VALIDATION_ERROR', 'This team is full.');
+    const existing = await tx.teamMember.findFirst({ where: { userId, team: { type: team.type as TeamType } } });
+    if (existing) throw conflict('CONFLICT', `You already belong to a ${team.type.toLowerCase()} team.`);
+    const members = await tx.teamMember.count({ where: { teamId: team.id } });
+    if (members >= CAPACITY[team.type as TeamType]) throw badRequest('VALIDATION_ERROR', 'This team is full.');
 
-  const member = await prisma.teamMember.create({
-    data: { teamId: team.id, userId, role: 'MEMBER' },
+    const member = await tx.teamMember.create({
+      data: { teamId: team.id, userId, role: 'MEMBER' },
+    });
+    await tx.notification.create({
+      data: {
+        userId: team.captainId, type: 'TEAM_INVITE',
+        title: 'New squadmate via join code',
+        body: `A player joined ${team.name} [${team.tag}] with your code.`,
+        data: { teamId: team.id },
+      },
+    });
+    return { teamId: team.id, name: team.name, tag: team.tag, memberId: member.id };
   });
-  await prisma.notification.create({
-    data: {
-      userId: team.captainId, type: 'TEAM_INVITE',
-      title: 'New squadmate via join code',
-      body: `A player joined ${team.name} [${team.tag}] with your code.`,
-      data: { teamId: team.id },
-    },
-  });
-  return { teamId: team.id, name: team.name, tag: team.tag, memberId: member.id };
-}
-
-async function assertNoTeamOfType(userId: string, type: TeamType) {
-  const existing = await prisma.teamMember.findFirst({
-    where: { userId, team: { type } },
-    select: { team: { select: { name: true } } },
-  });
-  if (existing) {
-    throw conflict('CONFLICT', `You already belong to a ${type.toLowerCase()} team (${existing.team.name}).`);
-  }
 }
 
 // ---------------------------------------------------------------------------
 export async function createTeam(userId: string, input: { name: string; tag: string; type: TeamType }) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user || user.status !== 'ACTIVE') throw forbidden('Account is not active.');
-  await assertNoTeamOfType(userId, input.type);
-
   try {
-    const team = await prisma.team.create({
-      data: {
-        name: input.name.trim(),
-        tag: input.tag.trim().toUpperCase(),
-        type: input.type,
-        captainId: userId,
-        members: { create: { userId, role: 'CAPTAIN' } },
-      },
+    return await prisma.$transaction(async (tx) => {
+      const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+        SELECT "id", "status" FROM "users" WHERE "id" = ${userId} FOR UPDATE
+      `;
+      if (!userRows[0] || userRows[0].status !== 'ACTIVE') throw forbidden('Account is not active.');
+      const existing = await tx.teamMember.findFirst({
+        where: { userId, team: { type: input.type } },
+        select: { team: { select: { name: true } } },
+      });
+      if (existing) {
+        throw conflict('CONFLICT', `You already belong to a ${input.type.toLowerCase()} team (${existing.team.name}).`);
+      }
+      return tx.team.create({
+        data: {
+          name: input.name.trim(),
+          tag: input.tag.trim().toUpperCase(),
+          type: input.type,
+          captainId: userId,
+          members: { create: { userId, role: 'CAPTAIN' } },
+        },
+      });
     });
-    return team;
   } catch (e: unknown) {
     if ((e as { code?: string }).code === 'P2002') {
       throw conflict('CONFLICT', 'This team tag is taken.');
@@ -184,72 +195,117 @@ export async function myInvites(userId: string) {
 }
 
 export async function respondInvite(userId: string, inviteId: string, accept: boolean) {
-  const invite = await prisma.teamInvite.findUnique({
-    where: { id: inviteId },
-    include: { team: { include: { members: true } } },
-  });
-  if (!invite || invite.inviteeId !== userId) throw notFound('Invite not found');
-  if (invite.status !== 'PENDING') throw badRequest('VALIDATION_ERROR', 'Invite already handled.');
-
   if (!accept) {
-    return prisma.teamInvite.update({ where: { id: inviteId }, data: { status: 'DECLINED', respondedAt: new Date() } });
+    const updated = await prisma.teamInvite.updateMany({
+      where: { id: inviteId, inviteeId: userId, status: 'PENDING' },
+      data: { status: 'DECLINED', respondedAt: new Date() },
+    });
+    if (updated.count !== 1) throw notFound('Invite not found or already handled.');
+    return prisma.teamInvite.findUniqueOrThrow({ where: { id: inviteId } });
   }
 
-  await assertNoTeamOfType(userId, invite.team.type);
-  if (invite.team.members.length >= CAPACITY[invite.team.type]) {
-    throw badRequest('VALIDATION_ERROR', 'The team filled up before you accepted.');
-  }
+  return prisma.$transaction(async (tx) => {
+    const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+      SELECT "id", "status" FROM "users" WHERE "id" = ${userId} FOR UPDATE
+    `;
+    if (!userRows[0] || userRows[0].status !== 'ACTIVE') throw forbidden('Account is not active.');
 
-  const [updated] = await prisma.$transaction([
-    prisma.teamInvite.update({ where: { id: inviteId }, data: { status: 'ACCEPTED', respondedAt: new Date() } }),
-    prisma.teamMember.create({ data: { teamId: invite.teamId, userId, role: 'MEMBER' } }),
-    prisma.notification.create({
+    const invite = await tx.teamInvite.findUnique({ where: { id: inviteId } });
+    if (!invite || invite.inviteeId !== userId || invite.status !== 'PENDING') {
+      throw notFound('Invite not found or already handled.');
+    }
+    const teamRows = await tx.$queryRaw<Array<{ id: string; captainId: string; type: string; name: string; tag: string }>>`
+      SELECT "id", "captainId", "type", "name", "tag"
+      FROM "teams" WHERE "id" = ${invite.teamId} FOR UPDATE
+    `;
+    const team = teamRows[0];
+    if (!team) throw notFound('Team not found.');
+
+    const existing = await tx.teamMember.findFirst({ where: { userId, team: { type: team.type as TeamType } } });
+    if (existing) throw conflict('CONFLICT', `You already belong to a ${team.type.toLowerCase()} team.`);
+    const members = await tx.teamMember.count({ where: { teamId: team.id } });
+    if (members >= CAPACITY[team.type as TeamType]) {
+      throw badRequest('VALIDATION_ERROR', 'The team filled up before you accepted.');
+    }
+
+    const updated = await tx.teamInvite.updateMany({
+      where: { id: inviteId, status: 'PENDING' },
+      data: { status: 'ACCEPTED', respondedAt: new Date() },
+    });
+    if (updated.count !== 1) throw conflict('CONFLICT', 'This invite was updated by another request.');
+    await tx.teamMember.create({ data: { teamId: team.id, userId, role: 'MEMBER' } });
+    await tx.notification.create({
       data: {
-        userId: invite.team.captainId, type: 'TEAM_INVITE',
+        userId: team.captainId, type: 'TEAM_INVITE',
         title: 'Invite accepted',
-        body: `A player joined ${invite.team.name}.`,
+        body: `A player joined ${team.name}.`,
       },
-    }),
-  ]);
-  return updated;
+    });
+    return tx.teamInvite.findUniqueOrThrow({ where: { id: inviteId } });
+  });
 }
 
 // ---------------------------------------------------------------------------
+async function assertTeamRosterMutable(tx: Prisma.TransactionClient, teamId: string) {
+  const activeRegistration = await tx.tournamentRegistration.findFirst({
+    where: {
+      teamId,
+      status: 'CONFIRMED',
+      tournament: { status: { in: ['REGISTRATION_OPEN', 'LIVE'] } },
+    },
+    select: { tournament: { select: { title: true } } },
+  });
+  if (activeRegistration) {
+    throw conflict('CONFLICT', `Roster is locked while ${activeRegistration.tournament.title} is active. Use the admin replacement/refund flow.`);
+  }
+}
+
 export async function removeMember(actorId: string, teamId: string, memberId: string) {
-  const team = await prisma.team.findUnique({ where: { id: teamId } });
-  if (!team) throw notFound('Team not found');
-  if (team.captainId !== actorId) throw forbidden('Only the captain can remove members.');
-  if (memberId === team.captainId) throw badRequest('VALIDATION_ERROR', 'The captain cannot be removed — transfer captaincy first.');
-  await prisma.teamMember.deleteMany({ where: { teamId, userId: memberId } });
-  return { removed: true };
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "teams" WHERE "id" = ${teamId} FOR UPDATE`;
+    const team = await tx.team.findUnique({ where: { id: teamId } });
+    if (!team) throw notFound('Team not found');
+    if (team.captainId !== actorId) throw forbidden('Only the captain can remove members.');
+    if (memberId === team.captainId) throw badRequest('VALIDATION_ERROR', 'The captain cannot be removed — transfer captaincy first.');
+    await assertTeamRosterMutable(tx, teamId);
+    const deleted = await tx.teamMember.deleteMany({ where: { teamId, userId: memberId } });
+    if (deleted.count !== 1) throw notFound('That player is not in this team.');
+    return { removed: true };
+  });
 }
 
 export async function leaveTeam(userId: string, teamId: string) {
-  const team = await prisma.team.findUnique({ where: { id: teamId } });
-  if (!team) throw notFound('Team not found');
-  if (team.captainId === userId) {
-    throw badRequest('VALIDATION_ERROR', 'Captains must transfer captaincy before leaving.');
-  }
-  await prisma.teamMember.deleteMany({ where: { teamId, userId } });
-  return { left: true };
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "teams" WHERE "id" = ${teamId} FOR UPDATE`;
+    const team = await tx.team.findUnique({ where: { id: teamId } });
+    if (!team) throw notFound('Team not found');
+    if (team.captainId === userId) {
+      throw badRequest('VALIDATION_ERROR', 'Captains must transfer captaincy before leaving.');
+    }
+    await assertTeamRosterMutable(tx, teamId);
+    const deleted = await tx.teamMember.deleteMany({ where: { teamId, userId } });
+    if (deleted.count !== 1) throw notFound('You are not a member of this team.');
+    return { left: true };
+  });
 }
 
 export async function transferCaptaincy(actorId: string, teamId: string, newCaptainId: string) {
-  const team = await prisma.team.findUnique({
-    where: { id: teamId },
-    include: { members: true },
-  });
-  if (!team) throw notFound('Team not found');
-  if (team.captainId !== actorId) throw forbidden('Only the captain can transfer captaincy.');
-  const target = team.members.find((m) => m.userId === newCaptainId);
-  if (!target) throw notFound('That player is not in this team.');
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "teams" WHERE "id" = ${teamId} FOR UPDATE`;
+    const team = await tx.team.findUnique({
+      where: { id: teamId },
+      include: { members: true },
+    });
+    if (!team) throw notFound('Team not found');
+    if (team.captainId !== actorId) throw forbidden('Only the captain can transfer captaincy.');
+    const target = team.members.find((m) => m.userId === newCaptainId);
+    if (!target) throw notFound('That player is not in this team.');
 
-  await prisma.$transaction([
-    prisma.team.update({ where: { id: teamId }, data: { captainId: newCaptainId } }),
-    prisma.teamMember.updateMany({ where: { teamId, userId: actorId }, data: { role: 'MEMBER' } }),
-    prisma.teamMember.updateMany({ where: { teamId, userId: newCaptainId }, data: { role: 'CAPTAIN' } }),
-  ]);
-  return { transferred: true };
+    await tx.team.update({ where: { id: teamId }, data: { captainId: newCaptainId } });
+    await tx.teamMember.updateMany({ where: { teamId, userId: actorId }, data: { role: 'MEMBER' } });
+    await tx.teamMember.updateMany({ where: { teamId, userId: newCaptainId }, data: { role: 'CAPTAIN' } });
+    return { transferred: true };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +323,7 @@ export async function myTeams(userId: string) {
   });
 }
 
-export async function teamDetails(teamId: string) {
+export async function teamDetails(teamId: string, requesterId: string) {
   const team = await prisma.team.findUnique({
     where: { id: teamId },
     include: {
@@ -301,5 +357,10 @@ export async function teamDetails(teamId: string) {
     },
   });
   if (!team) throw notFound('Team not found');
+  if (!team.members.some((member) => member.userId === requesterId)) {
+    // This route powers the authenticated team-management screen, not a public
+    // player directory. Do not leak roster identities to another player.
+    throw forbidden('You are not a member of this team.');
+  }
   return team;
 }

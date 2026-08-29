@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { Check, Download, Loader2, Lock, Search, ShieldCheck } from 'lucide-react';
 import { Modal, Pill } from '@/components/admin/kit';
-import { api, apiGet } from '@/lib/client-api';
+import { api, apiGet, downloadProtectedFile } from '@/lib/client-api';
 
 export interface TableParticipant {
   participantId: string; slot: number | null; playerOrTeam: string; ign: string | null; uid: string | null;
@@ -87,6 +87,14 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
     }
   }
 
+  async function downloadCsv() {
+    try {
+      await downloadProtectedFile(`/matches/${matchId}/export`, `match-${matchId.slice(0, 8)}.csv`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Download failed.');
+    }
+  }
+
   async function setWorkflow(next: 'UNDER_REVIEW' | 'CONFIRMED' | 'PUBLISHED' | 'DRAFT') {
     setBusy(true);
     try {
@@ -126,7 +134,7 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
                 {rs === 'PUBLISHED' && <span className="flex items-center gap-1 text-xs font-bold text-success"><ShieldCheck size={13} /> Published &amp; locked</span>}
                 {rs !== 'DRAFT' && rs !== 'PUBLISHED' && <WorkflowBtn onClick={() => setWorkflow('DRAFT')} disabled={busy}>Back to Draft</WorkflowBtn>}
                 <WorkflowBtn onClick={() => onOpenSlots(data.match.tournament.id)}>Slot Board</WorkflowBtn>
-                <button onClick={() => window.open(`/api/backend/matches/${matchId}/export`, '_blank')}
+                <button onClick={() => void downloadCsv()}
                   className="inline-flex items-center gap-1 rounded-input border border-line px-2.5 py-1.5 text-[11px] font-bold text-fg-2 hover:text-fg">
                   <Download size={12} /> CSV
                 </button>

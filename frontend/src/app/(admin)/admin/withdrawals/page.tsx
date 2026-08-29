@@ -36,7 +36,7 @@ export default function AdminWithdrawalsPage() {
   const { data, loading, setData } = useAdminList<Page>(`/admin/withdrawals?status=${tab}&page=${page}&pageSize=15`, [tab, page]);
 
   async function refresh() {
-    const fresh = await apiGet<Page>(`/api/backend/admin/withdrawals?status=${tab}&page=${page}&pageSize=15`);
+    const fresh = await apiGet<Page>(`/admin/withdrawals?status=${tab}&page=${page}&pageSize=15`);
     if (fresh) setData(fresh);
   }
 

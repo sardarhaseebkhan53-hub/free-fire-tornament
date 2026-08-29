@@ -460,29 +460,101 @@ export async function setTournamentStatus(adminId: string, id: string, status: s
   if (!t) throw badRequest('NOT_FOUND', 'Tournament not found');
   const allowed = ['DRAFT', 'REGISTRATION_OPEN', 'LIVE', 'COMPLETED', 'CANCELLED'];
   if (!allowed.includes(status)) throw badRequest('VALIDATION_ERROR', 'Invalid status');
-  if (t.status === 'COMPLETED' && status !== 'COMPLETED') {
-    throw conflict('CONFLICT', 'Completed tournaments are final — prizes were distributed.');
+
+  const transitions: Record<string, string[]> = {
+    DRAFT: ['DRAFT', 'REGISTRATION_OPEN', 'CANCELLED'],
+    REGISTRATION_OPEN: ['REGISTRATION_OPEN', 'LIVE', 'CANCELLED'],
+    LIVE: ['LIVE', 'COMPLETED', 'CANCELLED'],
+    COMPLETED: ['COMPLETED'],
+    CANCELLED: ['CANCELLED'],
+  };
+  if (!transitions[t.status]?.includes(status)) {
+    throw conflict('CONFLICT', `Cannot move a ${t.status.toLowerCase()} tournament to ${status.toLowerCase()}.`);
   }
-  await prisma.tournament.update({ where: { id }, data: { status: status as never } });
-  await prisma.auditLog.create({
-    data: {
-      actorId: adminId, action: 'TOURNAMENT_STATUS', entity: 'Tournament', entityId: id,
-      before: { status: t.status }, after: { status }, ip: ctx.ip,
-    },
-  });
+  if (status === t.status) return { id, status };
+
+  // Settings are read outside the financial transaction because the embedded
+  // database has one writer and settings use the global Prisma client.
+  const currency = status === 'CANCELLED' ? await getSetting('platform.currency', 'PKR') : null;
+
+  const result = await prisma.$transaction(async (tx) => {
+    // Lock the tournament before inspecting registrations. This serializes
+    // cancellation against joins and prevents two admin clicks from refunding
+    // the same registration twice.
+    await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${id} FOR UPDATE`;
+    const current = await tx.tournament.findUnique({ where: { id } });
+    if (!current) throw badRequest('NOT_FOUND', 'Tournament not found');
+    if (current.status !== t.status) {
+      throw conflict('CONFLICT', 'Tournament status changed; refresh and try again.');
+    }
+
+    let refundedTotal = 0;
+    let registrationsRefunded = 0;
+    if (status === 'CANCELLED') {
+      const regs = await tx.tournamentRegistration.findMany({
+        where: { tournamentId: id, status: 'CONFIRMED' },
+        orderBy: { userId: 'asc' },
+      });
+      const refundPercent = Number(current.refundPercent) / 100;
+      for (const reg of regs) {
+        const amount = Math.round(Number(reg.entryAmount) * refundPercent * 100) / 100;
+        let refundWalletTxId: string | undefined;
+        if (amount > 0) {
+          const entry = await moveBalance(
+            tx,
+            reg.userId,
+            'CASH',
+            'CREDIT',
+            amount,
+            'ENTRY_REFUND',
+            {
+              entityType: 'TournamentRegistration',
+              entityId: reg.id,
+              description: `Refund — ${current.title} cancelled`,
+              createdById: adminId,
+            },
+            currency ?? 'PKR',
+          );
+          refundWalletTxId = entry.id;
+        }
+        await tx.tournamentRegistration.update({
+          where: { id: reg.id },
+          data: { status: 'REFUNDED', cancelledAt: new Date(), refundWalletTxId },
+        });
+        await tx.notification.create({
+          data: {
+            userId: reg.userId,
+            type: 'TOURNAMENT_UPDATE',
+            title: `Tournament cancelled — ${current.title}`,
+            body: amount > 0
+              ? `Refund of ${currency ?? 'PKR'} ${amount} credited to your cash balance.`
+              : 'Your registration was cancelled. No refund was due for this tournament.',
+            data: { tournamentId: id },
+          },
+        });
+        refundedTotal += amount;
+        registrationsRefunded += 1;
+      }
+    }
+
+    await tx.tournament.update({ where: { id }, data: { status: status as never } });
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: status === 'CANCELLED' ? 'TOURNAMENT_CANCELLED' : 'TOURNAMENT_STATUS',
+        entity: 'Tournament', entityId: id,
+        before: { status: current.status },
+        after: { status, refundedTotal, registrationsRefunded },
+        ip: ctx.ip,
+      },
+    });
+    return { id, status, refundedTotal, registrationsRefunded };
+  }, TX_OPTS);
+
   // First time a draft goes live → announce it to every active player.
   if (status === 'REGISTRATION_OPEN' && t.status === 'DRAFT') {
     await announceTournament(id, t.title, t.slug, t.type, t.entryFeePerPlayer.toNumber(), t.startTime.toISOString());
   }
-  if (status === 'CANCELLED') {
-    // refund via the existing cancellation service path would duplicate Phase 5 logic;
-    // guard: only DRAFT/empty tournaments may be cancelled without players.
-    const regs = await prisma.tournamentRegistration.count({ where: { tournamentId: id, status: 'CONFIRMED' } });
-    if (regs > 0) {
-      throw badRequest('VALIDATION_ERROR', 'Use the cancellation flow (Phase 5 engine) for tournaments with confirmed players.');
-    }
-  }
-  return { id, status };
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -545,25 +617,51 @@ export async function setMatchStatus(
 ) {
   const m = await prisma.match.findUnique({ where: { id } });
   if (!m) throw badRequest('NOT_FOUND', 'Match not found');
+  if (m.status === status) return { id, status };
   if (m.resultsStatus === 'PUBLISHED' && status !== 'COMPLETED') {
     throw conflict('CONFLICT', 'Published matches are final — only COMPLETED is allowed.');
   }
-  await prisma.match.update({
-    where: { id },
-    data: {
-      status,
-      credentialsReleasedAt: status === 'ROOM_OPEN' || status === 'CREDENTIALS_RELEASED'
-        ? (m.credentialsReleasedAt ?? new Date())
-        : m.credentialsReleasedAt,
-    },
-  });
-  await prisma.auditLog.create({
-    data: {
-      actorId: adminId, action: 'MATCH_STATUS', entity: 'Match', entityId: id,
-      before: { status: m.status }, after: { status }, ip: ctx.ip,
-    },
-  });
-  return { id, status };
+
+  const transitions: Record<string, string[]> = {
+    UPCOMING: ['SCHEDULED', 'CANCELLED'],
+    SCHEDULED: ['ROOM_CREATED', 'ROOM_OPEN', 'LIVE', 'CANCELLED'],
+    ROOM_CREATED: ['ROOM_OPEN', 'CREDENTIALS_RELEASED', 'LIVE', 'CANCELLED'],
+    ROOM_OPEN: ['CREDENTIALS_RELEASED', 'LIVE', 'CANCELLED'],
+    CREDENTIALS_RELEASED: ['LIVE', 'CANCELLED'],
+    LIVE: ['COMPLETED', 'CANCELLED'],
+    COMPLETED: ['COMPLETED'],
+    CANCELLED: ['CANCELLED'],
+  };
+  if (!transitions[m.status]?.includes(status)) {
+    throw conflict('CONFLICT', `Cannot move a ${m.status.toLowerCase()} match to ${status.toLowerCase()}.`);
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "matches" WHERE "id" = ${id} FOR UPDATE`;
+    const current = await tx.match.findUnique({ where: { id } });
+    if (!current) throw badRequest('NOT_FOUND', 'Match not found');
+    if (current.status !== m.status) throw conflict('CONFLICT', 'Match status changed; refresh and try again.');
+    if (current.resultsStatus === 'PUBLISHED' && status !== 'COMPLETED') {
+      throw conflict('CONFLICT', 'Published matches are final — only COMPLETED is allowed.');
+    }
+
+    const updated = await tx.match.update({
+      where: { id },
+      data: {
+        status,
+        credentialsReleasedAt: status === 'ROOM_OPEN' || status === 'CREDENTIALS_RELEASED'
+          ? (current.credentialsReleasedAt ?? new Date())
+          : current.credentialsReleasedAt,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'MATCH_STATUS', entity: 'Match', entityId: id,
+        before: { status: current.status }, after: { status }, ip: ctx.ip,
+      },
+    });
+    return { id, status: updated.status };
+  }, TX_OPTS);
 }
 
 // ---------------------------------------------------------------------------
@@ -618,41 +716,47 @@ export async function adjustPlayerStats(
 /** Rebuild PlayerStat rows from verified match participants (placement, kills, finalScore). */
 export async function recalculateLeaderboard(adminId: string, ctx: { ip?: string }) {
   const participants = await prisma.matchParticipant.findMany({
-    where: { status: 'PLAYED', absent: false },
+    // Only published matches are an approved public leaderboard source. Draft
+    // and under-review rows may be operationally useful to admins but must not
+    // become player-facing ranking history through a rebuild.
+    where: { status: 'PLAYED', absent: false, match: { resultsStatus: 'PUBLISHED' } },
     select: {
       userId: true, teamId: true, placement: true, kills: true, finalScore: true,
+      match: { select: { scheduledAt: true } },
       team: { select: { members: { select: { userId: true } } } },
-      match: { select: { resultsStatus: true } },
     },
   });
 
-  const agg = new Map<string, { matches: number; wins: number; kills: number; points: number }>();
-  const add = (userId: string, p: { placement: number | null; kills: number | null; finalScore: number | null }) => {
-    const cur = agg.get(userId) ?? { matches: 0, wins: 0, kills: 0, points: 0 };
+  const agg = new Map<string, { matches: number; wins: number; kills: number; points: number; lastPlayedAt: Date }>();
+  const add = (userId: string, p: { placement: number | null; kills: number | null; finalScore: number | null; match: { scheduledAt: Date } }, kills: number) => {
+    const cur = agg.get(userId) ?? { matches: 0, wins: 0, kills: 0, points: 0, lastPlayedAt: p.match.scheduledAt };
     cur.matches += 1;
-    cur.kills += p.kills ?? 0;
+    cur.kills += kills;
     cur.points += p.finalScore ?? 0;
     if (p.placement === 1) cur.wins += 1;
+    if (p.match.scheduledAt > cur.lastPlayedAt) cur.lastPlayedAt = p.match.scheduledAt;
     agg.set(userId, cur);
   };
 
   for (const p of participants) {
-    if (p.userId) add(p.userId, p);
-    for (const m of p.team?.members ?? []) add(m.userId, p);
+    if (p.userId) add(p.userId, p, p.kills ?? 0);
+    const members = p.team?.members ?? [];
+    const teamKills = members.length ? Math.round((p.kills ?? 0) / members.length) : 0;
+    for (const m of members) add(m.userId, p, teamKills);
   }
 
   await prisma.$transaction(async (tx) => {
     for (const [userId, s] of agg) {
       await tx.playerStat.upsert({
         where: { userId },
-        create: { userId, matchesPlayed: s.matches, wins: s.wins, kills: s.kills, totalPoints: s.points },
-        update: { matchesPlayed: s.matches, wins: s.wins, kills: s.kills, totalPoints: s.points },
+        create: { userId, matchesPlayed: s.matches, wins: s.wins, kills: s.kills, totalPoints: s.points, lastPlayedAt: s.lastPlayedAt },
+        update: { matchesPlayed: s.matches, wins: s.wins, kills: s.kills, totalPoints: s.points, lastPlayedAt: s.lastPlayedAt },
       });
     }
     await tx.auditLog.create({
       data: {
         actorId: adminId, action: 'LEADERBOARD_RECALCULATED', entity: 'PlayerStat', entityId: null,
-        after: { usersUpdated: agg.size, basedOn: 'verified match participants (published + draft)' },
+        after: { usersUpdated: agg.size, basedOn: 'published match participants' },
         ip: ctx.ip,
       },
     });

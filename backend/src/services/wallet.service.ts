@@ -53,22 +53,50 @@ export async function moveBalance(
   meta: LedgerMeta = {},
   currency = 'PKR',
 ) {
-  if (!(amount > 0)) throw badRequest('VALIDATION_ERROR', 'Amount must be positive');
-  const wallet = await tx.wallet.findUnique({ where: { userId } });
-  if (!wallet) throw badRequest('NOT_FOUND', 'Wallet not found');
-  const before = wallet[COLUMN[bucket]].toNumber();
-  const after = direction === 'CREDIT' ? before + amount : before - amount;
-  if (after < -0.0001) {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw badRequest('VALIDATION_ERROR', 'Amount must be positive');
+  }
+  // Wallet amounts are stored to cents. Normalize once so the conditional SQL,
+  // ledger amount and before/after snapshots all use the same value.
+  const normalizedAmount = Math.round(amount * 100) / 100;
+  if (!(normalizedAmount > 0)) {
+    throw badRequest('VALIDATION_ERROR', 'Amount must be at least 0.01');
+  }
+
+  const column = COLUMN[bucket];
+  const operator = direction === 'CREDIT' ? Prisma.raw('+') : Prisma.raw('-');
+  const delta = new Prisma.Decimal(normalizedAmount);
+
+  // The UPDATE both locks the wallet row and performs the balance check. A
+  // find-then-update sequence is not safe when two requests spend the same
+  // wallet concurrently. The returned value is the committed balance for this
+  // movement, so ledger snapshots cannot be produced from a stale read.
+  const rows = await tx.$queryRaw<Array<{ after: Prisma.Decimal }>>`
+    UPDATE "wallets"
+    SET ${Prisma.raw(`"${column}"`)} = ${Prisma.raw(`"${column}"`)} ${operator} ${delta}
+    WHERE "userId" = ${userId}
+      AND ${Prisma.raw(`"${column}"`)} ${operator} ${delta} >= 0
+    RETURNING ${Prisma.raw(`"${column}"`)} AS "after"
+  `;
+
+  if (rows.length === 0) {
+    const exists = await tx.wallet.findUnique({ where: { userId }, select: { id: true } });
+    if (!exists) throw badRequest('NOT_FOUND', 'Wallet not found');
     throw badRequest('INSUFFICIENT_BALANCE', 'Insufficient balance for this operation');
   }
 
-  const entry = await tx.walletTransaction.create({
+  const after = Math.round(Number(rows[0]!.after) * 100) / 100;
+  const before = Math.round(
+    (direction === 'CREDIT' ? after - normalizedAmount : after + normalizedAmount) * 100,
+  ) / 100;
+
+  return tx.walletTransaction.create({
     data: {
       userId, bucket, type, direction,
-      amount: new Prisma.Decimal(amount),
+      amount: new Prisma.Decimal(normalizedAmount),
       currency,
       balanceBefore: new Prisma.Decimal(before),
-      balanceAfter: new Prisma.Decimal(Math.round(after * 100) / 100),
+      balanceAfter: new Prisma.Decimal(after),
       entityType: meta.entityType,
       entityId: meta.entityId,
       reference: meta.reference,
@@ -76,13 +104,6 @@ export async function moveBalance(
       createdById: meta.createdById,
     },
   });
-
-  await tx.wallet.update({
-    where: { userId },
-    data: { [COLUMN[bucket]]: new Prisma.Decimal(Math.round(after * 100) / 100) },
-  });
-
-  return entry;
 }
 
 /** Single self-contained movement (its own transaction). */

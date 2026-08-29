@@ -295,7 +295,7 @@ function serializeDeposit(d: {
 
 export async function requestWithdrawal(
   userId: string,
-  input: { amount: number; method: 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER' | 'NAYAPAY' | 'SADAPAY'; accountName: string; accountNumber: string; accountDetails?: string },
+  input: { amount: number; method: 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER' | 'NAYAPAY' | 'SADAPAY'; accountName: string; accountNumber: string; accountDetails?: string; requestId?: string },
   ctx: Ctx,
 ) {
   const min = Number(await getSetting('wallet.minWithdrawal', 100));
@@ -311,11 +311,27 @@ export async function requestWithdrawal(
   }
 
   const fee = round2((input.amount * feePct) / 100);
-  const reference = `WDL${Date.now()}${Math.floor(100 + Math.random() * 900)}`;
   const masked = acc.length > 6 ? `${acc.slice(0, 4)}••••${acc.slice(-3)}` : acc;
+  const requestId = input.requestId?.trim() || undefined;
   const currency = await getSetting('platform.currency', 'PKR');
 
-  const out = await prisma.$transaction(async (tx) => {
+  const replay = async (existing: Awaited<ReturnType<typeof prisma.withdrawal.findUnique>>) => {
+    if (!existing) return null;
+    if (existing.amount.toNumber() !== input.amount || existing.method !== input.method || existing.accountNumber !== acc) {
+      throw conflict('CONFLICT', 'This idempotency key is already bound to a different withdrawal.');
+    }
+    return { withdrawal: serializeWithdrawal(existing), fee, net: round2(input.amount - fee), replayed: true };
+  };
+  if (requestId) {
+    const existing = await prisma.withdrawal.findUnique({ where: { userId_requestId: { userId, requestId } } });
+    const prior = await replay(existing);
+    if (prior) return prior;
+  }
+
+  const reference = `WDL${Date.now()}${Math.floor(100 + Math.random() * 900)}`;
+  let out;
+  try {
+    out = await prisma.$transaction(async (tx) => {
     const wd = await tx.withdrawal.create({
       data: {
         userId,
@@ -324,6 +340,7 @@ export async function requestWithdrawal(
         accountName: input.accountName,
         accountNumber: acc,
         accountDetails: input.accountDetails || null,
+        requestId,
         status: 'PENDING',
       },
     });
@@ -354,7 +371,15 @@ export async function requestWithdrawal(
       },
     });
     return wd;
-  }, TX_OPTS);
+    }, TX_OPTS);
+  } catch (e) {
+    if (requestId && isUniqueViolation(e)) {
+      const existing = await prisma.withdrawal.findUnique({ where: { userId_requestId: { userId, requestId } } });
+      const prior = await replay(existing);
+      if (prior) return prior;
+    }
+    throw e;
+  }
 
   // Phase 14 — churn / burst / new-account / shared-payout checks.
   fireWithdrawalFraud(out.id, ctx);
@@ -392,13 +417,18 @@ export async function cancelWithdrawal(userId: string, id: string, ctx: Ctx) {
     if (wd.status !== 'PENDING') {
       throw badRequest('CONFLICT', 'Only withdrawals that are still pending can be cancelled.');
     }
-    await tx.withdrawal.update({ where: { id }, data: { status: 'CANCELLED', reviewedAt: new Date() } });
-    await moveBalance(tx, userId, 'WINNING', 'CREDIT', wd.amount.toNumber(), 'WITHDRAWAL_REVERSAL', {
+    const claimed = await tx.withdrawal.updateMany({
+      where: { id, userId, status: 'PENDING' },
+      data: { status: 'CANCELLED', reviewedAt: new Date() },
+    });
+    if (claimed.count !== 1) throw conflict('CONFLICT', 'This withdrawal was updated by another request.');
+    const entry = await moveBalance(tx, userId, 'WINNING', 'CREDIT', wd.amount.toNumber(), 'WITHDRAWAL_REVERSAL', {
       entityType: 'Withdrawal',
       entityId: wd.id,
       reference: `WDLR${Date.now()}`,
       description: 'Withdrawal cancelled — amount returned to Winning balance',
     }, currency);
+    await tx.withdrawal.update({ where: { id }, data: { reversalWalletTxId: entry.id } });
     await tx.notification.create({
       data: {
         userId, type: 'WITHDRAWAL_UPDATE',
@@ -487,6 +517,18 @@ export async function reviewDeposit(
     if (dep.status !== 'PENDING') {
       throw conflict('CONFLICT', `This deposit was already ${dep.status.toLowerCase()}.`);
     }
+
+    // Claim the pending row before touching the wallet. The conditional update
+    // serializes two reviewers and guarantees that only one terminal decision
+    // can credit/reject this deposit.
+    const claimed = await tx.deposit.updateMany({
+      where: { id: depositId, status: 'PENDING' },
+      data: { status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED' },
+    });
+    if (claimed.count !== 1) {
+      throw conflict('CONFLICT', 'This deposit was reviewed by another admin.');
+    }
+
     const now = new Date();
     let walletTxId: string | undefined;
 
@@ -609,7 +651,18 @@ export async function reviewWithdrawal(
       throw badRequest('VALIDATION_ERROR', 'A payout transaction reference is required to mark as paid.');
     }
 
-    let walletTxId: string | undefined;
+    // Claim the state before reversing any held funds. Without this
+    // conditional transition, an approval and rejection racing on PENDING can
+    // both succeed and leave the status/ledger inconsistent.
+    const claimed = await tx.withdrawal.updateMany({
+      where: { id: withdrawalId, status: { in: flow.from as WithdrawalStatus[] } },
+      data: { status: flow.to as WithdrawalStatus },
+    });
+    if (claimed.count !== 1) {
+      throw conflict('CONFLICT', 'This withdrawal was updated by another admin.');
+    }
+
+    let reversalWalletTxId: string | undefined;
     if (action === 'REJECT') {
       // Release the holding — winnings go back exactly as they left.
       const entry = await moveBalance(tx, wd.userId, 'WINNING', 'CREDIT', wd.amount.toNumber(), 'WITHDRAWAL_REVERSAL', {
@@ -619,7 +672,7 @@ export async function reviewWithdrawal(
         description: `Withdrawal rejected${note ? ` — ${note}` : ''} — amount returned to Winning balance`,
         createdById: adminId,
       }, currency);
-      walletTxId = entry.id;
+      reversalWalletTxId = entry.id;
     }
 
     const now = new Date();
@@ -631,7 +684,7 @@ export async function reviewWithdrawal(
         reviewedById: adminId,
         reviewedAt: now,
         ...(action === 'PAID' ? { paidReference: paidReference ?? '' , paidAt: now } : {}),
-        ...(walletTxId ? { walletTxId } : {}),
+        ...(reversalWalletTxId ? { reversalWalletTxId } : {}),
       },
     });
 

@@ -144,7 +144,7 @@ function UsersInner() {
           user={adjustFor}
           onClose={() => setAdjustFor(null)}
           refresh={async () => {
-            const fresh = await apiGet<Page>(`/api/backend/admin/users?page=1&pageSize=20`);
+            const fresh = await apiGet<Page>(`/admin/users?page=1&pageSize=20`);
             if (fresh) setData(fresh);
           }}
         />

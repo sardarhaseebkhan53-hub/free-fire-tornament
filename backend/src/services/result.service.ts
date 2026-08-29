@@ -81,25 +81,34 @@ export async function submitResult(
   });
   if (!participant) throw forbidden('Only participants of this match can submit results.');
 
-  const existing = await prisma.resultSubmission.findFirst({
-    where: { matchId, submittedById: userId, status: { in: ['PENDING', 'UNDER_REVIEW', 'VERIFIED'] } },
-    select: { id: true, status: true },
-  });
-  if (existing) {
-    throw conflict('CONFLICT', `You already have a ${existing.status.replace('_', ' ').toLowerCase()} result for this match.`);
-  }
-
-  const submission = await prisma.resultSubmission.create({
-    data: {
-      matchId,
-      submittedById: userId,
-      kills: input.kills,
-      placement: input.placement,
-      notes: input.notes || null,
-      screenshot: screenshotPath ?? `/uploads/results/submitted-${Date.now()}.png`,
-      status: 'PENDING',
-    },
-  });
+  const submission = await prisma.$transaction(async (tx) => {
+    // Serialize duplicate submissions for the same match participant. Without
+    // this lock, two simultaneous screenshots can both pass the preflight
+    // query and enter the review queue.
+    await tx.$queryRaw`SELECT "id" FROM "match_participants" WHERE "id" = ${participant.id} FOR UPDATE`;
+    const currentParticipant = await tx.matchParticipant.findUnique({ where: { id: participant.id }, select: { status: true } });
+    if (!currentParticipant || currentParticipant.status === 'DISQUALIFIED') {
+      throw forbidden('Only participants of this match can submit results.');
+    }
+    const existing = await tx.resultSubmission.findFirst({
+      where: { matchId, submittedById: userId, status: { in: ['PENDING', 'UNDER_REVIEW', 'VERIFIED'] } },
+      select: { status: true },
+    });
+    if (existing) {
+      throw conflict('CONFLICT', `You already have a ${existing.status.replace('_', ' ').toLowerCase()} result for this match.`);
+    }
+    return tx.resultSubmission.create({
+      data: {
+        matchId,
+        submittedById: userId,
+        kills: input.kills,
+        placement: input.placement,
+        notes: input.notes || null,
+        screenshot: screenshotPath ?? `/uploads/results/submitted-${Date.now()}.png`,
+        status: 'PENDING',
+      },
+    });
+  }, TX_OPTS);
 
   await prisma.auditLog.create({
     data: {
@@ -163,6 +172,7 @@ export async function reviewResult(
   ctx: Ctx = {},
 ) {
   const out = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "result_submissions" WHERE "id" = ${submissionId} FOR UPDATE`;
     const sub = await tx.resultSubmission.findUnique({ where: { id: submissionId } });
     if (!sub) throw notFound('Result submission not found');
     if (sub.status === 'VERIFIED' || sub.status === 'REJECTED') {
@@ -179,30 +189,26 @@ export async function reviewResult(
     const memberships = await tx.teamMember.findMany({
       where: { userId: sub.submittedById }, select: { teamId: true },
     });
-    const participant = await tx.matchParticipant.findFirst({
+    const locatedParticipant = await tx.matchParticipant.findFirst({
       where: {
         matchId: sub.matchId,
         OR: [{ userId: sub.submittedById }, { teamId: { in: memberships.map((m) => m.teamId) } }],
       },
     });
+    if (!locatedParticipant) throw notFound('Participant record missing for this submission.');
+    await tx.$queryRaw`SELECT "id" FROM "match_participants" WHERE "id" = ${locatedParticipant.id} FOR UPDATE`;
+    const participant = await tx.matchParticipant.findUnique({ where: { id: locatedParticipant.id } });
     if (!participant) throw notFound('Participant record missing for this submission.');
 
     const now = new Date();
+    if (participant.status === 'PLAYED') {
+      throw conflict('CONFLICT', 'This participant already has a verified result. Edit the admin result row instead.');
+    }
+    if (participant.status === 'DISQUALIFIED') {
+      throw conflict('CONFLICT', 'This participant is disqualified and cannot be verified.');
+    }
 
     if (action === 'REJECT' || action === 'DISQUALIFY') {
-      // Revert stats if a previous approval had applied them (correction path).
-      if (participant.status === 'PLAYED' && participant.placement !== null) {
-        const perKill = match.tournament.pointsPerKill;
-        const table = tableFor(match.tournament);
-        const oldPoints = pointsFor(participant.placement, participant.kills ?? 0, perKill, table);
-        const soloUserId = participant.userId ?? null;
-        if (soloUserId) {
-          await bumpStats(tx, soloUserId, {
-            matches: -1, kills: -(participant.kills ?? 0), points: -oldPoints,
-            wins: participant.placement === 1 ? -1 : 0,
-          });
-        }
-      }
       await tx.matchParticipant.update({
         where: { id: participant.id },
         data: action === 'DISQUALIFY'
@@ -246,29 +252,15 @@ export async function reviewResult(
     const table = tableFor(match.tournament);
     const points = pointsFor(placement, kills, perKill, table);
 
-    // Compensate stats if this participant was already PLAYED (correction).
-    if (participant.status === 'PLAYED' && participant.placement !== null) {
-      const oldPoints = pointsFor(participant.placement, participant.kills ?? 0, perKill, table);
-      if (participant.userId) {
-        await bumpStats(tx, participant.userId, {
-          kills: kills - (participant.kills ?? 0),
-          points: points - oldPoints,
-          wins: (placement === 1 ? 1 : 0) - (participant.placement === 1 ? 1 : 0),
-        });
-      }
-      // Solo participants carry userId; team-mode stat rows are updated per member below.
-    }
-    if (participant.status !== 'PLAYED') {
-      // First verification for this participant.
-      if (participant.userId) {
-        await bumpStats(tx, participant.userId, {
-          matches: 1, kills, points, wins: placement === 1 ? 1 : 0,
-        }, now);
-      } else if (participant.teamId) {
-        const members = await tx.teamMember.findMany({ where: { teamId: participant.teamId }, select: { userId: true } });
-        for (const m of members) {
-          await bumpStats(tx, m.userId, { matches: 1, kills: Math.round(kills / members.length), points, wins: placement === 1 ? 1 : 0 }, now);
-        }
+    // First verification for this participant.
+    if (participant.userId) {
+      await bumpStats(tx, participant.userId, {
+        matches: 1, kills, points, wins: placement === 1 ? 1 : 0,
+      }, now);
+    } else if (participant.teamId) {
+      const members = await tx.teamMember.findMany({ where: { teamId: participant.teamId }, select: { userId: true } });
+      for (const m of members) {
+        await bumpStats(tx, m.userId, { matches: 1, kills: Math.round(kills / members.length), points, wins: placement === 1 ? 1 : 0 }, now);
       }
     }
 
@@ -363,8 +355,21 @@ export async function tournamentStandings(tournamentId: string) {
 
 export async function distributePrizes(adminId: string, tournamentId: string, ctx: Ctx = {}) {
   const currency = await getSetting('platform.currency', 'PKR');
+  // Validate that there is something to rank before checking publication. This
+  // keeps the actionable "verify results first" error for an empty tournament;
+  // a populated but unpublished tournament receives the publication gate below.
   const { tournament, standings } = await tournamentStandings(tournamentId);
   if (!standings.length) throw badRequest('VALIDATION_ERROR', 'No verified results to rank — verify result submissions first.');
+
+  const publication = await prisma.tournament.findUnique({
+    where: { id: tournamentId },
+    select: { status: true, matches: { select: { resultsStatus: true } } },
+  });
+  if (!publication) throw notFound('Tournament not found');
+  if (publication.status === 'CANCELLED') throw conflict('CONFLICT', 'Cancelled tournaments cannot distribute prizes.');
+  if (publication.matches.length === 0 || publication.matches.some((m) => m.resultsStatus !== 'PUBLISHED')) {
+    throw conflict('CONFLICT', 'Publish every tournament match before distributing prizes.');
+  }
 
   const prizes = await prisma.prize.findMany({
     where: { tournamentId },
@@ -471,10 +476,15 @@ export async function distributePrizes(adminId: string, tournamentId: string, ct
 
       const memberIds = award.teamId ? (membersOf.get(award.teamId) ?? []) : award.userId ? [award.userId] : [];
       if (!memberIds.length) throw badRequest('VALIDATION_ERROR', `No recipient members for award "${award.label}".`);
-      const share = Math.floor((award.amount / memberIds.length) * 100) / 100;
+      const baseShare = Math.floor((award.amount / memberIds.length) * 100) / 100;
+      let allocated = 0;
       let firstTxId: string | undefined;
       const credited: Array<{ userId: string; share: number }> = [];
-      for (const uid of memberIds) {
+      for (const [index, uid] of memberIds.entries()) {
+        const share = index === memberIds.length - 1
+          ? Math.round((award.amount - allocated) * 100) / 100
+          : baseShare;
+        allocated = Math.round((allocated + share) * 100) / 100;
         const entry = await moveBalance(tx, uid, 'WINNING', 'CREDIT', share, 'WINNING', {
           entityType: 'Winner',
           entityId: winner.id,
@@ -669,22 +679,32 @@ export async function saveAdminResult(
     throw conflict('CONFLICT', 'Results are published and locked. Unpublish first (if permitted) to edit.');
   }
 
-  const participant = await prisma.matchParticipant.findUnique({ where: { id: input.participantId } });
-  if (!participant || participant.matchId !== matchId) throw notFound('Participant not found in this match.');
-
-  const table = tableFor(match.tournament);
-  const perKill = match.tournament.pointsPerKill;
-
-  const base = {
-    placement: input.position ?? participant.placement,
-    kills: input.kills ?? participant.kills,
-    bonus: input.bonus ?? participant.bonus,
-    penalty: input.penalty ?? participant.penalty,
-  };
-  const finalScore = scoreFor(base, perKill, table);
-
   const updated = await prisma.$transaction(async (tx) => {
-    const prev = await tx.matchParticipant.findUnique({ where: { id: participant.id } });
+    await tx.$queryRaw`SELECT "id" FROM "matches" WHERE "id" = ${matchId} FOR UPDATE`;
+    const currentMatch = await tx.match.findUnique({
+      where: { id: matchId },
+      select: {
+        resultsStatus: true,
+        tournament: { select: { pointsPerKill: true, placementPoints: true } },
+      },
+    });
+    if (!currentMatch) throw notFound('Match not found');
+    if (currentMatch.resultsStatus === 'PUBLISHED' || currentMatch.resultsStatus === 'CONFIRMED') {
+      throw conflict('CONFLICT', 'Results are locked for this match.');
+    }
+    const participant = await tx.matchParticipant.findUnique({ where: { id: input.participantId } });
+    if (!participant || participant.matchId !== matchId) throw notFound('Participant not found in this match.');
+
+    const table = tableFor(currentMatch.tournament);
+    const perKill = currentMatch.tournament.pointsPerKill;
+    const base = {
+      placement: input.position ?? participant.placement,
+      kills: input.kills ?? participant.kills,
+      bonus: input.bonus ?? participant.bonus,
+      penalty: input.penalty ?? participant.penalty,
+    };
+    const finalScore = scoreFor(base, perKill, table);
+    const prev = participant;
     const row = await tx.matchParticipant.update({
       where: { id: participant.id },
       data: {
@@ -706,11 +726,8 @@ export async function saveAdminResult(
         evidenceUrl: input.evidenceUrl !== undefined ? input.evidenceUrl : participant.evidenceUrl,
       },
     });
-    // If the participant had verified stats and now changes to a result state,
-    // keep PlayerStat in sync for the player-facing leaderboard.
-    const previous = prev as unknown as ResultRow;
-    const next = row as unknown as ResultRow;
-    await syncStatsForResultChange(tx, previous, next, perKill, table);
+    // PlayerStat is a cache for private/admin views only. Public rankings are
+    // rebuilt from published match rows, so draft edits must not mutate it.
     await tx.auditLog.create({
       data: {
         actorId: adminId, action: 'RESULT_ROW_SAVED', entity: 'MatchParticipant', entityId: participant.id,
@@ -744,39 +761,14 @@ export async function saveAdminResult(
   };
 }
 
-/** Keep PlayerStat consistent when an admin move changes a solo participant's verified results. */
-async function syncStatsForResultChange(
-  tx: Prisma.TransactionClient,
-  prev: ResultRow,
-  next: ResultRow,
-  perKill: number,
-  table: number[],
-) {
-  const targetUserId = next.userId ?? prev.userId;
-  if (!targetUserId) return; // team rows are reconciled per-member via winner distribution
-
-  const prevPlayed = prev.status === 'PLAYED' && prev.placement !== null && prev.placement !== undefined;
-  const nextPlayed = next.status === 'PLAYED' && next.placement !== null && next.placement !== undefined;
-  if (!prevPlayed && !nextPlayed) return;
-
-  const prevScore = prevPlayed
-    ? finalScoreFor({ placement: prev.placement!, kills: prev.kills ?? 0, pointsPerKill: perKill, table, bonus: prev.bonus ?? 0, penalty: prev.penalty ?? 0 })
-    : 0;
-  const nextScore = nextPlayed
-    ? finalScoreFor({ placement: next.placement!, kills: next.kills ?? 0, pointsPerKill: perKill, table, bonus: next.bonus ?? 0, penalty: next.penalty ?? 0 })
-    : 0;
-
-  const existing = await tx.playerStat.findUnique({ where: { userId: targetUserId } });
-  if (!existing) return;
-
-  const patch = {
-    matchesPlayed: { increment: nextPlayed && !prevPlayed ? 1 : !nextPlayed && prevPlayed ? -1 : 0 },
-    kills: { increment: (next.kills ?? 0) - (prev.kills ?? 0) },
-    totalPoints: { increment: nextScore - prevScore },
-    wins: { increment: (nextPlayed && next.placement === 1 ? 1 : 0) - (prevPlayed && prev.placement === 1 ? 1 : 0) },
-  };
-  await tx.playerStat.update({ where: { userId: targetUserId }, data: patch });
-}
+/** Legal result workflow transitions. Backward moves are explicit correction
+ * paths, while published results are immutable. */
+const RESULT_TRANSITIONS: Record<string, string[]> = {
+  DRAFT: ['UNDER_REVIEW'],
+  UNDER_REVIEW: ['DRAFT', 'CONFIRMED'],
+  CONFIRMED: ['DRAFT', 'PUBLISHED'],
+  PUBLISHED: [],
+};
 
 /** Staff — set the match results workflow state and audit the transition. */
 export async function setResultsStatus(
@@ -793,45 +785,61 @@ export async function setResultsStatus(
     },
   });
   if (!match) throw notFound('Match not found');
-  if (match.resultsStatus === 'PUBLISHED' && status !== 'PUBLISHED') {
+  if (match.resultsStatus === status) {
+    return { id: matchId, resultsStatus: match.resultsStatus, resultsPublishedAt: null };
+  }
+  if (!RESULT_TRANSITIONS[match.resultsStatus]?.includes(status)) {
+    throw conflict('CONFLICT', `Results cannot move from ${match.resultsStatus} to ${status}.`);
+  }
+  if (match.resultsStatus === 'PUBLISHED') {
     throw conflict('CONFLICT', 'Published results cannot be reverted — winners are public and prizes may be credited.');
   }
   if (status !== 'DRAFT' && match.status !== 'COMPLETED') {
     throw badRequest('VALIDATION_ERROR', 'Mark the match COMPLETED before reviewing/publishing results.');
   }
-  if (status === 'CONFIRMED' || status === 'PUBLISHED') {
-    const rows = await prisma.matchParticipant.count({
-      where: { matchId, placement: { not: null }, status: 'PLAYED' },
+
+  // CONFIRMED is not merely a label: calculate/freeze the standings before
+  // permitting the state transition. The helper is idempotent for the UI's
+  // legacy confirm-then-publish sequence.
+  if (status === 'CONFIRMED') {
+    await confirmStandings(adminId, matchId, ctx);
+    const confirmed = await prisma.match.findUnique({
+      where: { id: matchId }, select: { resultsStatus: true, resultsPublishedAt: true },
     });
-    if (rows === 0) throw badRequest('VALIDATION_ERROR', 'No scored participants — enter results first.');
+    return { id: matchId, resultsStatus: confirmed?.resultsStatus ?? 'CONFIRMED', resultsPublishedAt: confirmed?.resultsPublishedAt ?? null };
   }
 
-  const updated = await prisma.match.update({
-    where: { id: matchId },
-    data: {
-      resultsStatus: status,
-      resultsPublishedAt: status === 'PUBLISHED' ? new Date() : null,
-      resultsFinalized: status === 'PUBLISHED' ? true : match.resultsFinalized,
-    },
-  });
+  const updated = await prisma.$transaction(async (tx) => {
+    const changed = await tx.match.updateMany({
+      where: { id: matchId, resultsStatus: match.resultsStatus },
+      data: {
+        resultsStatus: status,
+        resultsPublishedAt: status === 'PUBLISHED' ? new Date() : null,
+        resultsFinalized: status === 'PUBLISHED',
+      },
+    });
+    if (changed.count !== 1) throw conflict('CONFLICT', 'Results were updated by another admin. Refresh and try again.');
 
-  await prisma.auditLog.create({
-    data: {
-      actorId: adminId, action: `MATCH_RESULTS_${status}`, entity: 'Match', entityId: matchId,
-      before: { resultsStatus: match.resultsStatus },
-      after: { resultsStatus: status, publishedAt: updated.resultsPublishedAt },
-      ip: ctx.ip, userAgent: ctx.userAgent,
-    },
-  });
-
-  await prisma.notification.create({
-    data: {
-      userId: adminId, type: 'ACCOUNT',
-      title: `Results ${status.toLowerCase().replace('_', ' ')}`,
-      body: `Match results for ${match.tournament.title} are now ${status.toLowerCase().replace('_', ' ')}.`,
-      data: { matchId, tournamentId: match.tournamentId },
-    },
-  });
+    const row = await tx.match.findUnique({ where: { id: matchId }, select: { resultsStatus: true, resultsPublishedAt: true } });
+    if (!row) throw notFound('Match not found');
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: `MATCH_RESULTS_${status}`, entity: 'Match', entityId: matchId,
+        before: { resultsStatus: match.resultsStatus },
+        after: { resultsStatus: status, publishedAt: row?.resultsPublishedAt ?? null },
+        ip: ctx.ip, userAgent: ctx.userAgent,
+      },
+    });
+    await tx.notification.create({
+      data: {
+        userId: adminId, type: 'ACCOUNT',
+        title: `Results ${status.toLowerCase().replace('_', ' ')}`,
+        body: `Match results for ${match.tournament.title} are now ${status.toLowerCase().replace('_', ' ')}.`,
+        data: { matchId, tournamentId: match.tournamentId },
+      },
+    });
+    return row;
+  }, TX_OPTS);
 
   return { id: matchId, resultsStatus: updated.resultsStatus, resultsPublishedAt: updated.resultsPublishedAt };
 }
@@ -842,36 +850,53 @@ export async function setResultsStatus(
  * computed prize on each row and is the only step that reveals results.
  */
 export async function confirmStandings(adminId: string, matchId: string, ctx: Ctx = {}) {
-  const match = await prisma.match.findUnique({
-    where: { id: matchId },
-    select: {
-      id: true, tournamentId: true, resultsStatus: true,
-      tournament: { select: { id: true, type: true, title: true, pointsPerKill: true, placementPoints: true } },
-    },
-  });
-  if (!match) throw notFound('Match not found');
-
-  const [rows, prizes] = await Promise.all([
-    prisma.matchParticipant.findMany({ where: { matchId, status: 'PLAYED', absent: false } }),
-    prisma.prize.findMany({ where: { tournamentId: match.tournamentId, OR: [{ kind: null }, { kind: 'PLACEMENT' }] }, orderBy: { position: 'asc' } }),
-  ]);
-
-  const table = tableFor(match.tournament);
-  const perKill = match.tournament.pointsPerKill;
-  const scored = rows.map((r) => {
-    const score = r.finalScore ?? scoreFor({
-      placement: r.placement, kills: r.kills, bonus: r.bonus, penalty: r.penalty,
-    }, perKill, table);
-    return { ...r, score: score ?? 0 };
-  });
-  const ranked = rankByScore(scored.map((r) => ({
-    key: r.id, score: r.score, kills: r.kills ?? 0, placement: r.placement,
-  }))).map((r) => r.key);
-
-  const placementByRank = new Map<string, number>();
-  ranked.forEach((id, idx) => placementByRank.set(id, idx + 1));
-
   const computed = await prisma.$transaction(async (tx) => {
+    // Lock before reading the rows. Otherwise a save that commits while this
+    // function is waiting could be overwritten by a score calculated from a
+    // stale participant snapshot.
+    await tx.$queryRaw`SELECT "id" FROM "matches" WHERE "id" = ${matchId} FOR UPDATE`;
+    const match = await tx.match.findUnique({
+      where: { id: matchId },
+      select: {
+        id: true, tournamentId: true, resultsStatus: true,
+        tournament: { select: { id: true, type: true, title: true, pointsPerKill: true, placementPoints: true } },
+      },
+    });
+    if (!match) throw notFound('Match not found');
+    if (!['UNDER_REVIEW', 'CONFIRMED'].includes(match.resultsStatus)) {
+      throw conflict('CONFLICT', `Standings cannot be confirmed from ${match.resultsStatus}.`);
+    }
+    // Explicit confirmation is safe to retry after the state transition has
+    // already committed; the first call is the only one that writes rows.
+    if (match.resultsStatus === 'CONFIRMED') return [];
+
+    const [rows, prizes] = await Promise.all([
+      tx.matchParticipant.findMany({ where: { matchId, status: 'PLAYED', absent: false } }),
+      tx.prize.findMany({
+        where: { tournamentId: match.tournamentId, OR: [{ kind: null }, { kind: 'PLACEMENT' }] },
+        orderBy: { position: 'asc' },
+      }),
+    ]);
+    if (rows.length === 0) throw badRequest('VALIDATION_ERROR', 'No played participants — enter results first.');
+    if (rows.some((r) => r.placement === null || r.kills === null)) {
+      throw badRequest('VALIDATION_ERROR', 'Every played participant needs a placement and kill count before confirmation.');
+    }
+
+    const table = tableFor(match.tournament);
+    const perKill = match.tournament.pointsPerKill;
+    const scored = rows.map((r) => {
+      const score = r.finalScore ?? scoreFor({
+        placement: r.placement, kills: r.kills, bonus: r.bonus, penalty: r.penalty,
+      }, perKill, table);
+      return { ...r, score: score ?? 0 };
+    });
+    const ranked = rankByScore(scored.map((r) => ({
+      key: r.id, score: r.score, kills: r.kills ?? 0, placement: r.placement,
+    }))).map((r) => r.key);
+
+    const placementByRank = new Map<string, number>();
+    ranked.forEach((id, idx) => placementByRank.set(id, idx + 1));
+
     const updates: Array<{ id: string; placement: number; finalScore: number; prizeAmount: number | null }> = [];
     for (const r of rows) {
       const rank = placementByRank.get(r.id) ?? 0;
@@ -887,6 +912,8 @@ export async function confirmStandings(adminId: string, matchId: string, ctx: Ct
       });
       updates.push({ id: r.id, placement: r.placement ?? rank, finalScore, prizeAmount: amount });
     }
+
+    await tx.match.update({ where: { id: matchId }, data: { resultsStatus: 'CONFIRMED' } });
     await tx.auditLog.create({
       data: {
         actorId: adminId, action: 'MATCH_RESULTS_CONFIRMED', entity: 'Match', entityId: matchId,

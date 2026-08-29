@@ -140,31 +140,40 @@ export async function assignSlot(
   if (reg.slotLocked) throw conflict('CONFLICT', 'This registration slot is locked by an admin — unlock it first.');
 
   return prisma.$transaction(async (tx) => {
-    // Occupation guard: no other confirmed registration may hold this slot.
+    // Lock the tournament row so joins and every admin slot operation share one
+    // serialization point. Team registrations are moved as a group — splitting
+    // one member away from the team's seat would corrupt match assignment.
+    await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${reg.tournamentId} FOR UPDATE`;
+    const current = await tx.tournamentRegistration.findUnique({ where: { id: registrationId } });
+    if (!current || current.status !== 'CONFIRMED') throw badRequest('VALIDATION_ERROR', 'Only confirmed registrations can hold a slot.');
+    const targetWhere = current.teamId
+      ? { tournamentId: reg.tournamentId, teamId: current.teamId, status: 'CONFIRMED' as const }
+      : { id: registrationId };
+    const targets = await tx.tournamentRegistration.findMany({ where: targetWhere });
+    if (!targets.length) throw notFound('Registration not found');
+    if (targets.some((target) => target.slotLocked)) throw conflict('CONFLICT', 'This registration slot is locked by an admin — unlock it first.');
+    const targetIds = targets.map((target) => target.id);
+
     const occupied = await tx.tournamentRegistration.findFirst({
       where: {
         tournamentId: reg.tournamentId,
         seatNumber: slot,
         status: 'CONFIRMED',
-        id: { not: registrationId },
+        id: { notIn: targetIds },
       },
     });
     if (occupied) {
       throw conflict('CONFLICT', `Slot ${String(slot).padStart(2, '0')} is already held by another player/team — move or remove them first.`);
     }
-    const before = { seatNumber: reg.seatNumber, locked: reg.slotLocked, note: reg.slotNote };
-    const updated = await tx.tournamentRegistration.update({
-      where: { id: registrationId },
-      data: { seatNumber: slot },
-    });
+    const before = { seatNumber: current.seatNumber, locked: current.slotLocked, note: current.slotNote };
+    await tx.tournamentRegistration.updateMany({ where: { id: { in: targetIds } }, data: { seatNumber: slot } });
     await tx.auditLog.create({
       data: {
         actorId: adminId, action: 'SLOT_ASSIGNED', entity: 'TournamentRegistration', entityId: registrationId,
-        before, after: { seatNumber: slot, reason: reason || null }, ip: ctx.ip, userAgent: ctx.userAgent,
+        before, after: { seatNumber: slot, affectedRegistrations: targetIds.length, reason: reason || null }, ip: ctx.ip, userAgent: ctx.userAgent,
       },
     });
-    const freed = before.seatNumber !== null && before.seatNumber !== slot;
-    return { id: updated.id, seatNumber: updated.seatNumber, freedSlot: before.seatNumber };
+    return { id: registrationId, seatNumber: slot, freedSlot: current.seatNumber };
   }, TX_OPTS);
 }
 
@@ -176,18 +185,24 @@ export async function clearSlot(adminId: string, registrationId: string, reason:
   if (reg.slotLocked) throw conflict('CONFLICT', 'This slot is locked — unlock it before clearing.');
 
   return prisma.$transaction(async (tx) => {
-    const before = { seatNumber: reg.seatNumber, locked: reg.slotLocked };
-    const updated = await tx.tournamentRegistration.update({
-      where: { id: registrationId },
-      data: { seatNumber: null },
-    });
+    await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${reg.tournamentId} FOR UPDATE`;
+    const current = await tx.tournamentRegistration.findUnique({ where: { id: registrationId } });
+    if (!current || current.seatNumber === null) throw badRequest('VALIDATION_ERROR', 'This registration has no assigned slot.');
+    const targetWhere = current.teamId
+      ? { tournamentId: reg.tournamentId, teamId: current.teamId, status: 'CONFIRMED' as const }
+      : { id: registrationId };
+    const targets = await tx.tournamentRegistration.findMany({ where: targetWhere });
+    if (targets.some((target) => target.slotLocked)) throw conflict('CONFLICT', 'This slot is locked — unlock it before clearing.');
+    const targetIds = targets.map((target) => target.id);
+    const before = { seatNumber: current.seatNumber, locked: current.slotLocked };
+    await tx.tournamentRegistration.updateMany({ where: { id: { in: targetIds } }, data: { seatNumber: null } });
     await tx.auditLog.create({
       data: {
         actorId: adminId, action: 'SLOT_CLEARED', entity: 'TournamentRegistration', entityId: registrationId,
-        before, after: { seatNumber: null, reason: reason || null }, ip: ctx.ip, userAgent: ctx.userAgent,
+        before, after: { seatNumber: null, affectedRegistrations: targetIds.length, reason: reason || null }, ip: ctx.ip, userAgent: ctx.userAgent,
       },
     });
-    return { id: updated.id, seatNumber: updated.seatNumber };
+    return { id: registrationId, seatNumber: null };
   }, TX_OPTS);
 }
 
@@ -203,20 +218,28 @@ export async function setSlotLock(
   if (!reg) throw notFound('Registration not found');
 
   const updated = await prisma.$transaction(async (tx) => {
-    const row = await tx.tournamentRegistration.update({
-      where: { id: registrationId },
-      data: { slotLocked: locked, slotNote: note ?? (locked ? reg.slotNote : null) },
+    await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${reg.tournamentId} FOR UPDATE`;
+    const current = await tx.tournamentRegistration.findUnique({ where: { id: registrationId } });
+    if (!current) throw notFound('Registration not found');
+    const targetWhere = current.teamId
+      ? { tournamentId: reg.tournamentId, teamId: current.teamId, status: 'CONFIRMED' as const }
+      : { id: registrationId };
+    const targets = await tx.tournamentRegistration.findMany({ where: targetWhere });
+    const targetIds = targets.map((target) => target.id);
+    await tx.tournamentRegistration.updateMany({
+      where: { id: { in: targetIds } },
+      data: { slotLocked: locked, slotNote: note ?? (locked ? current.slotNote : null) },
     });
     await tx.auditLog.create({
       data: {
         actorId: adminId, action: locked ? 'SLOT_LOCKED' : 'SLOT_UNLOCKED', entity: 'TournamentRegistration', entityId: registrationId,
-        before: { locked: reg.slotLocked, note: reg.slotNote },
-        after: { locked: row.slotLocked, note: row.slotNote }, ip: ctx.ip, userAgent: ctx.userAgent,
+        before: { locked: current.slotLocked, note: current.slotNote },
+        after: { locked, affectedRegistrations: targetIds.length, note: note ?? null }, ip: ctx.ip, userAgent: ctx.userAgent,
       },
     });
-    return row;
+    return { id: registrationId, slotLocked: locked, slotNote: note ?? (locked ? current.slotNote : null) };
   }, TX_OPTS);
-  return { id: updated.id, slotLocked: updated.slotLocked, slotNote: updated.slotNote };
+  return updated;
 }
 
 /** Mark a participant ready / absent / disqualified from the slot board. */
@@ -230,6 +253,10 @@ export async function setParticipantState(
   if (!p) throw notFound('Participant not found');
 
   const updated = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "matches" WHERE "id" = ${p.matchId} FOR UPDATE`;
+    const match = await tx.match.findUnique({ where: { id: p.matchId }, select: { resultsStatus: true } });
+    if (!match) throw notFound('Match not found');
+    if (match.resultsStatus === 'PUBLISHED') throw conflict('CONFLICT', 'Published match results are locked.');
     const row = await tx.matchParticipant.update({
       where: { id: participantId },
       data: {

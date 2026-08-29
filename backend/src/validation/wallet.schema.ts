@@ -32,6 +32,9 @@ export const withdrawalSchema = z.object({
   accountName: z.string().trim().min(2, 'Account holder name is required').max(80),
   accountNumber: z.string().trim().min(5, 'Account number looks too short').max(34),
   accountDetails: z.string().trim().max(120).optional().default(''),
+  // Optional for older clients; new clients send this so retries return the
+  // original withdrawal instead of creating another held request.
+  requestId: z.string().trim().min(8).max(64).optional(),
 });
 
 export const convertCoinsSchema = z.object({

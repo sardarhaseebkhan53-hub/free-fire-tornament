@@ -7,7 +7,7 @@ import { Check, Loader2, RefreshCcw, Trophy, X } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { AuthedImage, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
 import { MatchTableModal } from '@/components/admin/match-table';
-import { api , apiGet } from '@/lib/client-api';
+import { api , apiGet, downloadProtectedFile } from '@/lib/client-api';
 
 interface Submission {
   id: string; status: string; placement: number | null; kills: number | null;
@@ -398,8 +398,8 @@ function PublishWorkflow({ tournaments, openTable, setOpenTable }: {
                       className="rounded-input bg-accent/15 px-2.5 py-1 text-[11px] font-bold text-accent">
                       {m.resultsStatus === 'PUBLISHED' ? 'View Results' : 'Enter Results'}
                     </button>
-                    <a href={`/api/backend/matches/${m.id}/export`} target="_blank" rel="noreferrer"
-                      className="rounded-input border border-line px-2.5 py-1 text-[11px] font-bold text-fg-2 hover:text-fg">CSV</a>
+                    <button onClick={() => void downloadProtectedFile(`/matches/${m.id}/export`, `match-${m.id.slice(0, 8)}.csv`)}
+                      className="rounded-input border border-line px-2.5 py-1 text-[11px] font-bold text-fg-2 hover:text-fg">CSV</button>
                   </div>
                 </Td>
               </Tr>

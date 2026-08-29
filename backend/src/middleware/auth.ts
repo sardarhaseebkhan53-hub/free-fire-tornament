@@ -1,5 +1,6 @@
 // Authentication + role-based authorization middleware.
 import type { NextFunction, Request, Response } from 'express';
+import { prisma } from '../lib/prisma';
 import { verifyAccessToken } from '../lib/tokens';
 import { forbidden, unauthorized } from '../lib/errors';
 import type { Role } from '../../generated/prisma';
@@ -19,14 +20,28 @@ declare global {
   }
 }
 
-/** Requires a valid Bearer access token; attaches req.auth. */
-export function requireAuth(req: Request, _res: Response, next: NextFunction) {
+/**
+ * Requires a valid Bearer access token and a current, active account.
+ *
+ * Access tokens are intentionally short-lived, but a player can still be
+ * suspended or banned while an already-issued token is valid. Never trust the
+ * role/status snapshot in that token for a sensitive route: re-read the
+ * account and attach the current role and username instead.
+ */
+export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization ?? '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return next(unauthorized('UNAUTHORIZED', 'Authentication required.'));
   try {
     const payload = verifyAccessToken(token);
-    req.auth = { id: payload.sub, role: payload.role as Role, username: payload.username };
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, role: true, username: true, status: true },
+    });
+    if (!user || user.status !== 'ACTIVE') {
+      return next(unauthorized('UNAUTHORIZED', 'Account is not active.'));
+    }
+    req.auth = { id: user.id, role: user.role, username: user.username };
     return next();
   } catch (e) {
     return next(e);

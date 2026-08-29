@@ -92,7 +92,7 @@ export async function getTournamentBySlug(slug: string) {
         where: { status: 'CONFIRMED' },
         select: {
           seatNumber: true,
-          user: { select: { username: true, avatar: true } },
+          user: { select: { username: true, avatar: true, profile: { select: { showPublicProfile: true } } } },
           team: { select: { name: true, tag: true } },
         },
         orderBy: [{ seatNumber: 'asc' }, { registeredAt: 'asc' }],
@@ -123,13 +123,19 @@ export async function getTournamentBySlug(slug: string) {
       penaltyPoints: t.penaltyPoints,
     },
     prizes,
-    matches: matches.map((m) => ({
+    matches: matches.map(({ resultsStatus, ...m }) => ({
       ...m,
       credentialsUnlocked: m.credentialsReleaseAt !== null && m.credentialsReleaseAt <= now,
       credentialsReleaseInMs: m.credentialsReleaseAt ? m.credentialsReleaseAt.getTime() - now.getTime() : null,
-      resultsPublished: m.resultsStatus === 'PUBLISHED',
+      resultsPublished: resultsStatus === 'PUBLISHED',
     })),
-    participants: registrations,
+    participants: registrations.map((registration) => ({
+      seatNumber: registration.seatNumber,
+      team: registration.team,
+      user: registration.user.profile?.showPublicProfile === false
+        ? { username: 'Anonymous player', avatar: null }
+        : { username: registration.user.username, avatar: registration.user.avatar },
+    })),
   };
 }
 
@@ -187,29 +193,75 @@ export async function leaderboard(opts: { period?: 'all' | 'weekly' | 'monthly';
         ? new Date(Date.now() - 30 * 86_400_000)
         : undefined;
 
-  // Period boards are computed from match participation; the all-time board
-  // uses the maintained PlayerStat aggregates.
-  const where = since ? { lastPlayedAt: { gte: since } } : {};
-
-  const [items, total] = await Promise.all([
-    prisma.playerStat.findMany({
-      where,
-      orderBy: [{ totalPoints: 'desc' }, { wins: 'desc' }],
-      skip: (page - 1) * limit,
-      take: limit,
-      select: {
-        matchesPlayed: true, wins: true, kills: true, totalPoints: true, earnings: true,
-        user: { select: { username: true, avatar: true, profile: { select: { freeFireIGN: true, city: true } } } },
+  // Public rankings are derived from published match rows, never from the
+  // mutable PlayerStat cache. This prevents draft/under-review edits from
+  // appearing publicly and makes weekly/monthly windows actual match windows.
+  const participants = await prisma.matchParticipant.findMany({
+    where: {
+      status: 'PLAYED',
+      absent: false,
+      match: {
+        resultsStatus: 'PUBLISHED',
+        ...(since ? { scheduledAt: { gte: since } } : {}),
       },
-    }),
-    prisma.playerStat.count({ where }),
-  ]);
+    },
+    select: {
+      userId: true, kills: true, finalScore: true, points: true, placement: true,
+      user: { select: { username: true, avatar: true, profile: { select: { freeFireIGN: true, city: true } } } },
+      team: {
+        select: {
+          members: {
+            select: {
+              user: { select: { username: true, avatar: true, profile: { select: { freeFireIGN: true, city: true } } } },
+            },
+          },
+        },
+      },
+    },
+  });
 
+  type Aggregate = {
+    matchesPlayed: number; wins: number; kills: number; totalPoints: number;
+    user: { username: string; avatar: string | null; profile: { freeFireIGN: string | null; city: string | null } | null };
+  };
+  const aggregates = new Map<string, Aggregate>();
+  const add = (user: Aggregate['user'], kills: number, points: number, won: boolean) => {
+    const current = aggregates.get(user.username) ?? {
+      matchesPlayed: 0, wins: 0, kills: 0, totalPoints: 0, user,
+    };
+    current.matchesPlayed += 1;
+    current.wins += won ? 1 : 0;
+    current.kills += kills;
+    current.totalPoints += points;
+    aggregates.set(user.username, current);
+  };
+
+  for (const participant of participants) {
+    const points = participant.finalScore ?? participant.points ?? 0;
+    const kills = participant.kills ?? 0;
+    if (participant.user) {
+      add(participant.user, kills, points, participant.placement === 1);
+      continue;
+    }
+    // Team result rows represent one team score. Preserve the existing player
+    // leaderboard convention: each roster member receives the team points and
+    // an even, rounded share of the recorded team kills.
+    const members = participant.team?.members ?? [];
+    const memberKills = members.length ? Math.round(kills / members.length) : 0;
+    for (const member of members) add(member.user, memberKills, points, participant.placement === 1);
+  }
+
+  const ranked = [...aggregates.values()].sort(
+    (a, b) => b.totalPoints - a.totalPoints || b.wins - a.wins || b.kills - a.kills || a.user.username.localeCompare(b.user.username),
+  );
+  const items = ranked.slice((page - 1) * limit, page * limit);
   return {
-    items: items.map((s, i) => ({ ...s, rank: (page - 1) * limit + i + 1, rankInfo: rankFor(s.totalPoints) })),
-    page, limit, total, pages: Math.ceil(total / limit),
-    // ZP Battle "Skill-Based Ranking" — a live tier + progress toward the
-    // next tier for each row. Computed on the fly; no schema change needed.
+    items: items.map((s, i) => ({
+      ...s,
+      rank: (page - 1) * limit + i + 1,
+      rankInfo: rankFor(s.totalPoints),
+    })),
+    page, limit, total: ranked.length, pages: Math.ceil(ranked.length / limit),
     catalog: rankCatalog(),
   };
 }
@@ -227,11 +279,20 @@ export async function recentWinners(take = 8) {
     select: {
       position: true, amount: true, creditedAt: true,
       tournament: { select: { title: true, slug: true, type: true, banner: true } },
-      user: { select: { username: true, avatar: true } },
+      user: { select: { username: true, avatar: true, profile: { select: { showPublicProfile: true } } } },
       team: { select: { name: true, tag: true } },
     },
   });
-  return winners;
+  return winners.map((winner) => ({
+    position: winner.position,
+    amount: winner.amount,
+    creditedAt: winner.creditedAt,
+    tournament: winner.tournament,
+    user: winner.user?.profile?.showPublicProfile === false
+      ? { username: 'Anonymous player', avatar: null }
+      : winner.user ? { username: winner.user.username, avatar: winner.user.avatar } : null,
+    team: winner.team,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -278,10 +339,42 @@ export async function listFaqs() {
   });
 }
 
+async function publishedStatsForPlayer(userId: string) {
+  const rows = await prisma.matchParticipant.findMany({
+    where: {
+      status: 'PLAYED',
+      absent: false,
+      match: { resultsStatus: 'PUBLISHED' },
+      OR: [
+        { userId },
+        { team: { members: { some: { userId } } } },
+      ],
+    },
+    select: { userId: true, kills: true, finalScore: true, points: true, placement: true, team: { select: { members: { select: { userId: true } } } } },
+  });
+  let matchesPlayed = 0;
+  let wins = 0;
+  let kills = 0;
+  let totalPoints = 0;
+  for (const row of rows) {
+    const points = row.finalScore ?? row.points ?? 0;
+    const rawKills = row.kills ?? 0;
+    const isDirect = row.userId === userId;
+    const teamMembers = row.team?.members ?? [];
+    if (!isDirect && !teamMembers.some((member) => member.userId === userId)) continue;
+    matchesPlayed += 1;
+    wins += row.placement === 1 ? 1 : 0;
+    kills += isDirect || teamMembers.length === 0 ? rawKills : Math.round(rawKills / teamMembers.length);
+    totalPoints += points;
+  }
+  return { matchesPlayed, wins, kills, totalPoints };
+}
+
 export async function getPublicPlayer(username: string) {
   const user = await prisma.user.findUnique({
     where: { username: username.toLowerCase() },
     select: {
+      id: true,
       username: true,
       avatar: true,
       createdAt: true,
@@ -289,19 +382,14 @@ export async function getPublicPlayer(username: string) {
       profile: {
         select: { freeFireIGN: true, city: true, bio: true, showPublicProfile: true },
       },
-      stats: {
-        select: { matchesPlayed: true, wins: true, kills: true, totalPoints: true, earnings: true },
-      },
     },
   });
   // Public profiles only, players only, and only when the player allows it.
   if (!user || user.role !== 'USER' || user.profile?.showPublicProfile === false) {
     throw notFound('Player not found');
   }
-  const stats = user.stats;
-  const winRate =
-    stats && stats.matchesPlayed > 0 ? Math.round((stats.wins / stats.matchesPlayed) * 100) : 0;
-  const points = stats?.totalPoints ?? 0;
+  const stats = await publishedStatsForPlayer(user.id);
+  const winRate = stats.matchesPlayed > 0 ? Math.round((stats.wins / stats.matchesPlayed) * 100) : 0;
   return {
     username: user.username,
     avatar: user.avatar,
@@ -309,10 +397,8 @@ export async function getPublicPlayer(username: string) {
     freeFireIGN: user.profile?.freeFireIGN ?? null,
     city: user.profile?.city ?? null,
     bio: user.profile?.bio ?? null,
-    rankInfo: rankFor(points),
-    stats: stats
-      ? { ...stats, winRate }
-      : { matchesPlayed: 0, wins: 0, kills: 0, totalPoints: 0, earnings: 0, winRate: 0 },
+    rankInfo: rankFor(stats.totalPoints),
+    stats: { ...stats, winRate },
   };
 }
 

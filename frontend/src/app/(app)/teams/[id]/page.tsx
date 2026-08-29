@@ -30,6 +30,7 @@ export default function TeamDetailPage() {
   const params = useParams<{ id: string }>();
   const teamId = params.id;
   const [team, setTeam] = useState<Team | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [meId, setMeId] = useState<string | null>(null);
   const [inviteName, setInviteName] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -45,7 +46,12 @@ export default function TeamDetailPage() {
     }
     const res = await authedFetch(`/teams/${teamId}`);
     const json = await res.json();
-    if (json.success) setTeam(json.data);
+    if (!res.ok || !json.success) {
+      setError(res.status === 403 ? 'Only members of this team can view its roster.' : (json.message ?? 'Team not found.'));
+      return;
+    }
+    setError(null);
+    setTeam(json.data);
   }, [teamId]);
 
   useEffect(() => { deferLoad(load); }, [load]);
@@ -63,6 +69,15 @@ export default function TeamDetailPage() {
     }
   }
 
+  if (error) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-24 text-center">
+        <h1 className="font-display text-2xl font-bold text-fg">Team unavailable</h1>
+        <p className="mt-2 text-sm text-fg-2">{error}</p>
+        <Link href="/teams" className="mt-6 inline-block rounded-input bg-accent px-5 py-2.5 text-sm font-bold text-white">Back to teams</Link>
+      </div>
+    );
+  }
   if (!team) {
     return <div className="flex min-h-[50vh] items-center justify-center"><Loader2 size={24} className="animate-spin text-accent" /></div>;
   }

@@ -127,6 +127,7 @@ describe('admin result workflow', () => {
     const participants = await db.matchParticipant.findMany({ where: { matchId } });
     await saveAdminResult(players[0]!.id, matchId, { participantId: participants[0]!.id, position: 1, kills: 1, status: 'PLAYED' }, ctx);
     await saveAdminResult(players[0]!.id, matchId, { participantId: participants[1]!.id, position: 2, kills: 1, status: 'PLAYED' }, ctx);
+    await setResultsStatus(players[0]!.id, matchId, 'UNDER_REVIEW', ctx);
     await setResultsStatus(players[0]!.id, matchId, 'CONFIRMED', ctx);
     await setResultsStatus(players[0]!.id, matchId, 'PUBLISHED', ctx);
     await rejectsWithCode(

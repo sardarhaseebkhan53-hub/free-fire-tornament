@@ -29,7 +29,7 @@ export default function AdminTournamentsPage() {
     setBusy(id);
     try {
       await api(`/admin/tournaments/${id}/status`, { method: 'POST', body: { status } });
-      const fresh = await apiGet<Page>(`/api/backend/admin/tournaments?page=${page}&pageSize=15`);
+      const fresh = await apiGet<Page>(`/admin/tournaments?page=${page}&pageSize=15`);
       if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Status change failed');

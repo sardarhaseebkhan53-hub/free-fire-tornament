@@ -85,7 +85,11 @@ export function UserShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function logout() {
-    await fetch('/api/backend/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+    await fetch('/api/backend/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'x-clutchnex-client': 'web' },
+    }).catch(() => {});
     localStorage.removeItem('cn_access');
     window.dispatchEvent(new Event('storage'));
     router.push('/');

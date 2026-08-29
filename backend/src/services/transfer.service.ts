@@ -12,7 +12,7 @@
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
 import { prisma } from '../lib/prisma';
-import { badRequest, notFound } from '../lib/errors';
+import { badRequest, conflict, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { moveBalance, TX_OPTS } from './wallet.service';
 import { raiseFraudAlert } from './fraud.service';
@@ -81,12 +81,24 @@ export async function createTransfer(senderId: string, input: TransferInput, act
   const note = input.note?.trim().slice(0, 140) || null;
 
   const transfer = await prisma.$transaction(async (tx) => {
+    // Lock both wallets in user-id order before the daily-limit read and the
+    // movements. This prevents concurrent sends from bypassing the limit and
+    // avoids deadlocks when two players transfer in opposite directions.
+    await tx.$queryRaw`
+      SELECT "id" FROM "wallets"
+      WHERE "userId" IN (${senderId}, ${recipient.id})
+      ORDER BY "userId" FOR UPDATE
+    `;
+
     // Idempotency: a replayed request returns the original transfer instead of
     // moving money twice (the unique index is the hard guarantee).
     const existing = await tx.walletTransfer.findUnique({
       where: { senderId_requestId: { senderId, requestId: input.requestId } },
     });
     if (existing) {
+      if (existing.recipientId !== recipient.id || Number(existing.amount) !== amount) {
+        throw conflict('CONFLICT', 'This request id is already bound to a different transfer.');
+      }
       return { transfer: existing, replay: true as const };
     }
 

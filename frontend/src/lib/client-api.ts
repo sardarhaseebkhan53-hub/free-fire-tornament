@@ -68,6 +68,23 @@ export async function authedFetch(path: string, init: RequestInit = {}): Promise
   return res;
 }
 
+/** Download a protected response without navigating the browser to a URL that
+ * cannot carry the localStorage bearer token. */
+export async function downloadProtectedFile(path: string, filename: string): Promise<void> {
+  const res = await authedFetch(path);
+  if (!res.ok) {
+    throw new ApiClientError(res.status, res.status === 401 ? 'UNAUTHORIZED' : 'DOWNLOAD_FAILED', 'Download failed.');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 async function rawFetch<T>(path: string, init: ApiInit): Promise<ApiEnvelope<T>> {
   let body: BodyInit | undefined;
   const headers: Record<string, string> = {};

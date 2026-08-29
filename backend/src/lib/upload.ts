@@ -163,7 +163,7 @@ async function validateOnDisk(req: Request, spec: UploadSpec): Promise<void> {
 
   if (quota > 0) {
     const used = await dailyUploadCount(req.auth?.id ?? 'anon', spec.dir);
-    if (used > quota) {
+    if (used >= quota) {
       return discard(
         badRequest('VALIDATION_ERROR', `Daily upload limit reached (${quota}). Please try again tomorrow or contact support.`),
       );
