@@ -2,7 +2,7 @@
 // Integration — results verification and IDEMPOTENT prize distribution (Phase 8).
 // =============================================================================
 import { afterAll, describe, expect, it } from 'vitest';
-import { distributePrizes, reviewResult, submitResult, tournamentStandings } from '../../src/services/result.service';
+import { distributePrizes, reviewResult, setResultsStatus, submitResult, tournamentStandings } from '../../src/services/result.service';
 import { createMatch } from '../../src/services/match.service';
 import { joinTournament } from '../../src/services/tournament.service';
 import { cleanupUsers, db, ledgerIsConsistent, makeTournament, makeUser, rejectsWithCode, uid, walletOf } from '../helpers/db';
@@ -177,6 +177,9 @@ describe('prize distribution — idempotent', () => {
       const s = await submitResult(pid, matchId, { kills, placement }, null, ctx);
       await reviewResult(admin.id, s.id, 'APPROVE', {}, ctx);
     }
+    await setResultsStatus(admin.id, matchId, 'UNDER_REVIEW', ctx);
+    await setResultsStatus(admin.id, matchId, 'CONFIRMED', ctx);
+    await setResultsStatus(admin.id, matchId, 'PUBLISHED', ctx);
 
     const first = await distributePrizes(admin.id, tournament.id, ctx);
     expect(first.awards.length).toBeGreaterThan(0);
@@ -215,6 +218,9 @@ describe('prize distribution — idempotent', () => {
       const s = await submitResult(pid, matchId, { kills, placement }, null, ctx);
       await reviewResult(admin.id, s.id, 'APPROVE', {}, ctx);
     }
+    await setResultsStatus(admin.id, matchId, 'UNDER_REVIEW', ctx);
+    await setResultsStatus(admin.id, matchId, 'CONFIRMED', ctx);
+    await setResultsStatus(admin.id, matchId, 'PUBLISHED', ctx);
 
     const out = await distributePrizes(admin.id, tournament.id, ctx);
     // Kill-pool awards are labelled "Kill Pool — <player>" and sit in the

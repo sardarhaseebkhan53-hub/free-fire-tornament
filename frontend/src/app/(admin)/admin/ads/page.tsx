@@ -15,7 +15,7 @@ export default function AdminAdsPage() {
   async function toggle(id: string, isActive: boolean) {
     try {
       await api(`/admin/ads/${id}/toggle`, { method: 'POST', body: { isActive } });
-      const fresh = await apiGet<Row[]>(`/api/backend/admin/ads`);
+      const fresh = await apiGet<Row[]>(`/admin/ads`);
       if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Toggle failed');
@@ -49,7 +49,7 @@ export default function AdminAdsPage() {
         </Table>
       )}
 
-      {creating && <CreateAd onClose={async () => { setCreating(false); const f = await apiGet<Row[]>(`/api/backend/admin/ads`); if (f) setData(f); }} />}
+      {creating && <CreateAd onClose={async () => { setCreating(false); const f = await apiGet<Row[]>(`/admin/ads`); if (f) setData(f); }} />}
     </div>
   );
 }

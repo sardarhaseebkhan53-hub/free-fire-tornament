@@ -1,7 +1,7 @@
 'use client';
 // Withdraw Winnings — design 22. Winning balance only (server-enforced),
 // admin approval chain: PENDING → APPROVED → PROCESSING → PAID.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft, CheckCircle2, Clock3, Loader2, Lock, Phone, ShieldAlert,
@@ -43,6 +43,7 @@ export default function WithdrawPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<number | null>(null);
+  const withdrawalRequestId = useRef<string | null>(null);
   const hasSession = useHasSession();
   const anon = hasSession === false;
 
@@ -89,6 +90,7 @@ export default function WithdrawPage() {
       return setError('Enter a valid account number or IBAN.');
     }
     setSubmitting(true);
+    withdrawalRequestId.current ??= crypto.randomUUID();
     try {
       const out = await api<{ withdrawal: Withdrawal }>('/wallet/withdrawals', {
         method: 'POST',
@@ -97,9 +99,11 @@ export default function WithdrawPage() {
           accountName: accountName.trim(),
           accountNumber: accountNumber.trim(),
           accountDetails: phone.trim() ? `Linked phone: ${phone.trim()}` : '',
+          requestId: withdrawalRequestId.current!,
         },
       });
       setDone(out.withdrawal.amount);
+      withdrawalRequestId.current = null;
       setAmount('');
       await refresh();
       window.scrollTo({ top: 0, behavior: 'smooth' });

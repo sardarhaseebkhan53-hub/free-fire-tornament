@@ -51,7 +51,11 @@ export function NavbarClient() {
 
   async function logout() {
     try {
-      await fetch('/api/backend/auth/logout', { method: 'POST', credentials: 'include' });
+      await fetch('/api/backend/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'x-clutchnex-client': 'web' },
+      });
     } finally {
       localStorage.removeItem('cn_access');
       notifySessionChange();

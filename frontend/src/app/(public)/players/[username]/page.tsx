@@ -33,7 +33,6 @@ interface PublicPlayer {
     wins: number;
     kills: number;
     totalPoints: number;
-    earnings: string;
     winRate: number;
   };
 }

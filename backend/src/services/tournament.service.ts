@@ -16,6 +16,7 @@ import { ApiError, badRequest, conflict, forbidden, notFound } from '../lib/erro
 import { getSetting } from './settings.service';
 import { fireCouponAbuse, fireJoinFailure } from './fraud.service';
 import { audit } from '../lib/security';
+import { moveBalance } from './wallet.service';
 
 const TEAM_SIZE: Record<'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD', number> = {
   SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4,
@@ -153,7 +154,7 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
   if (isTeamJoin) {
     const team = await prisma.team.findUnique({
       where: { id: input.teamId },
-      include: { members: { select: { userId: true } } },
+      include: { members: { select: { userId: true, user: { select: { status: true, isVerified: true } } } } },
     });
     if (!team) throw notFound('Team not found');
     if (team.captainId !== userId) throw forbidden('Only the team captain can register the team.');
@@ -164,15 +165,20 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
     if (team.members.length !== teamSize) {
       throw badRequest('VALIDATION_ERROR', `Team must have exactly ${teamSize} members.`);
     }
+    for (const member of team.members) {
+      if (member.user.status !== 'ACTIVE' || !member.user.isVerified) {
+        throw forbidden('Every team member must have an active, verified account.');
+      }
+    }
     // Every member must have their Free Fire identity saved.
     const profiles = await prisma.userProfile.findMany({
       where: { userId: { in: team.members.map((m) => m.userId) } },
       select: { userId: true, freeFireUID: true, freeFireIGN: true },
     });
-    for (const p of profiles) {
-      if (!p.freeFireUID || !p.freeFireIGN) {
-        const member = team.members.find((m) => m.userId === p.userId);
-        throw badRequest('VALIDATION_ERROR', `${member ? member.userId.slice(0, 6) : 'A team member'} must set their Free Fire UID and nickname in Profile before the team can register.`);
+    for (const member of team.members) {
+      const profile = profiles.find((p) => p.userId === member.userId);
+      if (!profile?.freeFireUID || !profile.freeFireIGN) {
+        throw badRequest('VALIDATION_ERROR', `Every team member must set their Free Fire UID and nickname in Profile before the team can register (member ${member.userId.slice(0, 6)}…).`);
       }
     }
     payerIds = team.members.map((m) => m.userId);
@@ -217,6 +223,32 @@ async function runJoin(
 ) {
   const actorIp = actor.ip;
   return prisma.$transaction(async (tx) => {
+    // Re-read and lock the roster after the preflight checks. A captain could
+    // otherwise remove a member between validation and charging the team.
+    if (input.teamId && teamSize > 1) {
+      await tx.$queryRaw`SELECT "id" FROM "teams" WHERE "id" = ${input.teamId} FOR UPDATE`;
+      const currentTeam = await tx.team.findUnique({
+        where: { id: input.teamId },
+        include: { members: { select: { userId: true, user: { select: { status: true, isVerified: true } } } } },
+      });
+      if (!currentTeam || currentTeam.captainId !== userId || currentTeam.type !== (t.type === 'DUO' ? 'DUO' : 'SQUAD')) {
+        throw forbidden('The selected team changed. Refresh and try again.');
+      }
+      if (currentTeam.members.length !== teamSize) {
+        throw badRequest('VALIDATION_ERROR', `Team must have exactly ${teamSize} members.`);
+      }
+      for (const member of currentTeam.members) {
+        if (member.user.status !== 'ACTIVE' || !member.user.isVerified) {
+          throw forbidden('Every team member must have an active, verified account.');
+        }
+      }
+      const currentIds = currentTeam.members.map((member) => member.userId).sort();
+      const requestedIds = [...payerIds].sort();
+      if (currentIds.length !== requestedIds.length || currentIds.some((id, i) => id !== requestedIds[i])) {
+        throw conflict('CONFLICT', 'The team roster changed. Refresh and try again.');
+      }
+    }
+
     // 1. Double-join guard (fast path — unique index is the hard guarantee)
     for (const pid of payerIds) {
       const already = await tx.tournamentRegistration.findUnique({
@@ -278,6 +310,7 @@ async function runJoin(
     if (input.couponCode) {
       const coupon = await tx.coupon.findUnique({ where: { code: input.couponCode.trim().toUpperCase() } });
       if (!coupon || coupon.status !== 'ACTIVE') throw badRequest('VALIDATION_ERROR', 'Coupon not found or inactive');
+      if (coupon.startsAt > new Date()) throw badRequest('VALIDATION_ERROR', 'Coupon is not active yet');
       if (coupon.expiresAt && coupon.expiresAt < new Date()) throw badRequest('VALIDATION_ERROR', 'Coupon has expired');
       if (coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit) {
         throw badRequest('VALIDATION_ERROR', 'Coupon usage limit reached');
@@ -313,24 +346,20 @@ async function runJoin(
       const isJoiner = pid === userId;
       const payable = Math.round((feePerPlayer - (isJoiner ? discount : 0)) * 100) / 100;
 
-      const wallet = await tx.wallet.findUnique({ where: { userId: pid } });
-      if (!wallet) throw badRequest('NOT_FOUND', 'Wallet not found');
-      const before = wallet.cashBalance.toNumber();
-      if (before < payable) {
-        throw new ApiError(402, 'INSUFFICIENT_BALANCE',
-          isJoiner ? 'Insufficient balance to pay the entry fee.' : 'A team member has insufficient balance for their entry share.');
-      }
-      const after = Math.round((before - payable) * 100) / 100;
-
-      const ledgerEntry = await tx.walletTransaction.create({
-        data: {
-          userId: pid, bucket: 'CASH', type: 'ENTRY_FEE', direction: 'DEBIT',
-          amount: new Prisma.Decimal(payable), currency,
-          balanceBefore: new Prisma.Decimal(before), balanceAfter: new Prisma.Decimal(after),
-          entityType: 'TournamentRegistration', reference: t.slug,
+      const ledgerEntry = await moveBalance(
+        tx,
+        pid,
+        'CASH',
+        'DEBIT',
+        payable,
+        'ENTRY_FEE',
+        {
+          entityType: 'TournamentRegistration',
+          reference: t.slug,
           description: `Entry — ${t.title}`,
         },
-      });
+        currency,
+      );
 
       const reg = await tx.tournamentRegistration.create({
         data: {
@@ -343,8 +372,6 @@ async function runJoin(
           seatNumber,
         },
       });
-      await tx.wallet.update({ where: { userId: pid }, data: { cashBalance: new Prisma.Decimal(after) } });
-
       if (isJoiner && couponId) {
         await tx.couponRedemption.create({
           data: { couponId, userId, registrationId: reg.id, discountAmount: new Prisma.Decimal(discount) },
@@ -398,73 +425,84 @@ async function runJoin(
 export async function cancelRegistration(userId: string, tournamentSlug: string) {
   const t = await prisma.tournament.findUnique({ where: { slug: tournamentSlug } });
   if (!t) throw notFound('Tournament not found');
-  if (!['REGISTRATION_OPEN', 'LIVE'].includes(t.status)) {
-    throw badRequest('TOURNAMENT_CLOSED', 'This tournament can no longer be cancelled from your side.');
-  }
-  if (t.status === 'REGISTRATION_OPEN' && t.registrationDeadline <= new Date()) {
-    throw badRequest('TOURNAMENT_CLOSED', 'Registration deadline passed — cancellation is handled by support.');
-  }
 
-  const mine = await prisma.tournamentRegistration.findUnique({
-    where: { tournamentId_userId: { tournamentId: t.id, userId } },
-    include: { team: true },
-  });
-  if (!mine || mine.status !== 'CONFIRMED') throw notFound('No confirmed registration found.');
-
-  const teamSize = TEAM_SIZE[t.type];
-  const isTeam = teamSize > 1 && mine.teamId !== null;
-  if (isTeam && mine.team?.captainId !== userId) {
-    throw forbidden('Only the team captain can cancel a team registration.');
-  }
-
-  // Hoisted out of the transaction — see joinTournament note.
+  // Hoisted out of the transaction — settings reads use the global client and
+  // would deadlock the embedded single-writer database if performed in tx.
   const currency = await getSetting('platform.currency', 'PKR');
 
   return prisma.$transaction(async (tx) => {
+    // Serialize cancellation against joins and other cancellations for this
+    // tournament. The registration rows and wallet rows are then claimed and
+    // changed in one atomic unit; a retry cannot issue a second refund.
+    await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${t.id} FOR UPDATE`;
+    const current = await tx.tournament.findUnique({ where: { id: t.id } });
+    if (!current) throw notFound('Tournament not found');
+    if (!['REGISTRATION_OPEN', 'LIVE'].includes(current.status)) {
+      throw badRequest('TOURNAMENT_CLOSED', 'This tournament can no longer be cancelled from your side.');
+    }
+    if (current.status === 'REGISTRATION_OPEN' && current.registrationDeadline <= new Date()) {
+      throw badRequest('TOURNAMENT_CLOSED', 'Registration deadline passed — cancellation is handled by support.');
+    }
+
+    const mine = await tx.tournamentRegistration.findUnique({
+      where: { tournamentId_userId: { tournamentId: current.id, userId } },
+      include: { team: true },
+    });
+    if (!mine || mine.status !== 'CONFIRMED') throw notFound('No confirmed registration found.');
+
+    const teamSize = TEAM_SIZE[current.type];
+    const isTeam = teamSize > 1 && mine.teamId !== null;
+    if (isTeam && mine.team?.captainId !== userId) {
+      throw forbidden('Only the team captain can cancel a team registration.');
+    }
+
     const targets = isTeam
       ? await tx.tournamentRegistration.findMany({
-          where: { tournamentId: t.id, teamId: mine.teamId, status: 'CONFIRMED' },
+          where: { tournamentId: current.id, teamId: mine.teamId, status: 'CONFIRMED' },
+          orderBy: { userId: 'asc' },
         })
       : [mine];
+    if (targets.length === 0) throw notFound('No confirmed registration found.');
 
-    const refundPercent = Number(t.refundPercent) / 100;
+    const refundPercent = Number(current.refundPercent) / 100;
     let refundedTotal = 0;
-
     for (const reg of targets) {
       const refundAmount = Math.round(Number(reg.entryAmount) * refundPercent * 100) / 100;
-      const wallet = await tx.wallet.findUnique({ where: { userId: reg.userId } });
-      if (!wallet) continue;
-      const before = wallet.cashBalance.toNumber();
-      const after = Math.round((before + refundAmount) * 100) / 100;
+      let refundWalletTxId: string | undefined;
+      if (refundAmount > 0) {
+        const entry = await moveBalance(
+          tx,
+          reg.userId,
+          'CASH',
+          'CREDIT',
+          refundAmount,
+          'ENTRY_REFUND',
+          {
+            entityType: 'TournamentRegistration',
+            entityId: reg.id,
+            description: `Refund (${Math.round(refundPercent * 100)}%) — ${current.title}`,
+          },
+          currency,
+        );
+        refundWalletTxId = entry.id;
+      }
 
-      const entry = await tx.walletTransaction.create({
-        data: {
-          userId: reg.userId, bucket: 'CASH', type: 'ENTRY_REFUND', direction: 'CREDIT',
-          amount: new Prisma.Decimal(refundAmount), currency,
-          balanceBefore: new Prisma.Decimal(before), balanceAfter: new Prisma.Decimal(after),
-          entityType: 'TournamentRegistration', entityId: reg.id,
-          description: `Refund (${Math.round(refundPercent * 100)}%) — ${t.title}`,
-        },
-      });
-
-      await tx.wallet.update({ where: { userId: reg.userId }, data: { cashBalance: new Prisma.Decimal(after) } });
       await tx.tournamentRegistration.update({
         where: { id: reg.id },
-        data: { status: 'REFUNDED', cancelledAt: new Date(), walletTxId: entry.id },
+        data: { status: 'REFUNDED', cancelledAt: new Date(), refundWalletTxId },
       });
       await tx.notification.create({
         data: {
           userId: reg.userId, type: 'TOURNAMENT_UPDATE',
-          title: `Registration cancelled — ${t.title}`,
+          title: `Registration cancelled — ${current.title}`,
           body: `Refund of ${currency} ${refundAmount} credited to your cash balance.`,
         },
       });
       refundedTotal += refundAmount;
     }
 
-    // Free the slot (1 team slot or 1 player slot)
     await tx.tournament.update({
-      where: { id: t.id },
+      where: { id: current.id },
       data: { registeredSlots: { decrement: 1 } },
     });
 
@@ -481,53 +519,10 @@ export async function cancelRegistration(userId: string, tournamentSlug: string)
 // (Exposed through the admin panel in Phase 9.)
 // ---------------------------------------------------------------------------
 export async function adminCancelTournament(adminId: string, tournamentId: string) {
-  const t = await prisma.tournament.findUnique({ where: { id: tournamentId } });
-  if (!t) throw notFound('Tournament not found');
-  if (t.status === 'CANCELLED' || t.status === 'COMPLETED') {
-    throw badRequest('VALIDATION_ERROR', 'Tournament is already closed.');
-  }
-
-  // Hoisted out of the transaction — see joinTournament note.
-  const currency = await getSetting('platform.currency', 'PKR');
-
-  return prisma.$transaction(async (tx) => {
-    const regs = await tx.tournamentRegistration.findMany({
-      where: { tournamentId, status: 'CONFIRMED' },
-    });
-    const refundPercent = Number(t.refundPercent) / 100;
-    let refunded = 0;
-
-    for (const reg of regs) {
-      const amount = Math.round(Number(reg.entryAmount) * refundPercent * 100) / 100;
-      const wallet = await tx.wallet.findUnique({ where: { userId: reg.userId } });
-      if (!wallet) continue;
-      const before = wallet.cashBalance.toNumber();
-      const after = Math.round((before + amount) * 100) / 100;
-      await tx.walletTransaction.create({
-        data: {
-          userId: reg.userId, bucket: 'CASH', type: 'ENTRY_REFUND', direction: 'CREDIT',
-          amount: new Prisma.Decimal(amount), currency,
-          balanceBefore: new Prisma.Decimal(before), balanceAfter: new Prisma.Decimal(after),
-          entityType: 'TournamentRegistration', entityId: reg.id,
-          description: `Refund — ${t.title} cancelled`,
-        },
-      });
-      await tx.wallet.update({ where: { userId: reg.userId }, data: { cashBalance: new Prisma.Decimal(after) } });
-      await tx.tournamentRegistration.update({
-        where: { id: reg.id }, data: { status: 'REFUNDED', cancelledAt: new Date() },
-      });
-      refunded += amount;
-    }
-
-    await tx.tournament.update({ where: { id: tournamentId }, data: { status: 'CANCELLED' } });
-    await tx.auditLog.create({
-      data: {
-        actorId: adminId, action: 'TOURNAMENT_CANCELLED', entity: 'Tournament', entityId: tournamentId,
-        before: { status: t.status }, after: { status: 'CANCELLED', refundedTotal: refunded },
-      },
-    });
-    return { cancelled: true, registrationsRefunded: regs.length, refundedTotal: refunded };
-  }, TX_OPTS);
+  // Keep the legacy service entry point on the same compare-and-set,
+  // transactional cancellation path used by the admin route.
+  const { setTournamentStatus } = await import('./admin.service');
+  return setTournamentStatus(adminId, tournamentId, 'CANCELLED', {});
 }
 
 // ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowDownLeft, ArrowUpRight, Loader2, Search } from 'lucide-react';
-import { api, authedFetch } from '@/lib/client-api';
+import { api, downloadProtectedFile } from '@/lib/client-api';
 import { CopyChip, StatusPill, TypeChip } from '@/components/wallet/bits';
 import { useHasSession } from '@/lib/session';
 
@@ -88,19 +88,7 @@ export default function TransactionsPage() {
     if (search.trim()) qs.set('search', search.trim());
     if (from) qs.set('from', from);
     if (to) qs.set('to', `${to}T23:59:59`);
-    authedFetch(`/wallet/transactions?${qs.toString()}`)
-      .then((r) => {
-        if (!r.ok) throw new Error('Export failed — try again.');
-        return r.blob();
-      })
-      .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'clutchnex-transactions.csv';
-        a.click();
-        URL.revokeObjectURL(url);
-      })
+    downloadProtectedFile(`/wallet/transactions?${qs.toString()}`, 'clutchnex-transactions.csv')
       .catch((e) => alert(e instanceof Error ? e.message : 'Export failed — try again.'));
   }
 

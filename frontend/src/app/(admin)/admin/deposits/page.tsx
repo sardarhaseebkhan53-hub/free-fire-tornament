@@ -33,7 +33,7 @@ export default function AdminDepositsPage() {
     try {
       await api(`/admin/deposits/${review.row.id}/review`, { method: 'POST', body: { action, note } });
       setReview(null);
-      const fresh = await apiGet<Page>(`/api/backend/admin/deposits?status=${tab}&page=${page}&pageSize=15`);
+      const fresh = await apiGet<Page>(`/admin/deposits?status=${tab}&page=${page}&pageSize=15`);
       if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Review failed');

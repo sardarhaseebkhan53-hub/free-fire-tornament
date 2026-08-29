@@ -505,13 +505,16 @@ model Withdrawal {
   reviewedBy     User?            @relation("WithdrawalReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   reviewedAt     DateTime?
   paidAt         DateTime?
-  walletTxId     String? // ledger entry created when funds are debited
-  createdAt      DateTime         @default(now())
+  walletTxId          String? // immutable holding/debit ledger entry
+  reversalWalletTxId  String? // separate ledger entry when a rejected/cancelled hold is released
+  requestId            String? // client idempotency key, scoped to this user
+  createdAt            DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  @@unique([userId, requestId])
   @@map("withdrawals")
 }
 
@@ -617,6 +620,7 @@ model TournamentRegistration {
   coupon           Coupon?            @relation(fields: [couponId], references: [id], onDelete: SetNull)
   status           RegistrationStatus @default(CONFIRMED)
   walletTxId       String? // entry-fee ledger entry
+  refundWalletTxId String? // separate refund ledger entry; never overwrites the debit link
   couponRedemption CouponRedemption?
   /// Server-assigned seat/slot (1..capacity) — allocated atomically in the join
   /// transaction. SOLO: one player per seat. Team modes: all members share the

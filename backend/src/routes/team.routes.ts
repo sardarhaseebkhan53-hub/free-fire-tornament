@@ -46,7 +46,7 @@ teamRouter.post('/invites/:inviteId/decline', async (req, res) => {
 });
 
 teamRouter.get('/:teamId', async (req, res) => {
-  return ok(res, await teamDetails(String(req.params.teamId)));
+  return ok(res, await teamDetails(String(req.params.teamId), req.auth!.id));
 });
 
 teamRouter.patch('/:teamId', async (req, res) => {

@@ -17,7 +17,7 @@ export default function AdminBlogPage() {
   async function toggle(id: string, publish: boolean) {
     try {
       await api(`/admin/blog/${id}/status`, { method: 'POST', body: { publish } });
-      const fresh = await apiGet<Page>(`/api/backend/admin/blog?page=${page}&pageSize=12`);
+      const fresh = await apiGet<Page>(`/admin/blog?page=${page}&pageSize=12`);
       if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Toggle failed');
@@ -57,7 +57,7 @@ export default function AdminBlogPage() {
         </>
       )}
 
-      {creating && <CreatePost onClose={() => setCreating(false)} onDone={async () => { setCreating(false); const f = await apiGet<Page>(`/api/backend/admin/blog?page=1&pageSize=12`); if (f) setData(f); }} />}
+      {creating && <CreatePost onClose={() => setCreating(false)} onDone={async () => { setCreating(false); const f = await apiGet<Page>(`/admin/blog?page=1&pageSize=12`); if (f) setData(f); }} />}
     </div>
   );
 }

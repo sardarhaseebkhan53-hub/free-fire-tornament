@@ -21,7 +21,7 @@ export default function AdminPaymentAccountsPage() {
   const [editing, setEditing] = useState<Row | 'new' | null>(null);
 
   async function refresh() {
-    const f = await apiGet<Row[]>(`/api/backend/admin/payment-accounts`);
+    const f = await apiGet<Row[]>(`/admin/payment-accounts`);
     if (f) setData(f);
   }
 

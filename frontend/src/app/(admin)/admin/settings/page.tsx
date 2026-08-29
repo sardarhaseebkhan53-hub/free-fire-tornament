@@ -36,7 +36,7 @@ export default function AdminSettingsPage() {
       await api('/admin/settings', { method: 'POST', body: { key, value } });
       setEditing(null);
       setSaved(key);
-      const fresh = await apiGet<Row[]>(`/api/backend/admin/settings`);
+      const fresh = await apiGet<Row[]>(`/admin/settings`);
       if (fresh) setData(fresh);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Save failed');

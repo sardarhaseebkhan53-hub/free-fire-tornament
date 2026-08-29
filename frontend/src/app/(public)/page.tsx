@@ -306,7 +306,6 @@ export default async function HomePage() {
                 </div>
                 <div className="text-right">
                   <p className="tabular text-sm font-bold text-accent">{e.totalPoints} pts</p>
-                  <p className="tabular text-xs text-fg-3">{money(e.earnings)}</p>
                 </div>
               </div>
             ))}
