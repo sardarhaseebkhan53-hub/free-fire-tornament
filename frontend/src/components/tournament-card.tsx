@@ -118,7 +118,7 @@ export function TournamentCard({ t }: { t: TournamentSummary }) {
           <div className="mt-3">
             {t.registrationOpen && t.slotsLeft > 0 ? (
               <span className="flex w-full items-center justify-center gap-1.5 rounded-input bg-accent px-5 py-2.5 text-sm font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.35)] transition duration-200 group-hover:bg-accent-strong group-hover:shadow-[0_0_22px_rgba(139,92,246,0.55)] group-active:scale-95">
-                Join
+                Confirm Entry — {money(t.entryFeePerPlayer)}
               </span>
             ) : t.status === 'REGISTRATION_OPEN' && t.slotsLeft <= 0 ? (
               <span className="flex w-full items-center justify-center rounded-input border border-line bg-white/[3%] px-5 py-2.5 text-sm font-bold text-fg-3">
