@@ -3,7 +3,7 @@
 // SVG, no chart dependency), modal and small helpers. Design language of 26-40.
 import { useEffect, useMemo, useState } from 'react';
 import { deferLoad } from '@/lib/session';
-import { api } from '@/lib/client-api';
+import { api, authedFetchResolved } from '@/lib/client-api';
 
 export function Kpi({
   label, value, sub, tone = 'accent', icon,
@@ -305,23 +305,9 @@ export function AuthedImage({ src, alt, className }: { src: string; alt: string;
     let revoke: string | null = null;
     let cancelled = false;
     async function load() {
-      const token = localStorage.getItem('cn_access');
-      let res = await fetch(resolved, { headers: { authorization: `Bearer ${token ?? ''}` } });
-      if (res.status === 401 && token) {
-        // Access token expired → rotate via refresh cookie, then retry once.
-        const refreshed = await fetch('/api/backend/auth/refresh', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'x-clutchnex-client': 'web' },
-        });
-        if (refreshed.ok) {
-          const rj = (await refreshed.json()) as { success: boolean; data?: { accessToken: string } };
-          if (rj.success && rj.data?.accessToken) {
-            localStorage.setItem('cn_access', rj.data.accessToken);
-            res = await fetch(resolved, { headers: { authorization: `Bearer ${rj.data.accessToken}` } });
-          }
-        }
-      }
+      // Shared authed fetch → transparent refresh-once on 401 (no duplicated
+      // token-rotation logic here, §E.4 cleanup).
+      const res = await authedFetchResolved(resolved);
       if (!res.ok) throw new Error(String(res.status));
       const blob = await res.blob();
       if (cancelled) return;

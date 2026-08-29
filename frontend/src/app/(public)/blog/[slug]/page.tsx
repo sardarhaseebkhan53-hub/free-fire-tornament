@@ -8,6 +8,7 @@ import { apiServerSafe } from '@/lib/api';
 import { renderMarkdownSafe } from '@/lib/markdown';
 import { dateOnly } from '@/lib/format';
 import { Badge } from '@/components/ui';
+import { AdSlot } from '@/components/ad-slot';
 import { JsonLd, articleJsonLd, breadcrumbJsonLd, pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
 
@@ -75,6 +76,7 @@ export default async function BlogArticlePage({ params }: { params: Promise<{ sl
         // URLs survive renderMarkdownSafe.
         dangerouslySetInnerHTML={{ __html: html }}
       />
+      <AdSlot placement="BLOG" className="mt-10" />
     </article>
   );
 }

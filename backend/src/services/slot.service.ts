@@ -13,6 +13,7 @@
 // AuditLog row (old value → new value). Locked slots refuse auto-assignment
 // and admin moves until explicitly unlocked.
 // =============================================================================
+import crypto from 'node:crypto';
 import { prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { TX_OPTS } from './wallet.service';
@@ -277,6 +278,119 @@ export async function setParticipantState(
     return row;
   }, TX_OPTS);
   return { id: updated.id, ready: updated.readyAt !== null, absent: updated.absent, status: updated.status };
+}
+
+/** Pair two independently-registered DUO players into a team (admin action).
+ * The DUO "register solo, get paired by admin" path (spec §Modes) seats players
+ * with no team; this is the admin tool that turns two such registrations into a
+ * real DUO team, updates both registrations, and notifies + audits the change.
+ * Race-safe via the tournament row lock and the Team.tag unique constraint. */
+export async function pairIndependentDuo(
+  adminId: string,
+  tournamentId: string,
+  a: string,
+  b: string,
+  ctx: Ctx = {},
+) {
+  if (a === b) throw badRequest('VALIDATION_ERROR', 'Pick two different players to pair.');
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${tournamentId} FOR UPDATE`;
+    const t = await tx.tournament.findUnique({
+      where: { id: tournamentId },
+      select: { id: true, title: true, type: true },
+    });
+    if (!t) throw notFound('Tournament not found');
+    if (t.type !== 'DUO') throw badRequest('VALIDATION_ERROR', 'Only DUO tournaments pair solo registrants.');
+
+    const regs = await tx.tournamentRegistration.findMany({
+      where: { id: { in: [a, b] } },
+      include: { user: { select: { id: true, username: true, status: true } } },
+    });
+    if (regs.length !== 2) throw notFound('One or both registrations were not found.');
+    const regA = regs.find((r) => r.id === a)!;
+    const regB = regs.find((r) => r.id === b)!;
+    for (const r of [regA, regB]) {
+      if (r.tournamentId !== tournamentId) {
+        throw badRequest('VALIDATION_ERROR', 'Both players must be registered for this tournament.');
+      }
+      if (r.status !== 'CONFIRMED') {
+        throw badRequest('VALIDATION_ERROR', 'Both registrations must be confirmed.');
+      }
+      if (r.teamId) {
+        throw conflict('CONFLICT', 'One of these players is already in a team.');
+      }
+      if (r.user.status !== 'ACTIVE') {
+        throw badRequest('VALIDATION_ERROR', 'Both players must have active accounts.');
+      }
+    }
+
+    // Neither player may already hold a DUO team elsewhere (one-DUO invariant).
+    const existingMember = await tx.teamMember.findFirst({
+      where: { userId: { in: [regA.userId, regB.userId] }, team: { type: 'DUO' } },
+      select: { userId: true },
+    });
+    if (existingMember) {
+      throw conflict('CONFLICT', 'One of these players already belongs to a DUO team.');
+    }
+
+    // Unique tag with a collision-retry loop (Team.tag is @unique).
+    let team: { id: string; name: string; tag: string } | undefined;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const tag = `D${crypto.randomBytes(2).toString('hex').toUpperCase()}`; // 5 chars
+      try {
+        team = await tx.team.create({
+          data: {
+            name: `${t.title.trim().slice(0, 18) || 'Duo'} — paired`,
+            tag,
+            type: 'DUO',
+            captainId: regA.userId,
+            members: {
+              create: [
+                { userId: regA.userId, role: 'CAPTAIN' },
+                { userId: regB.userId, role: 'MEMBER' },
+              ],
+            },
+          },
+        });
+        break;
+      } catch (e) {
+        if ((e as { code?: string }).code !== 'P2002') throw e;
+      }
+    }
+    if (!team) throw badRequest('VALIDATION_ERROR', 'Could not generate a unique team tag — try again.');
+
+    await tx.tournamentRegistration.updateMany({
+      where: { id: { in: [a, b] } },
+      data: { teamId: team.id },
+    });
+
+    for (const r of [regA, regB]) {
+      await tx.notification.create({
+        data: {
+          userId: r.userId,
+          type: 'TOURNAMENT_UPDATE',
+          title: `Duo paired — ${t.title}`,
+          body: `You were paired with ${r.id === a ? regB.user.username : regA.user.username} for this tournament. Room details stay in My Matches.`,
+          data: { tournamentId, teamId: team.id },
+        },
+      });
+    }
+
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'DUO_PAIRED',
+        entity: 'Team',
+        entityId: team.id,
+        after: { tournamentId, registrations: [a, b], members: [regA.userId, regB.userId] },
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      },
+    });
+
+    return { teamId: team.id, name: team.name, tag: team.tag, members: [regA.userId, regB.userId] };
+  }, TX_OPTS);
 }
 
 /** Manual slot bookkeeping for players with no participant row yet (ready flag on registration). */

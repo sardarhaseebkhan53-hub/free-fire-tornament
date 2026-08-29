@@ -148,6 +148,12 @@ export const registrationReadySchema = z.object({
   note: z.string().trim().max(300).nullish().default(''),
 });
 
+/** Pair two independently-registered DUO players into a team (spec §Modes). */
+export const duoPairSchema = z.object({
+  a: z.string().min(1).max(40),
+  b: z.string().min(1).max(40),
+});
+
 /** Leaderboard admin controls (spec §40) — financial records untouched. */
 export const leaderboardAdjustSchema = z.object({
   userId: z.string().min(1),

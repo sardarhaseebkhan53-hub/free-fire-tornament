@@ -10,6 +10,7 @@ import { Badge, Avatar } from '@/components/ui';
 import { Countdown, CountdownUntil } from '@/components/countdown';
 import { JoinTournament } from '@/components/join-tournament';
 import { TournamentImage } from '@/components/tournament-image';
+import { AdSlot } from '@/components/ad-slot';
 import { JsonLd, breadcrumbJsonLd, eventJsonLd, pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
 
@@ -105,6 +106,8 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           </div>
         </div>
       </div>
+
+      <AdSlot placement="TOURNAMENT_PAGE" className="mt-8" />
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_360px]">
         {/* Main column */}
@@ -225,6 +228,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
         {/* Sidebar */}
         <aside className="space-y-4">
+          <AdSlot placement="SIDEBAR" />
           <div className="glass rounded-card p-5">
             <h3 className="text-xs font-bold tracking-[0.15em] uppercase text-fg-3">Summary</h3>
             <dl className="mt-3 space-y-2.5 text-sm">
@@ -247,6 +251,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 registrationOpen={t.registrationOpen}
                 slotsLeft={t.slotsLeft}
                 maxSlots={t.maxSlots}
+                allowIndependentDuo={t.allowIndependentDuo}
               />
             </div>
           </div>
