@@ -39,7 +39,7 @@ export default function AdminResultsPage() {
   const [selected, setSelected] = useState<Submission | null>(null);
   const [tournaments, setTournaments] = useState<Array<{ id: string; title: string }>>([]);
   const [tourId, setTourId] = useState('');
-  const standings = useAdminList<Standings>(tourId ? `/admin/tournaments/${tourId}/results` : '/admin/results?status=NONE', [tourId]);
+  const standings = useTournamentStandings(tourId);
   const [busy, setBusy] = useState(false);
   // Review form state is keyed by the submission it belongs to, so selecting a
   // different submission resets the form by derivation instead of an effect.
@@ -471,4 +471,25 @@ function timeAgo(d: string) {
 function useAdminListState<T>(path: string, deps: unknown[]) {
   const { data, loading, setData } = useAdminList<T>(path, deps);
   return { data, loading, setData };
+}
+
+/**
+ * Tournament standings only exist when a tournament is selected. Avoid sending
+ * a dummy `/admin/results?status=NONE` request (which the API correctly rejects
+ * with 400) by not fetching at all until a tournament is chosen.
+ */
+function useTournamentStandings(tourId: string) {
+  const [data, setData] = useState<Standings | null>(null);
+  useEffect(() => {
+    if (!tourId) {
+      setData(null);
+      return;
+    }
+    let cancelled = false;
+    api<Standings>(`/admin/tournaments/${tourId}/results`)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => { if (!cancelled) setData(null); });
+    return () => { cancelled = true; };
+  }, [tourId]);
+  return { data };
 }
