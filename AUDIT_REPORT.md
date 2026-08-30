@@ -45,6 +45,36 @@
 > operational, not architectural — no CI workflow enforcing these gates, and the
 > `onDelete: Cascade` edges on financial rows (§5.1–5.2 of the Phase 18 report).
 > No UI was changed: the design was not the problem.
+>
+> ### ✅ Status — 30 August 2026 (Phase 19, follow-up to PR #21)
+>
+> The two capabilities that certification left open are implemented, and the whole
+> tournament journey is now **proven end-to-end rather than assembled from unit results**:
+> reliable check-in (window derived from `registrationDeadline … startTime`, admin-overridable;
+> one guarded idempotent mutation; a live 30 s no-show pass; staff board; audit rows) and Web
+> Push for `MATCH_STARTING` / `ROOM_CREDENTIALS`, where **a push can never affect money** —
+> sends happen after commit, outside the money transaction, and the feature is inert (not
+> mocked-success) when no VAPID keys are configured.
+>
+> New gate: `npm run verify:journey` drives login → team → registration → eligibility → slot
+> → atomic payment → confirmation → check-in → match → room credentials → results →
+> verification → leaderboard → prizes → wallet → withdrawal → payout against a running API
+> and **real PostgreSQL 17**, finishing with cohort conservation (Σ balances === Σ signed
+> ledger) and an audit census: **94/94 checks green**, alongside 333 unit/integration tests,
+> `verify:concurrency` 19/19 on the same database, both builds, and 0 audit findings.
+>
+> The journey found a defect no API response ever reported: publishing an event **with** its
+> match settings creates the match before anyone registers, so `match_participants` stayed
+> empty forever — blank room roster, scoring that could not be frozen ("No played
+> participants"), and credential/start notifications with no recipients. Fixed with an
+> idempotent re-sync after a confirmed join and when staff open the room, always outside the
+> money transaction.
+>
+> Not claimed: the Playwright suite (`frontend/e2e/`, 13 tests) is collected, type-checked and
+> linted but **no browser binary was installable here, so no spec has executed**; real
+> FCM/autopush delivery, managed-Postgres sizing and `audit_logs` write-revocation remain
+> deployment items. `backend/PHASE19_NOTES.md` §6 keeps that list honest.
+
 
 The repository has a credible foundation: the requested architecture is present, the Prisma schema and migration history are aligned locally, manual payments and wallet movements use server-side calculations, PWA/SEO infrastructure is substantial, and the existing automated suites cover many important happy paths. However, several concurrency, lifecycle, authorization, privacy, and admin-client defects can cause incorrect financial state, expose protected data, or leave a tournament in a state that does not match its ledger history.
 

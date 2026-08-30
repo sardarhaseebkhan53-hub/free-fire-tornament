@@ -13,6 +13,12 @@ export const joinSchema = z.object({
   freeFireIGN: z.string().trim().max(24).optional(),
 });
 
+// Check-in takes only the event slug: the server owns the window, the seat lookup and
+// the attendance stamp, so there is nothing for a client to assert about itself.
+export const checkInSchema = z.object({
+  tournamentSlug: z.string().min(3).max(120),
+});
+
 export const couponPreviewSchema = z.object({
   code: z.string().min(2).max(24),
   tournamentSlug: z.string().min(3).max(120),

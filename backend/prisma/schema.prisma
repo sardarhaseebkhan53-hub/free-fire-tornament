@@ -357,6 +357,7 @@ model User {
   disputes                Dispute[]
   ticketMessages          SupportMessage[]
   notifications           Notification[]
+  pushSubscriptions       PushSubscription[]
   blogPosts               BlogPost[]
   audits                  AuditLog[]
   reviewedDeposits        Deposit[]                @relation("DepositReviewer")
@@ -589,6 +590,11 @@ model Tournament {
 
   startTime            DateTime
   registrationDeadline DateTime
+  // PHASE 19 — check-in window. When either side is NULL it is DERIVED from the
+  // tournament's own timestamps (open at registrationDeadline, close at startTime),
+  // so an event created before this feature still has a working check-in.
+  checkInOpensAt       DateTime?
+  checkInClosesAt      DateTime?
   endTime              DateTime?
   rules                String?
 
@@ -633,6 +639,12 @@ model TournamentRegistration {
   slotNote         String?
   registeredAt     DateTime @default(now())
   cancelledAt      DateTime?
+  /// PHASE 19 — attendance. `checkedInAt` is set once by the player (or by staff at
+  /// the desk) inside the window; `noShowAt` is set by the scheduler when the window
+  /// closed with no check-in. Both are timestamps rather than booleans so the history
+  /// says WHEN, and neither is ever cleared by a normal path.
+  checkedInAt      DateTime?
+  noShowAt         DateTime?
   /// PHASE 18 — immutable roster captured the instant the entry fee was paid
   /// (team modes only): the sorted list of user ids that this paid seat covers.
   /// Prize distribution pays THESE ids and never the team's live membership, so
@@ -646,6 +658,7 @@ model TournamentRegistration {
   @@index([teamId])
   @@index([status])
   @@index([tournamentId, seatNumber])
+  @@index([tournamentId, checkedInAt])
   @@map("tournament_registrations")
 }
 
@@ -991,6 +1004,33 @@ model Notification {
   @@index([userId, readAt])
   @@index([createdAt])
   @@map("notifications")
+}
+
+// -----------------------------------------------------------------------------
+// PUSH DELIVERY (device endpoints) — PHASE 19
+// -----------------------------------------------------------------------------
+
+/// A browser push endpoint. Per DEVICE, not per user: one player has a phone and a
+/// laptop. Nothing about money, entitlement or identity lives here — losing every
+/// row costs notification delivery only, which is what lets the sender fail softly.
+model PushSubscription {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Opaque URL handed out by the push service. Unique, so a re-subscribe from the
+  /// same browser updates the row instead of accumulating duplicates.
+  endpoint   String   @unique
+  /// ECDH public key + auth secret from the browser's PushSubscriptionOptions.keys.
+  p256dh     String
+  auth       String
+  userAgent  String?
+  /// Consecutive delivery failures; a dead endpoint is dropped rather than hammered.
+  failCount  Int      @default(0)
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("push_subscriptions")
 }
 
 // -----------------------------------------------------------------------------

@@ -499,7 +499,7 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
 
 ### ⬜ Phase 15 — Testing → ✅ done
 
-- **`npm test` (Vitest) — 279 tests, no Docker, no live dev server.** A private
+- **`npm test` (Vitest) — 333 tests, no Docker, no live dev server.** A private
   PostgreSQL is booted per run: Vitest's `globalSetup` starts the same embedded
   PGlite the dev workflow uses on its own port (`:55432`) and data directory
   (`.test-pgdata`, wiped each run), applies every migration in order, seeds the
@@ -676,12 +676,14 @@ same account, and `db:seed:admin` re-syncs its password hash on every run.
 | backend | `npm run verify:seo` | SEO + Blog CMS live checks against the web app |
 | backend | `npm run verify:pwa` | PWA manifest / SW / icons / offline checks |
 | backend | `npm run verify:security` | Security hardening suite (uploads, fraud, CSRF, limits) |
-| backend | `npm test` | Vitest suite (279 tests) — boots its own embedded PostgreSQL |
+| backend | `npm test` | Vitest suite (333 tests) — boots its own embedded PostgreSQL |
 | backend | `npm run build` | Production build → `dist/index.js` (server only) |
 | backend | `npm run db:seed` | Reset demo data |
 | backend | `npm run db:seed:admin` | Upsert permanent super-admin (production-safe) |
 | backend | `npm run typecheck` | `tsc --noEmit` |
-| backend | `npx vitest run` | Full suite — 271 tests incl. financial race + 100-way scale tests |
+| backend | `npx vitest run` | Full suite — 333 tests in 25 files: financial race + 100-way scale tier + lifecycle certification + Phase 19 check-in / push / match-participant suites |
+| backend | `npm run verify:journey` | End-to-end journey against a **running API + real PostgreSQL**: login → team → eligibility → slot → atomic payment → confirmation → check-in → match → credentials → results → verification → leaderboard → prizes → wallet → withdrawal, incl. the live 30 s no-show tick and push-storage rules |
+| backend | `npm run push:keys` | Generate a VAPID key pair for Web Push (paste both into the deploy) |
 | backend | `npm run verify:concurrency` | Live burst harness (19 checks): double-spend, idempotency, double approval, ledger chaining, 100-way join surge. Point it at any target with `CONCURRENCY_API_URL` / `CONCURRENCY_DB_URL` |
 | backend | `npm run db:real` | Boot a **real PostgreSQL 17** (dev-only, for certification runs against a multi-backend server) |
 | backend | `npm run audit` | Production-dependency `npm audit` (must be 0) |
@@ -698,11 +700,17 @@ Deliberate limits, written down so nobody reads them as finished features:
   waitlist must take money only at promotion, inside the same conditional-update
   pattern as the seat claim, so it needs its own design pass (see
   `PHASE18_SECURITY.md` §6 gap 3).
-- **No push notifications.** Tournament updates are recorded as durable in-app
-  notifications and reach the player on their next open (the bell polls every 30 s);
-  nothing is delivered to a closed browser, and email covers verification and password
-  reset only. `PHASE18_CERTIFICATION.md` §5 lists the smallest honest way to add Web
-  Push if closed-tab delivery becomes a requirement.
+- **Push notifications are delivery only, and silently inert without keys.** `MATCH_STARTING`
+  and `ROOM_CREDENTIALS` are additionally pushed to subscribed devices (`backend/PHASE19_NOTES.md`),
+  but the in-app notification row remains the durable record: a push that fails, or a device
+  that is not subscribed, changes nothing about the event, the seat, or the money. No VAPID
+  keys in the environment means no push and no error — `/api/push/config` answers
+  `enabled: false`, and the browser UI says "not configured" rather than pretending.
+- **Check-in windows are derived, not scheduled by hand.** Attendance opens at
+  `registrationDeadline` and shuts at `startTime` unless an admin sets explicit bounds
+  (the admin panel can, and an inverted window is rejected). A finished event is not
+  enforced: the no-show pass only touches events that are still `REGISTRATION_OPEN` /
+  `LIVE`, and it never moves money — refunds stay a cancellation decision.
 - **`verify:*` harnesses are dev tools.** They mutate the database they are pointed at
   and must never be wired into a production release step; run them against a staging
   copy instead.
