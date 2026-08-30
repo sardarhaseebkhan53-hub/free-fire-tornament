@@ -1,6 +1,7 @@
 'use client';
 // User app shell — slim left sidebar + top chips, per design 12/14/16/17.
 // Desktop: fixed sidebar; mobile: compact header (bottom nav handles tabs).
+import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 import { useDialog } from '@/lib/use-dialog';
 import Link from 'next/link';
@@ -45,10 +46,8 @@ const NAV: NavItem[] = [
 
 function Logo() {
   return (
-    <Link href="/" className="flex items-center gap-2.5 px-2">
-      <span className="flex h-9 w-9 items-center justify-center rounded-input bg-gradient-to-br from-accent to-accent-strong font-display text-base font-bold text-white shadow-[0_0_20px_rgba(139,92,246,0.55)]">
-        C
-      </span>
+    <Link href="/" aria-label="CLUTCHNEX home" className="flex items-center gap-2.5 px-2">
+      <Image src="/images/branding/clutchnex-logo.jpg" alt="" width={44} height={44} priority className="h-9 w-9 rounded-input object-cover" />
       <span>
         <span className="block font-display text-lg font-bold leading-none tracking-tight text-fg">
           CLUTCH<span className="text-accent">NEX</span>

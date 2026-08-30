@@ -1,6 +1,7 @@
 'use client';
 // Admin panel shell — design 26: sidebar with ADMIN badge + section nav,
 // topbar with global search, bell and profile. RBAC-gated (ADMIN+).
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { useDialog } from '@/lib/use-dialog';
 import Link from 'next/link';
@@ -83,8 +84,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="px-5 pt-6">
-        <Link href="/admin" className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-input bg-gradient-to-br from-accent to-accent-strong font-display text-base font-bold text-white shadow-[0_0_20px_rgba(139,92,246,0.55)]">C</span>
+        <Link href="/admin" aria-label="CLUTCHNEX admin dashboard" className="flex items-center gap-2.5">
+          <Image src="/images/branding/clutchnex-logo.jpg" alt="" width={44} height={44} priority className="h-9 w-9 rounded-input object-cover" />
           <span className="font-display text-lg font-bold tracking-tight text-fg">CLUTCH<span className="text-accent">NEX</span></span>
         </Link>
         <span className="mt-4 inline-flex items-center gap-1.5 rounded-pill border border-accent/30 bg-accent/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-accent">
