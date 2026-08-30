@@ -49,6 +49,20 @@ const schema = z.object({
   JWT_REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(7),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(5),
   UPLOAD_DIR: z.string().default('uploads'),
+
+  // --- Tournament room release -------------------------------------------------
+  // How long BEFORE an event's start time its Room ID / password unlock for the
+  // players holding a confirmed seat. 5 keeps a useful grace period (players need
+  // to type the password into Free Fire, and a late joiner still makes it) without
+  // letting the room leak early enough to be camped. Free Fire's own room lock is
+  // ~10 minutes after creation, so an unreasonably long lead would hand players a
+  // room that has already closed — hence the 1440-minute (24 h) ceiling.
+  //
+  // Precedence (see room.service.ts): an admin-pinned release instant for the event
+  // wins, then the event's own lead time, then this value. A deployment can therefore
+  // retune the default without a code change, and one unusual event can deviate from
+  // the deployment without a redeploy.
+  ROOM_RELEASE_MINUTES: z.coerce.number().int().min(0).max(1440).default(5),
   // Global per-IP ceiling. Deliberately generous: a whole hostel behind one NAT
   // shares this bucket. The routes that matter (auth, deposits, withdrawals,
   // joins, coupons) have their own much tighter budgets in middleware/rateLimit.

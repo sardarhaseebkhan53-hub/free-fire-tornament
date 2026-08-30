@@ -14,6 +14,7 @@ import {
   slotClearSchema, slotLockSchema, ticketListQuerySchema,
   ticketReplySchema, tournamentStatusSchema, upsertSeoSchema, userListQuerySchema, checkInWindowSchema,
   userStatusSchema, blogStatusSchema, paymentAccountSchema, paymentAccountToggleSchema,
+  tournamentRoomSchema, tournamentRoomStatusSchema,
 } from '../validation/admin.schema';
 import { listFraudAlerts, reviewFraudAlert } from '../services/fraud.service';
 import { adminWriteLimiter } from '../middleware/rateLimit';
@@ -31,6 +32,7 @@ import { deleteDeposit } from '../services/payment.service';
 import { listAllTransfers } from '../services/transfer.service';
 import { rotateTeamJoinCode } from '../services/team.service';
 import { matchTable, updateMatch } from '../services/match.service';
+import { adminRoomView, setRoomStatus, setTournamentRoom } from '../services/room.service';
 import { confirmStandings, matchStandings, saveAdminResult, setResultsStatus } from '../services/result.service';
 import { assignSlot, clearSlot, pairIndependentTeam, setParticipantState, setRegistrationReady, setSlotLock, slotBoard } from '../services/slot.service';
 
@@ -98,6 +100,45 @@ adminRouter.post('/tournaments/:id/status', async (req, res) => {
 adminRouter.put('/tournaments/:id/scoring', adminWriteLimiter, async (req, res) => {
   const input = tournamentScoringSchema.parse(req.body);
   return ok(res, await updateTournamentScoring(req.auth!.id, String(req.params.id), input, ctxOf(req)), 'Scoring configuration updated.');
+});
+
+// ---------------------------------------------------------------------------
+// TOURNAMENT ROOM — Room ID / password, released on a schedule (room.service).
+//
+// ADMIN+ only, by construction: this whole router is `requireAuth + requireRole('ADMIN')`,
+// so "only an authorised admin may create, update, hide or cancel a room" is enforced at
+// the router rather than re-litigated per handler. Every write takes `adminWriteLimiter`
+// and every one of them is audited inside the service transaction.
+//
+// `no-store` on both directions is not decoration. The admin view carries live credentials;
+// a shared cache (or a browser that keeps the response of a back-button) holding them for
+// even a minute is a leak of exactly the values this feature exists to time-release.
+// ---------------------------------------------------------------------------
+adminRouter.get('/tournaments/:id/room', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  return ok(res, await adminRoomView(String(req.params.id)));
+});
+// Add or update the event's Room ID / password and its release timing. Audited, and a
+// cancelled room refuses an edit until it is explicitly re-activated.
+adminRouter.put('/tournaments/:id/room', adminWriteLimiter, async (req, res) => {
+  const input = tournamentRoomSchema.parse(req.body);
+  res.setHeader('Cache-Control', 'no-store');
+  const out = await setTournamentRoom(req.auth!.id, String(req.params.id), input, ctxOf(req));
+  return ok(
+    res,
+    out,
+    out.releasedImmediately
+      ? 'Room saved — and released: this event starts inside its own release window, so players can already see it.'
+      : 'Room saved. Players will see it ' + (out.releaseInMs > 0 ? `when the countdown ends (${Math.round(out.releaseInMs / 60000)} min before start).` : 'at its release time.'),
+  );
+});
+// The four switches: hide / show / cancel / re-activate. Cancel requires a reason and
+// writes an audit row; all four take effect on the player endpoints immediately.
+adminRouter.post('/tournaments/:id/room/status', adminWriteLimiter, async (req, res) => {
+  const { action, reason } = tournamentRoomStatusSchema.parse(req.body);
+  res.setHeader('Cache-Control', 'no-store');
+  const out = await setRoomStatus(req.auth!.id, String(req.params.id), action, reason ?? null, ctxOf(req));
+  return ok(res, out, out.changed ? out.message : `${out.message} (nothing to change — already in that state.)`);
 });
 
 // Matches — list (search/filter/sort), status, room-style table, updates

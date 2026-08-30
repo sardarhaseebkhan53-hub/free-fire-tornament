@@ -6,10 +6,11 @@ import { prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import { ok } from '../lib/respond';
 import { notFound } from '../lib/errors';
-import { couponLimiter, joinLimiter } from '../middleware/rateLimit';
+import { couponLimiter, joinLimiter, roomLimiter } from '../middleware/rateLimit';
 import { reqContext } from '../lib/security';
 import { joinSchema, couponPreviewSchema, checkInSchema } from '../validation/tournament.schema';
 import { checkIn } from '../services/checkin.service';
+import { playerRoomView } from '../services/room.service';
 import {
   cancelRegistration, joinTournament, myRegistrations, previewCoupon,
 } from '../services/tournament.service';
@@ -39,6 +40,25 @@ tournamentRouter.get('/coupon-preview', requireAuth, couponLimiter, async (req, 
 // My registrations / matches (room credentials are added in Phase 6)
 tournamentRouter.get('/my', requireAuth, async (req, res) => {
   return ok(res, await myRegistrations(req.auth!.id));
+});
+
+// ---------------------------------------------------------------------------
+// THE ROOM — the only endpoint anywhere that can return a Room ID / password.
+//
+// Everything the service does not want a client to see is absent from this
+// response by construction (see room.service's playerRoomView): the eligibility
+// check and the release check both happen here, server-side, against a freshly
+// read row. `Cache-Control: no-store` closes the last window a timed release
+// would otherwise leave — a proxy, a back/forward cache or a service worker
+// holding an earlier answer and replaying it after the fact, or (worse) replaying
+// an unlocked one to someone else.
+//
+// Declared before `/:slug/cancel` on purpose: the parameter is a tournament slug,
+// and a route shape that could shadow `room` must never be reachable that way.
+// ---------------------------------------------------------------------------
+tournamentRouter.get('/:slug/room', requireAuth, roomLimiter, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  return ok(res, await playerRoomView(req.auth!.id, String(req.params.slug).slice(0, 120)));
 });
 
 // Check in for an event (PHASE 19). Idempotent, window-guarded, seat must be CONFIRMED.

@@ -32,7 +32,7 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
 ---
 
-## Progress — 17 of 17 phases complete + Phase 18 hardening & certification
+## Progress — 17 of 17 phases complete + Phase 18 hardening & certification + Phase 20 rooms
 
 | # | Phase | Status |
 |---|---|---|
@@ -54,6 +54,7 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 15 | Testing | ✅ Done |
 | 16 | Deployment | ✅ Done |
 | 18 | Production security + financial hardening, then final certification on a real PostgreSQL | ✅ Done — [PHASE18_SECURITY.md](./PHASE18_SECURITY.md) · [PHASE18_CERTIFICATION.md](./PHASE18_CERTIFICATION.md) · [PR #21](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/21) |
+| 20 | Tournament room management (Room ID / password, released on a clock) | ✅ Done — [backend/PHASE20_TOURNAMENT_ROOM.md](./backend/PHASE20_TOURNAMENT_ROOM.md) |
 
 Completed work lives in the merged history (PR #1, PR #2, PR #3, PR #4) plus
 [PR #5](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/5)
@@ -651,6 +652,34 @@ evidence, `file:line` per finding and the residual-risk list live in
   [`PHASE18_CERTIFICATION.md`](PHASE18_CERTIFICATION.md) together with 100-wide prize
   distribution, paid-roster integrity and wallet-vs-ledger reconciliation.
 
+### ✅ Phase 20 — Tournament room management (Room ID / password)
+
+The Admin Panel can add and update a tournament's **own** custom room (Room ID + password),
+hide it again, and cancel it; players holding a confirmed seat see the values only inside a
+release window that defaults to **5 minutes before the start** and is configurable at three
+levels. Full contract, decisions and evidence:
+[backend/PHASE20_TOURNAMENT_ROOM.md](./backend/PHASE20_TOURNAMENT_ROOM.md).
+
+- **Nothing is hidden in the browser.** `TournamentRoom` is a separate table (`@@unique` on
+  `tournamentId`), list and detail payloads select state columns only (`ROOM_FLAG_SELECT`:
+  no password, no note), and the player's values come from one endpoint that includes them
+  only inside the window. A locked response has no credential field to inspect.
+- **State is derived, never trusted.** `resolveRoomState` decides `Room Not Added` /
+  `Room Scheduled` / `Room Available` / `Room Cancelled` from the event's `startTime` on every
+  read, so rescheduling an event moves its room window with it. Hiding is a timestamp
+  (`hiddenAt`), not a fifth status; cancelling keeps the values on the row so re-activating
+  does not need them retyped.
+- **Precedence:** pinned `releaseAt` → the event's `releaseMinutes` → Setting
+  `tournament.roomReleaseMinutes` → `ROOM_RELEASE_MINUTES` env (all 0–1440).
+- Eligibility is checked before any room metadata: a signed-in player without a CONFIRMED seat
+  (own or team) gets 403 and no timing information at all.
+- Admin mutations are `ADMIN`/`SUPER_ADMIN` only, rate-limited, `no-store`, and audited
+  (`ROOM_UPDATED` / `_HIDDEN` / `_VISIBLE` / `_CANCELLED` / `_REACTIVATED`) — with the password
+  recorded only as `passwordChanged: true`.
+- UI: `Room` column + panel on `/admin/tournaments`, an optional block in the builder, a live
+  `Custom Room` card on the public tournament page, a room line on the player dashboard, and a
+  `ROOM` filter on the audit log.
+
 ### Demo accounts (development seed — PKR)
 
 | Role | Login | Password |
@@ -676,12 +705,12 @@ same account, and `db:seed:admin` re-syncs its password hash on every run.
 | backend | `npm run verify:seo` | SEO + Blog CMS live checks against the web app |
 | backend | `npm run verify:pwa` | PWA manifest / SW / icons / offline checks |
 | backend | `npm run verify:security` | Security hardening suite (uploads, fraud, CSRF, limits) |
-| backend | `npm test` | Vitest suite (333 tests) — boots its own embedded PostgreSQL |
+| backend | `npm test` | Vitest suite (384 tests) — boots its own embedded PostgreSQL |
 | backend | `npm run build` | Production build → `dist/index.js` (server only) |
 | backend | `npm run db:seed` | Reset demo data |
 | backend | `npm run db:seed:admin` | Upsert permanent super-admin (production-safe) |
 | backend | `npm run typecheck` | `tsc --noEmit` |
-| backend | `npx vitest run` | Full suite — 333 tests in 25 files: financial race + 100-way scale tier + lifecycle certification + Phase 19 check-in / push / match-participant suites |
+| backend | `npx vitest run` | Full suite — 384 tests in 27 files: financial race + 100-way scale tier + lifecycle certification + Phase 19 check-in / push / match-participant suites + Phase 20 tournament-room resolver and 31-test route suite |
 | backend | `npm run verify:journey` | End-to-end journey against a **running API + real PostgreSQL**: login → team → eligibility → slot → atomic payment → confirmation → check-in → match → credentials → results → verification → leaderboard → prizes → wallet → withdrawal, incl. the live 30 s no-show tick and push-storage rules |
 | backend | `npm run push:keys` | Generate a VAPID key pair for Web Push (paste both into the deploy) |
 | backend | `npm run verify:concurrency` | Live burst harness (19 checks): double-spend, idempotency, double approval, ledger chaining, 100-way join surge. Point it at any target with `CONCURRENCY_API_URL` / `CONCURRENCY_DB_URL` |
@@ -700,6 +729,11 @@ Deliberate limits, written down so nobody reads them as finished features:
   waitlist must take money only at promotion, inside the same conditional-update
   pattern as the seat claim, so it needs its own design pass (see
   `PHASE18_SECURITY.md` §6 gap 3).
+- **Event room vs match room: two clocks, deliberately.** Phase 20's `TournamentRoom` is one
+  lobby for the whole event (released on the room schedule above). `Match.roomId` +
+  `credentialsReleaseAt` (Phase 19) remain per-match and are managed from the Matches screen;
+  the admin room panel lists them so the two can never be mistaken for each other. Unifying
+  them would mean one release rule for two different things players join at different times.
 - **Push notifications are delivery only, and silently inert without keys.** `MATCH_STARTING`
   and `ROOM_CREDENTIALS` are additionally pushed to subscribed devices (`backend/PHASE19_NOTES.md`),
   but the in-app notification row remains the durable record: a push that fails, or a device

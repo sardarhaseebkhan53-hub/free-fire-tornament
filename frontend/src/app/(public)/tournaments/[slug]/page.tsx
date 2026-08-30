@@ -11,6 +11,7 @@ import { Reveal } from '@/components/reveal';
 import { Countdown, CountdownUntil } from '@/components/countdown';
 import { JoinTournament } from '@/components/join-tournament';
 import { TournamentImage } from '@/components/tournament-image';
+import { TournamentRoomCard } from '@/components/tournament-room-card';
 import { AdSlot } from '@/components/ad-slot';
 import { JsonLd, breadcrumbJsonLd, eventJsonLd, pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
@@ -197,6 +198,12 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               {t.matches.length === 0 && <p className="text-sm text-fg-3">Schedule is announced after registration.</p>}
             </div>
           </section>
+
+          {/* Custom room — hidden until the release window, and only ever for a
+              confirmed seat: this card holds no value the API did not send it. */}
+          <Reveal>
+            <TournamentRoomCard slug={t.slug} />
+          </Reveal>
 
           {/* Participants — numeric Free Fire-style seat board */}
           <section className="glass rounded-card p-6">

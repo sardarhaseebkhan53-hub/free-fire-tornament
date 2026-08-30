@@ -22,6 +22,7 @@ import { moveBalance } from './wallet.service';
 import { resolveCheckInWindow } from './checkin.service';
 import { confirmAbsent, isRetryableTxError, withIdempotentRetry } from '../lib/tx-conflict';
 import { syncTournamentParticipants } from './match.service';
+import { ROOM_FLAG_SELECT, globalRoomReleaseMinutes, roomStateFor } from './room.service';
 
 const TEAM_SIZE: Record<'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD', number> = {
   SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4,
@@ -709,6 +710,7 @@ export async function myRegistrations(userId: string) {
         select: {
           id: true, title: true, slug: true, type: true, map: true, status: true,
           startTime: true, registrationDeadline: true, banner: true,
+
           // PHASE 19 — the check-in window travels with the registration so the app can
           // show "opens in 2h" / "closes in 9 min" without a second request, and so the
           // state it renders is the state the server will enforce (same source, same math).
@@ -722,6 +724,22 @@ export async function myRegistrations(userId: string) {
   // with this seat's attendance — so a client rendering from this payload cannot disagree
   // with what the server will accept. Raw columns stay on `tournament` for anything that
   // already reads them.
+  // Room state for the feed, read SEPARATELY and keyed by tournament id — never included on
+  // the `tournament` object. This mapping spreads `...reg` wholesale, so a nested room row
+  // (even a state-only one) would ride into the response with it; an independent query plus
+  // a derived view means there is no raw row in this object graph to spread at all. The
+  // values themselves stay behind GET /api/tournaments/:slug/room, which checks the seat and
+  // the release per player.
+  const tournamentIds = [...new Set(regs.map((reg) => reg.tournament.id))];
+  const roomRows = tournamentIds.length
+    ? await prisma.tournamentRoom.findMany({
+        where: { tournamentId: { in: tournamentIds } },
+        select: { tournamentId: true, ...ROOM_FLAG_SELECT },
+      })
+    : [];
+  const globalMinutes = await globalRoomReleaseMinutes();
+  const roomById = new Map(roomRows.map((row) => [row.tournamentId, row]));
+
   return regs.map((reg) => ({
     ...reg,
     checkIn: {
@@ -729,5 +747,11 @@ export async function myRegistrations(userId: string) {
       checkedInAt: reg.checkedInAt,
       noShowAt: reg.noShowAt,
     },
+    // A tournament with no room row reports the same NOT_ADDED state the admin panel
+    // shows, so "no room yet" and "no room record" are never two different UI states.
+    room: roomStateFor(
+      { startTime: reg.tournament.startTime, status: reg.tournament.status, room: roomById.get(reg.tournament.id) ?? null },
+      globalMinutes,
+    ),
   }));
 }

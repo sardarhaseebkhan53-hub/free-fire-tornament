@@ -4,6 +4,7 @@ import { env } from './lib/env';
 import { prisma } from './lib/prisma';
 import { notifyUpcomingMatches } from './services/scheduler.service';
 import { markNoShows } from './services/checkin.service';
+import { releaseTournamentRooms } from './services/room.service';
 
 const app = createApp();
 
@@ -36,6 +37,15 @@ if (env.NODE_ENV !== 'test') {
       if (marked.marked > 0) console.log(`[scheduler] marked ${marked.marked} no-show(s) across ${marked.tournaments} event(s)`);
     } catch (e) {
       console.warn('[scheduler] no-show pass failed:', (e as Error)?.message);
+    }
+    // Third try, same reason: opening a tournament's room is its own job. The sweep only
+    // announces and caches — a player's own read decides the release regardless — so a
+    // failure here delays a notification, it never locks a room or exposes one early.
+    try {
+      const rooms = await releaseTournamentRooms();
+      if (rooms.released > 0) console.log(`[scheduler] released ${rooms.released} tournament room(s)`);
+    } catch (e) {
+      console.warn('[scheduler] room release pass failed:', (e as Error)?.message);
     } finally {
       ticking = false;
     }

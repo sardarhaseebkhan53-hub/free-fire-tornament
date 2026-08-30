@@ -117,6 +117,15 @@ statement separator there.
 - **Never hard-coded economics.** Entry fees, prize pools, platform fees,
   refund percentages, referral rewards, deposit/withdrawal limits and the coin
   conversion rate are `Setting` rows managed from the admin panel.
+- **Room credentials are derived, never trusted.** A tournament's custom room
+  (`TournamentRoom` — one row per event) stores the values plus an optional pinned
+  `releaseAt` or per-event `releaseMinutes`, but every read recomputes the status from the
+  event's `startTime` (`resolveRoomState`, `src/services/room.service.ts`), so rescheduling an
+  event moves its room window with it — which a cached `AVAILABLE` column could not do. A
+  player's values are served by exactly one endpoint, only inside the window and only to a
+  confirmed seat; every list and detail payload selects state columns without the password.
+  The lead itself is data, not code: `Setting tournament.roomReleaseMinutes`, falling back to
+  `ROOM_RELEASE_MINUTES` (default 5). See `PHASE20_TOURNAMENT_ROOM.md`.
 
 ## Seed data (development only)
 
@@ -136,7 +145,10 @@ The seed covers every lifecycle state: completed/open/cancelled/draft
 tournaments, verified matches with results and winners, credited prizes,
 pending/approved/rejected deposits, pending/processing/rejected withdrawals,
 coupons, referrals, tickets, notifications, blog, FAQs, legal pages, settings
-and audit logs — with a fully consistent wallet ledger in PKR.
+and audit logs — with a fully consistent wallet ledger in PKR. Tournament rooms are seeded
+across all four states (available, scheduled, hidden, cancelled, plus one event with no room
+row at all) so the admin room panel and the player's room card can be opened and read without
+inventing data first.
 
 ## Auth API (Phase 3)
 

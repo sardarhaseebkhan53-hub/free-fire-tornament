@@ -12,6 +12,7 @@ import { computeEconomics, type PrizeInput } from './tournament-economics.servic
 import { moveBalance, TX_OPTS } from './wallet.service';
 import type { Bucket } from './wallet.service';
 import { syncTournamentParticipants } from './match.service';
+import { roomCreateColumns, roomStates, ROOM_FLAG_SELECT } from './room.service';
 
 const num = (d: unknown) => Math.round(Number(d ?? 0) * 100) / 100;
 const pageOf = (p: number) => (Math.max(1, p) - 1);
@@ -362,15 +363,28 @@ export async function listTournamentsAdmin(filter: { page: number; pageSize: num
         id: true, title: true, slug: true, type: true, status: true, isFeatured: true,
         entryFeePerPlayer: true, prizePool: true, maxSlots: true, registeredSlots: true,
         startTime: true, createdAt: true,
+        // Room STATE for the list's status pill. `ROOM_FLAG_SELECT` deliberately excludes
+        // the password column: an admin table is a bad place to print a live credential to
+        // a shoulder-surfing room, and the room panel is the one surface that shows them.
+        room: { select: ROOM_FLAG_SELECT },
       },
     }),
     prisma.tournament.count({ where }),
   ]);
+
+  // One config read for the whole page, then the SAME resolver the player path uses — so a
+  // pill in this table can never disagree with what a player is allowed to see right now.
+  const rooms = await roomStates(rows);
+
   return {
-    items: rows.map((t) => ({
+    items: rows.map(({ room: _roomRow, ...t }) => ({
+      // The raw room row is dropped rather than spread: `roomStates` already turned it into
+      // the derived, credential-free view below, and this map is a `{ ...t }` — the exact
+      // shape a leak travels through. Same discipline as the public detail response.
       ...t,
       entryFeePerPlayer: num(t.entryFeePerPlayer),
       prizePool: num(t.prizePool),
+      room: rooms.get(t.id) ?? null,
     })),
     page: filter.page, pageSize: filter.pageSize, total,
   };
@@ -400,6 +414,8 @@ export interface BuilderInput {
   penaltyPoints?: number;
   roomId?: string;
   roomPassword?: string;
+  /** The event's own room (Room ID / password + release lead). See room.service. */
+  room?: { roomId?: string; roomPassword?: string; releaseMinutesBeforeStart?: number | null; note?: string };
   matchNumber?: number;
   matchMap?: string;
   matchScheduledOffsetMinutes?: number;
@@ -409,6 +425,10 @@ const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'tournament';
 
 export async function createTournament(adminId: string, input: BuilderInput, ctx: { ip?: string }) {
+  // The room is validated FIRST, outside the transaction: a typo in a Room ID must not
+  // cost an admin the event they just configured, and the create path shares room.service's
+  // patterns with the edit panel so the two can never disagree about what is acceptable.
+  const room = roomCreateColumns(input.room ?? {});
   const slots = input.maxSlots; // slots are player/team-wide per mode
   const economics = await computeEconomics({
     type: input.type,
@@ -455,6 +475,11 @@ export async function createTournament(adminId: string, input: BuilderInput, ctx
         placementPoints: placementPoints as unknown as Prisma.InputJsonValue | undefined,
         bonusPoints: input.bonusPoints ?? 0,
         penaltyPoints: input.penaltyPoints ?? 0,
+        // The event's own room, in its own row — created with the event so an admin who
+        // typed a Room ID in the builder does not have to open a second panel. Entered at
+        // creation, it starts on the release schedule like any other: nobody sees it
+        // before the window, including on the page that was just published.
+        ...(room ? { room: { create: room } } : {}),
         prizes: {
           create: input.prizes.map((p, i) => ({
             position: i + 1,
@@ -492,6 +517,9 @@ export async function createTournament(adminId: string, input: BuilderInput, ctx
           title: input.title, slug, publish: !!input.publish, economics: { ...economics },
           placementPoints, bonusPoints: input.bonusPoints ?? 0, penaltyPoints: input.penaltyPoints ?? 0,
           matchNumber: input.matchNumber ?? null, banner: input.banner || null,
+          // The Room ID belongs in the record (it identifies the room later); the password
+          // never does — audit rows are readable by every admin and kept forever.
+          room: room ? { roomId: room.roomId, releaseMinutesBeforeStart: room.releaseMinutes } : null,
         },
         ip: ctx.ip,
       },

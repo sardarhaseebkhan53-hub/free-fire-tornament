@@ -9,6 +9,7 @@ import { notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { rankFor, rankCatalog } from '../lib/rank';
 import { normalizePlacementTable } from '../lib/scoring';
+import { ROOM_FLAG_SELECT, roomStateFor, globalRoomReleaseMinutes } from './room.service';
 
 // ---------------------------------------------------------------------------
 export interface TournamentListQuery {
@@ -80,6 +81,12 @@ export async function getTournamentBySlug(slug: string) {
     where: { slug, deletedAt: null },
     include: {
       prizes: { orderBy: { position: 'asc' } },
+      // Room STATE only. `ROOM_FLAG_SELECT` has no password column and no Room ID value
+      // path — this endpoint is anonymous, public and cached by every crawler that sees it,
+      // so it answers "does this event have a room, and when does it open?" and nothing else.
+      // A registered player gets the values from GET /api/tournaments/:slug/room, which is
+      // where eligibility and the release are actually enforced.
+      room: { select: ROOM_FLAG_SELECT },
       matches: {
         where: { deletedAt: null },
         orderBy: { matchNumber: 'asc' },
@@ -117,7 +124,12 @@ export async function getTournamentBySlug(slug: string) {
   if (!t || t.status === 'DRAFT') throw notFound('Tournament not found');
 
   const now = new Date();
-  const { registrations, matches, prizes, ...core } = t;
+  // `room` is destructured out with the relations rather than left in `core`, and this is
+  // the reason: the response below is `{ ...core }`. A spread is exactly how a column added
+  // months later ends up on a public, crawler-visible page — so the room row is taken out
+  // of the graph here and re-enters only as the derived, credential-free `room` view at the
+  // bottom of this object.
+  const { registrations, matches, prizes, room: roomRow, ...core } = t;
   return {
     ...core,
     teamSize: t.type === 'SOLO' ? 1 : t.type === 'DUO' ? 2 : 4,
@@ -149,6 +161,10 @@ export async function getTournamentBySlug(slug: string) {
       credentialsReleaseInMs: m.credentialsReleaseAt ? m.credentialsReleaseAt.getTime() - now.getTime() : null,
       resultsPublished: resultsStatus === 'PUBLISHED',
     })),
+    // The event's own room, as state + timing (never values). The player page renders the
+    // countdown from here and only then asks for the credentials, so an anonymous visitor
+    // sees the same "Hidden" the release is meant to produce.
+    room: roomStateFor({ startTime: t.startTime, status: t.status, room: roomRow }, await globalRoomReleaseMinutes(), now),
     participants: registrations.map((registration) => ({
       seatNumber: registration.seatNumber,
       team: registration.team
