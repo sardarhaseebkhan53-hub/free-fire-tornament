@@ -2,7 +2,7 @@
   "name": "clutchnex-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "CLUTCHNEX Free Fire esports tournament platform — API-first backend (Express + Prisma + PostgreSQL)",
+  "description": "CLUTCHNEX Free Fire esports tournament platform \u2014 API-first backend (Express + Prisma + PostgreSQL)",
   "main": "dist/index.js",
   "engines": {
     "node": ">=22.0.0"
@@ -38,7 +38,8 @@
     "verify:security": "tsx scripts/verify-security.mts",
     "verify:concurrency": "node scripts/verify-concurrency.mjs",
     "test:auth-race": "node scripts/auth-race-test.mjs",
-    "test:auth-expiry": "node scripts/auth-expiry-test.mjs"
+    "test:auth-expiry": "node scripts/auth-expiry-test.mjs",
+    "db:real": "node scripts/real-db.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
@@ -68,6 +69,7 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^24.10.1",
     "@types/nodemailer": "^8.0.1",
+    "embedded-postgres": "^17.10.0-beta.17",
     "prisma": "^7.10.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",

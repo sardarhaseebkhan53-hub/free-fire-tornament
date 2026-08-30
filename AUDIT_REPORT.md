@@ -22,13 +22,24 @@
 > against; prize-distribution lifecycle and post-registration roster mutability were
 > genuinely open and are closed here, together with the dependency audit.
 >
-> Proof, all green: 252 backend tests (21 financial race tests, 12 unit tests on the
-> retry semantics), 8 `verify:*` suites, and `npm run verify:concurrency` — a live
-> HTTP burst harness — at 12/12 across five consecutive runs with **zero 5xx and
-> zero spurious 401s**, including "8 admins approve one deposit → `200,409×7`,
-> credited exactly once" and "5 concurrent 800-PKR withdrawals on a 1000 balance →
-> exactly one wins". `npm audit` is 0 in both packages, frontend lint is 0, and both
-> production builds pass.
+> Proof, all green: 279 backend tests (a 100-way scale tier, a lifecycle certification,
+> 24 unit tests on the retry semantics), 8 `verify:*` suites, and `npm run
+> verify:concurrency` — a live HTTP burst harness — at 19/19 across consecutive runs
+> with **zero bare 500s and zero spurious 401s**, including "8 admins approve one
+> deposit → `200,409×7`, credited exactly once" and "5 concurrent 800-PKR withdrawals
+> on a 1000 balance → exactly one wins". `npm audit` is 0 in both packages, frontend
+> lint is 0, and both production builds pass.
+>
+> **The concurrency proof was then re-run against a real multi-backend PostgreSQL 17,
+> not just the embedded single-writer dev engine — and that found a bug the dev engine
+> structurally could not show:** two simultaneous joins by one player both cleared the
+> double-join guard (it ran before the tournament row was locked), so the entry fee was
+> debited twice against one registration row, the loser's upsert re-seated the winner,
+> and `registeredSlots` counted a phantom seat. Fixed — `SELECT … FOR UPDATE` now opens
+> the join transaction and the registration is created-or-revived rather than
+> overwritten — reproduced 6/6 before and 8/8 clean after. Full write-up, the 100-wide
+> prize-distribution certification, paid-roster integrity and wallet-vs-ledger
+> reconciliation: [PHASE18_CERTIFICATION.md](./PHASE18_CERTIFICATION.md).
 >
 > **Release recommendation is now conditional-GO:** the remaining NO-GO items are
 > operational, not architectural — no CI workflow enforcing these gates, and the

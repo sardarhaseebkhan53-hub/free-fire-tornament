@@ -32,7 +32,7 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
 ---
 
-## Progress — 17 of 17 phases complete + Phase 18 hardening
+## Progress — 17 of 17 phases complete + Phase 18 hardening & certification
 
 | # | Phase | Status |
 |---|---|---|
@@ -53,12 +53,12 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 14 | Security hardening | ✅ Done |
 | 15 | Testing | ✅ Done |
 | 16 | Deployment | ✅ Done |
-| 18 | Production security + financial hardening | ✅ Done — [PHASE18_SECURITY.md](./PHASE18_SECURITY.md) · [PR #21](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/21) |
+| 18 | Production security + financial hardening, then final certification on a real PostgreSQL | ✅ Done — [PHASE18_SECURITY.md](./PHASE18_SECURITY.md) · [PHASE18_CERTIFICATION.md](./PHASE18_CERTIFICATION.md) · [PR #21](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/21) |
 
 Completed work lives in the merged history (PR #1, PR #2, PR #3, PR #4) plus
 [PR #5](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/5)
 (Phases 14–16) — one commit per phase, each independently verified. Phase 18 is the
-hardening pass on top of that history: 252 backend tests, a live concurrency
+hardening pass on top of that history: 279 backend tests, a live concurrency
 harness and a dependency audit that comes up clean.
 
 ---
@@ -499,7 +499,7 @@ per-email lockout (settings-driven), route rate limits, RBAC middleware
 
 ### ⬜ Phase 15 — Testing → ✅ done
 
-- **`npm test` (Vitest) — 127 tests, no Docker, no live dev server.** A private
+- **`npm test` (Vitest) — 279 tests, no Docker, no live dev server.** A private
   PostgreSQL is booted per run: Vitest's `globalSetup` starts the same embedded
   PGlite the dev workflow uses on its own port (`:55432`) and data directory
   (`.test-pgdata`, wiped each run), applies every migration in order, seeds the
@@ -637,11 +637,19 @@ evidence, `file:line` per finding and the residual-risk list live in
   and now comes from the trusted hop; admin-authored ad embeds were injected with
   `dangerouslySetInnerHTML` (stored XSS → session theft) and now render in a
   sandboxed frame.
-- **Gates.** 252 backend tests (21 of them financial races), 12 unit tests for
-  the retry semantics, 8 `verify:*` suites, the live `verify:concurrency` burst
-  harness (12 assertions, five consecutive clean runs, zero 5xx), both typechecks,
-  both builds, frontend lint at zero — and `npm audit` clean in both packages
-  after overriding the transitive `deepmerge-ts` advisory that Prisma pinned.
+- **Gates.** 279 backend tests (a 100-way scale tier and a lifecycle certification
+  among them), 24 unit tests for the retry semantics, 8 `verify:*` suites, and the
+  live `verify:concurrency` burst harness at 19/19 — run twice over, once against
+  the embedded dev engine and once against a **real PostgreSQL 17** server, zero bare
+  500s either way. Both typechecks, both builds, frontend lint at zero, and
+  `npm audit` clean in both packages after overriding the transitive `deepmerge-ts`
+  advisory that Prisma pinned.
+- **Certification stage.** Running the same surge against a real multi-backend
+  PostgreSQL exposed a double-charge that a single-writer engine cannot produce (the
+  double-join guard ran before the tournament row was locked). Fixed, reproduced
+  6/6 before and 8/8 clean after, and pinned by
+  [`PHASE18_CERTIFICATION.md`](PHASE18_CERTIFICATION.md) together with 100-wide prize
+  distribution, paid-roster integrity and wallet-vs-ledger reconciliation.
 
 ### Demo accounts (development seed — PKR)
 
@@ -668,15 +676,36 @@ same account, and `db:seed:admin` re-syncs its password hash on every run.
 | backend | `npm run verify:seo` | SEO + Blog CMS live checks against the web app |
 | backend | `npm run verify:pwa` | PWA manifest / SW / icons / offline checks |
 | backend | `npm run verify:security` | Security hardening suite (uploads, fraud, CSRF, limits) |
-| backend | `npm test` | Vitest suite (127 tests) — boots its own embedded PostgreSQL |
+| backend | `npm test` | Vitest suite (279 tests) — boots its own embedded PostgreSQL |
 | backend | `npm run build` | Production build → `dist/index.js` (server only) |
 | backend | `npm run db:seed` | Reset demo data |
 | backend | `npm run db:seed:admin` | Upsert permanent super-admin (production-safe) |
 | backend | `npm run typecheck` | `tsc --noEmit` |
 | backend | `npx vitest run` | Full suite — 271 tests incl. financial race + 100-way scale tests |
-| backend | `npm run verify:concurrency` | Live burst harness (19 checks): double-spend, idempotency, double approval, ledger chaining, 100-way join surge |
+| backend | `npm run verify:concurrency` | Live burst harness (19 checks): double-spend, idempotency, double approval, ledger chaining, 100-way join surge. Point it at any target with `CONCURRENCY_API_URL` / `CONCURRENCY_DB_URL` |
+| backend | `npm run db:real` | Boot a **real PostgreSQL 17** (dev-only, for certification runs against a multi-backend server) |
 | backend | `npm run audit` | Production-dependency `npm audit` (must be 0) |
 | frontend | `npx next build` | Production build check |
+
+---
+
+## Known scope decisions
+
+Deliberate limits, written down so nobody reads them as finished features:
+
+- **Waitlist: intentionally unsupported.** A full tournament answers `TOURNAMENT_FULL`;
+  there is no queue, no offer window and no automatic promotion on cancellation. A
+  waitlist must take money only at promotion, inside the same conditional-update
+  pattern as the seat claim, so it needs its own design pass (see
+  `PHASE18_SECURITY.md` §6 gap 3).
+- **No push notifications.** Tournament updates are recorded as durable in-app
+  notifications and reach the player on their next open (the bell polls every 30 s);
+  nothing is delivered to a closed browser, and email covers verification and password
+  reset only. `PHASE18_CERTIFICATION.md` §5 lists the smallest honest way to add Web
+  Push if closed-tab delivery becomes a requirement.
+- **`verify:*` harnesses are dev tools.** They mutate the database they are pointed at
+  and must never be wired into a production release step; run them against a staging
+  copy instead.
 
 ---
 

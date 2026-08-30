@@ -11,9 +11,10 @@
 | Gate | Result |
 |---|---|
 | Backend `tsc --noEmit` | ✅ 0 errors |
-| Backend `npx vitest run` | ✅ **271 / 271** (20 files) — was 219 at phase start; +24 tx-conflict unit, +7 scale-tier |
+| Backend `npx vitest run` | ✅ **279 / 279** (21 files) — was 219 at phase start; +24 tx-conflict unit, +7 scale-tier, +8 certification |
+| **Real PostgreSQL 17.10** (not the dev engine) | ✅ 19/19 concurrency ×3, all six `verify:*` suites green — and this is where the one real bug of the phase was found (see `PHASE18_CERTIFICATION.md` §2) |
 | Backend `npm run build` | ✅ |
-| Live HTTP concurrency harness | ✅ **19 / 19 assertions, four consecutive runs, zero bare 500s** — includes a 100-way join surge (§5.1) |
+| Live HTTP concurrency harness | ✅ **19 / 19 assertions** on both engines — dev engine and real PostgreSQL 17 — zero bare 500s, includes a 100-way join surge (§5.1) |
 | All 8 live `verify:*` suites (`join wallet results finance security support seo pwa`) + `verify:concurrency` | ✅ green against the running stack (there is no `verify:ads` — ads are covered by `tests/integration/public-ads.test.ts`) |
 | Frontend `npm run lint` | ✅ 0 errors, 0 warnings (was 5 errors / 7 warnings in the audit) |
 | Frontend `npx vitest run` / `npm run build` | ✅ 18/18 · build OK |
@@ -135,6 +136,18 @@ raised from 5 concurrent requests to 100:
   throw inside it is retried on the same basis, and if it survives, the error propagates to
   `fail()` and becomes a 503. A blip stops being a decision.
 
+### 3.7 The one real bug of the phase, found only on a real PostgreSQL
+
+The 100-way surge was re-run against an actual PostgreSQL 17 server (`npm run
+db:real`, multi-process backends, `fsync=on`) because a single-writer dev engine cannot
+expose a check-then-act window. It did. Two parallel joins by the *same* player both
+passed the `ALREADY_REGISTERED` guard — which ran before the tournament row was locked —
+so both debited the entry fee, one registration row survived, the loser's `upsert`
+re-seated the winner, and `registeredSlots` counted a phantom seat. Reproduced 6/6
+rounds; the full write-up, the fix (lock first, create-or-revive instead of overwrite)
+and the 8/8-clean re-run are in `PHASE18_CERTIFICATION.md` §2. Certified against
+regression by `tests/integration/phase18-certification.test.ts` §A.
+
 ## 4. Invariants now enforced (and where)
 
 | Invariant | Enforced by | Proven by |
@@ -169,7 +182,7 @@ npm run dev                             # :4000
 # 4 — live concurrency proof (repeat it; it is deterministic now)
 npm run verify:concurrency              # 19/19, zero bare 500s, incl. a 100-way surge
 # 5 — the rest of the gates
-npx vitest run                          # 271 tests (7 of them the 100-way scale tier)
+npx vitest run                          # 279 tests (7 scale tier + 8 certification)
 for v in join wallet results finance security support; do npm run verify:$v; done
 npm run verify:seo && npm run verify:pwa     # these two need `cd ../frontend && npm run dev`
 npm run audit                           # 0 vulnerabilities
@@ -250,7 +263,11 @@ Two honest limits of this tier:
    What is still visible at 100-way on the single-writer dev engine is a *double* blip — two
    consecutive blank reads turning into `NOT_FOUND` / `VALIDATION_ERROR` / `UNAUTHORIZED` for a
    request that would have succeeded. Those are actionable 4xx answers, they never move money,
-   the seats and fees stay exact, and they do not occur at ≤25-wide waves.
+   the seats and fees stay exact, and they do not occur at ≤25-wide waves. **Confirmed as an
+   engine artifact, not an application one:** the identical surge against real PostgreSQL 17
+   produced `bare-500=0`, `503=0` and only `TOURNAMENT_FULL` refusals, three runs in a row
+   (`PHASE18_CERTIFICATION.md` §1). Running it there also found §3.7, which is the argument
+   for making a real server part of the certification, not an afterthought.
 2. **There is no waitlist to test.** The master prompt's "100 join attempts when 10 slots +
    waitlist" cannot be exercised: the codebase has no waitlist feature (no `WAITLIST`
    registration status anywhere in `backend/src`). Joiners beyond capacity are refused, which is
@@ -263,7 +280,7 @@ Two honest limits of this tier:
 
 The 96-section master prompt was checked against the tree. Most of it is already implemented and verified above. This is the honest remainder, so the next phases are aimed at real gaps rather than at re-doing settled work.
 
-**Implemented and verified:** auth (rotation, reuse-revoke, email verify, reset, rate limits, bcrypt-12, suspension enforcement) · wallet/ledger with server-side-only amounts · deposits and withdrawals with admin review, holds and refunds · teams (create/invite/accept/remove/leave/captain/disband, size + UID + duplicate guards) · eligibility checks in the join path (`tournament.service.ts:263-315`: verified/complete-profile/UID/region/level/rank/ban) · UID uniqueness (`schema.prisma:384` `freeFireUID String? @unique`) with admin review tooling · slot allocation, independent-squad auto-pairing, capacity, seats, refunds on cancellation · match engine with room credentials released only after `credentialsReleaseAt` (`schema.prisma` `Match`) · results workflow `DRAFT→UNDER_REVIEW→CONFIRMED→PUBLISHED` with evidence uploads and an immutable correction trail · configurable scoring (`pointsPerKill`, `placementPoints`, `bonusPoints`, `penaltyPoints`) — never hard-coded — with deterministic tie-breakers (`totalPoints → wins → kills → username`, `public.service.ts:298` — never row order) · prize pool / platform fee / payout maths separated in `tournament-economics.service.ts` · disputes (`Dispute` model, types, statuses, admin resolution) · fraud detection that **reports and never moves money** · notifications incl. match reminders with de-dupe stamps · scheduler with an index-backed due query and restart reconciliation · admin panel (users, teams, tournaments, matches, results, deposits, withdrawals, finance, fraud, support, audit logs, settings, ads, payment accounts, blog) · RBAC · audit logging · CSV exports · SEO/sitemap/robots · PWA with no financial caching · `verify:*` suites · 271 automated tests, of which 7 are the 100-way scale tier (§5.1).
+**Implemented and verified:** auth (rotation, reuse-revoke, email verify, reset, rate limits, bcrypt-12, suspension enforcement) · wallet/ledger with server-side-only amounts · deposits and withdrawals with admin review, holds and refunds · teams (create/invite/accept/remove/leave/captain/disband, size + UID + duplicate guards) · eligibility checks in the join path (`tournament.service.ts:263-315`: verified/complete-profile/UID/region/level/rank/ban) · UID uniqueness (`schema.prisma:384` `freeFireUID String? @unique`) with admin review tooling · slot allocation, independent-squad auto-pairing, capacity, seats, refunds on cancellation · match engine with room credentials released only after `credentialsReleaseAt` (`schema.prisma` `Match`) · results workflow `DRAFT→UNDER_REVIEW→CONFIRMED→PUBLISHED` with evidence uploads and an immutable correction trail · configurable scoring (`pointsPerKill`, `placementPoints`, `bonusPoints`, `penaltyPoints`) — never hard-coded — with deterministic tie-breakers (`totalPoints → wins → kills → username`, `public.service.ts:298` — never row order) · prize pool / platform fee / payout maths separated in `tournament-economics.service.ts` · disputes (`Dispute` model, types, statuses, admin resolution) · fraud detection that **reports and never moves money** · notifications incl. match reminders with de-dupe stamps · scheduler with an index-backed due query and restart reconciliation · admin panel (users, teams, tournaments, matches, results, deposits, withdrawals, finance, fraud, support, audit logs, settings, ads, payment accounts, blog) · RBAC · audit logging · CSV exports · SEO/sitemap/robots · PWA with no financial caching · `verify:*` suites · 279 automated tests, of which 7 are the 100-way scale tier (§5.1) and 8 the lifecycle certification (`PHASE18_CERTIFICATION.md`).
 
 **Genuine gaps (next phases, in the order that protects money first):**
 

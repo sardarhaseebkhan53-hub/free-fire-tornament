@@ -306,6 +306,23 @@ async function runJoin(
   // drift apart. Null for solo/independent entries, which pay by userId.
   let rosterSnapshot: string[] | null = null;
   return moneyTx(async (tx) => {
+    // PHASE 18 (certification fix) — the tournament row is locked BEFORE anything is
+    // read or decided, making "is there room?", "am I already registered?" and "which
+    // seat is free?" a single critical section.
+    //
+    // Why this had to move: the seat UPDATE below took this same lock, but only AFTER
+    // the double-join guard had already been evaluated. On a real multi-backend
+    // PostgreSQL a double-click therefore passed the guard twice (neither transaction
+    // could see the other's uncommitted row), both charged the entry fee, `registeredSlots`
+    // counted a phantom seat, and the second upsert silently re-seated the FIRST player's
+    // row. Reproduced 6/6 rounds against real PostgreSQL 17: one registration, TWO
+    // ENTRY_FEE debits, `registeredSlots=2`. On the single-writer dev engine the second
+    // request always saw the committed row, so the bug could never show up there.
+    //
+    // Lock order is tournament → team, which every other path already respects (nothing
+    // locks a team and then a tournament).
+    await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${t.id} FOR UPDATE`;
+
     // Re-read and lock the roster after the preflight checks. A captain could
     // otherwise remove a member between validation and charging the team.
     if (input.teamId && teamSize > 1) {
@@ -468,18 +485,45 @@ async function runJoin(
             }
           : {}),
       };
-      const reg = await tx.tournamentRegistration.upsert({
+      // Created, or — for a player who cancelled and wants back in — REVIVED from their
+      // own non-CONFIRMED row. Never overwritten: this used to be an upsert, so a
+      // second concurrent request could re-seat a row whose first charge was already in
+      // the ledger, leaving two debits against one registration.
+      const existingReg = await tx.tournamentRegistration.findUnique({
         where: { tournamentId_userId: { tournamentId: t.id, userId: pid } },
-        create: { tournamentId: t.id, userId: pid, ...regData },
-        update: {
-          ...regData,
-          status: 'CONFIRMED',
-          cancelledAt: null,
-          refundWalletTxId: null,
-          slotLocked: false,
-          registeredAt: new Date(),
-        },
+        select: { id: true, status: true },
       });
+      let reg: Awaited<ReturnType<typeof tx.tournamentRegistration.create>>;
+      if (existingReg) {
+        if (existingReg.status === 'CONFIRMED') {
+          throw conflict('ALREADY_REGISTERED', 'You are already registered for this tournament.');
+        }
+        const revived = await tx.tournamentRegistration.updateMany({
+          where: { id: existingReg.id, status: { not: 'CONFIRMED' } },
+          data: {
+            ...regData,
+            status: 'CONFIRMED',
+            cancelledAt: null,
+            refundWalletTxId: null,
+            slotLocked: false,
+            registeredAt: new Date(),
+          },
+        });
+        if (revived.count === 0) {
+          throw conflict('ALREADY_REGISTERED', 'This entry was confirmed by another request. Check your registrations.');
+        }
+        reg = await tx.tournamentRegistration.findUniqueOrThrow({ where: { id: existingReg.id } });
+      } else {
+        try {
+          reg = await tx.tournamentRegistration.create({ data: { tournamentId: t.id, userId: pid, ...regData } });
+        } catch (e) {
+          // The unique index is the hard guarantee; the guard above is the explanation.
+          if ((e as { code?: string } | null)?.code === 'P2002') {
+            throw conflict('ALREADY_REGISTERED', 'You are already registered for this tournament.');
+          }
+          throw e;
+        }
+      }
       if (isJoiner && couponId) {
         await tx.couponRedemption.create({
           data: { couponId, userId, registrationId: reg.id, discountAmount: new Prisma.Decimal(discount) },
