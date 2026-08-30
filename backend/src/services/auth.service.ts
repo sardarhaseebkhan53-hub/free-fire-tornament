@@ -5,7 +5,7 @@
 // =============================================================================
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { env, devTokenEchoAllowed } from '../lib/env';
 import {
   ApiError, badRequest, conflict, unauthorized,
@@ -308,7 +308,7 @@ export async function refreshSession(
   // cookie therefore serialize: each sees the previous rotation's committed
   // state and chains onto the successor, so no racer is ever left with a
   // "successor vanished" 401 and no benign race can nuke the session.
-  const out = await prisma.$transaction(async (tx) => {
+  const out = await moneyTx(async (tx) => {
     const locked = await tx.$queryRaw<Array<{ id: string; userId: string; revokedAt: Date | null; createdAt: Date }>>`
       SELECT "id", "userId", "revokedAt", "createdAt"
       FROM "auth_tokens" WHERE "tokenHash" = ${hashToken(rawRefresh)} AND "type" = 'REFRESH'
@@ -473,7 +473,7 @@ export async function resetPassword(token: string, newPassword: string, ctx: Req
   const row = await findToken(token, 'PASSWORD_RESET');
   if (!row) throw badRequest('TOKEN_INVALID', 'Reset link is invalid or has expired.');
 
-  await prisma.$transaction(async (tx) => {
+  await moneyTx(async (tx) => {
     await tx.user.update({
       where: { id: row.userId },
       data: { passwordHash: bcrypt.hashSync(newPassword, BCRYPT_ROUNDS) },
@@ -563,7 +563,7 @@ export async function changePassword(userId: string, currentPassword: string, ne
     throw unauthorized('INVALID_CREDENTIALS', 'Current password is incorrect.');
   }
   const hash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
-  await prisma.$transaction(async (tx) => {
+  await moneyTx(async (tx) => {
     await tx.user.update({ where: { id: userId }, data: { passwordHash: hash } });
     await tx.authToken.updateMany({
       where: { userId, type: 'REFRESH', revokedAt: null },

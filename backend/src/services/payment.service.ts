@@ -6,7 +6,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { Prisma, type DepositStatus, type WithdrawalStatus } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { readAfterUniqueViolation, withIdempotentRetry, withoutBlindRetry } from '../lib/tx-conflict';
@@ -361,7 +361,7 @@ async function requestWithdrawalOnce(
   const reference = `WDL${Date.now()}${Math.floor(100 + Math.random() * 900)}`;
   let out;
   try {
-    out = await prisma.$transaction(async (tx) => {
+    out = await moneyTx(async (tx) => {
     const wd = await tx.withdrawal.create({
       data: {
         userId,
@@ -473,7 +473,7 @@ export async function listMyWithdrawals(userId: string, page: number, pageSize: 
 /** Player cancels a still-PENDING withdrawal → holding released. */
 export async function cancelWithdrawal(userId: string, id: string, ctx: Ctx) {
   const currency = await getSetting('platform.currency', 'PKR');
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     const wd = await tx.withdrawal.findUnique({ where: { id } });
     if (!wd || wd.userId !== userId) throw notFound('Withdrawal not found');
     if (wd.status !== 'PENDING') {
@@ -609,7 +609,7 @@ async function reviewDepositOnce(
   // Referral reward gate: the referrer is paid when the referred player's
   // FIRST approved deposit reaches this minimum (default PKR 100).
   const referralMin = Number(await getSetting('referral.minFirstDeposit', 100));
-  const out = await prisma.$transaction(async (tx) => {
+  const out = await moneyTx(async (tx) => {
     const dep = await tx.deposit.findUnique({ where: { id: depositId } });
     if (!dep) throw notFound('Deposit not found');
     if (dep.status !== 'PENDING') {
@@ -710,7 +710,7 @@ export async function deleteDeposit(adminId: string, depositId: string, ctx: Ctx
   if (dep.status === 'APPROVED') {
     throw conflict('CONFLICT', 'Approved deposits cannot be deleted because the wallet was already credited.');
   }
-  await prisma.$transaction(async (tx) => {
+  await moneyTx(async (tx) => {
     await tx.deposit.delete({ where: { id: depositId } });
     await tx.auditLog.create({
       data: {
@@ -786,7 +786,7 @@ async function reviewWithdrawalOnce(
   // Settings reads stay OUTSIDE the transaction (Phase 5 deadlock fix).
   const currency = await getSetting('platform.currency', 'PKR');
   const flow = WITHDRAWAL_FLOW[action]!;
-  const out = await prisma.$transaction(async (tx) => {
+  const out = await moneyTx(async (tx) => {
     const wd = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
     if (!wd) throw notFound('Withdrawal not found');
     if (!flow.from.includes(wd.status)) {

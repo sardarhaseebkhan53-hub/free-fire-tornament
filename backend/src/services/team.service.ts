@@ -4,7 +4,7 @@
 // 2 (duo) and 4 (squad); only captains manage membership.
 // =============================================================================
 import crypto from 'node:crypto';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import type { Prisma, TeamType } from '../../generated/prisma';
 
@@ -61,7 +61,7 @@ export async function rotateTeamJoinCode(adminId: string, teamId: string, ctx: {
 /** Player — join a DUO/SQUAD team via code (accepts CNX-XXXXX or raw code). */
 export async function joinByCode(userId: string, codeRaw: string) {
   const code = codeRaw.trim().toUpperCase();
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     // Lock in a stable order: user first, then team. This serializes the
     // one-duo/one-squad invariant and the target team's capacity check.
     const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
@@ -109,7 +109,7 @@ export async function createTeam(userId: string, input: { name: string; tag: str
   // collision is a real conflict and is reported as such.
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      return await prisma.$transaction(async (tx) => {
+      return await moneyTx(async (tx) => {
         const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
           SELECT "id", "status" FROM "users" WHERE "id" = ${userId} FOR UPDATE
         `;
@@ -220,7 +220,7 @@ export async function respondInvite(userId: string, inviteId: string, accept: bo
     return prisma.teamInvite.findUniqueOrThrow({ where: { id: inviteId } });
   }
 
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
       SELECT "id", "status" FROM "users" WHERE "id" = ${userId} FOR UPDATE
     `;
@@ -280,7 +280,7 @@ async function assertTeamRosterMutable(tx: Prisma.TransactionClient, teamId: str
 }
 
 export async function removeMember(actorId: string, teamId: string, memberId: string) {
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "teams" WHERE "id" = ${teamId} FOR UPDATE`;
     const team = await tx.team.findUnique({ where: { id: teamId } });
     if (!team) throw notFound('Team not found');
@@ -294,7 +294,7 @@ export async function removeMember(actorId: string, teamId: string, memberId: st
 }
 
 export async function leaveTeam(userId: string, teamId: string) {
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "teams" WHERE "id" = ${teamId} FOR UPDATE`;
     const team = await tx.team.findUnique({ where: { id: teamId } });
     if (!team) throw notFound('Team not found');
@@ -309,7 +309,7 @@ export async function leaveTeam(userId: string, teamId: string) {
 }
 
 export async function transferCaptaincy(actorId: string, teamId: string, newCaptainId: string) {
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "teams" WHERE "id" = ${teamId} FOR UPDATE`;
     const team = await tx.team.findUnique({
       where: { id: teamId },

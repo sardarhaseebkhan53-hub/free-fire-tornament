@@ -15,7 +15,7 @@
 // =============================================================================
 import crypto from 'node:crypto';
 import { Prisma } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { TX_OPTS } from './wallet.service';
 
@@ -141,7 +141,7 @@ export async function assignSlot(
   }
   if (reg.slotLocked) throw conflict('CONFLICT', 'This registration slot is locked by an admin — unlock it first.');
 
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     // Lock the tournament row so joins and every admin slot operation share one
     // serialization point. Team registrations are moved as a group — splitting
     // one member away from the team's seat would corrupt match assignment.
@@ -186,7 +186,7 @@ export async function clearSlot(adminId: string, registrationId: string, reason:
   if (reg.seatNumber === null) throw badRequest('VALIDATION_ERROR', 'This registration has no assigned slot.');
   if (reg.slotLocked) throw conflict('CONFLICT', 'This slot is locked — unlock it before clearing.');
 
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${reg.tournamentId} FOR UPDATE`;
     const current = await tx.tournamentRegistration.findUnique({ where: { id: registrationId } });
     if (!current || current.seatNumber === null) throw badRequest('VALIDATION_ERROR', 'This registration has no assigned slot.');
@@ -219,7 +219,7 @@ export async function setSlotLock(
   const reg = await prisma.tournamentRegistration.findUnique({ where: { id: registrationId } });
   if (!reg) throw notFound('Registration not found');
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${reg.tournamentId} FOR UPDATE`;
     const current = await tx.tournamentRegistration.findUnique({ where: { id: registrationId } });
     if (!current) throw notFound('Registration not found');
@@ -254,7 +254,7 @@ export async function setParticipantState(
   const p = await prisma.matchParticipant.findUnique({ where: { id: participantId } });
   if (!p) throw notFound('Participant not found');
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "matches" WHERE "id" = ${p.matchId} FOR UPDATE`;
     const match = await tx.match.findUnique({ where: { id: p.matchId }, select: { resultsStatus: true } });
     if (!match) throw notFound('Match not found');
@@ -298,7 +298,7 @@ export async function pairIndependentTeam(
     throw badRequest('VALIDATION_ERROR', 'Pick between 2 and 4 players to pair.');
   }
 
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${tournamentId} FOR UPDATE`;
     const t = await tx.tournament.findUnique({
       where: { id: tournamentId },
@@ -425,7 +425,7 @@ export async function setRegistrationReady(
 ) {
   const reg = await prisma.tournamentRegistration.findUnique({ where: { id: registrationId } });
   if (!reg) throw notFound('Registration not found');
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await moneyTx(async (tx) => {
     const row = await tx.tournamentRegistration.update({
       where: { id: registrationId },
       data: { slotNote: note ?? (ready ? 'READY' : reg.slotNote) },

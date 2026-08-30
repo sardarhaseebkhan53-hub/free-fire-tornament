@@ -18,7 +18,8 @@
 // defense. Financial records are never silently changed by leaderboard edits.
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
+import { withIdempotentRetry } from '../lib/tx-conflict';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { moveBalance, TX_OPTS } from './wallet.service';
@@ -81,7 +82,7 @@ export async function submitResult(
   });
   if (!participant) throw forbidden('Only participants of this match can submit results.');
 
-  const submission = await prisma.$transaction(async (tx) => {
+  const submission = await moneyTx(async (tx) => {
     // Serialize duplicate submissions for the same match participant. Without
     // this lock, two simultaneous screenshots can both pass the preflight
     // query and enter the review queue.
@@ -171,7 +172,7 @@ export async function reviewResult(
   opts: { note?: string; placement?: number; kills?: number } = {},
   ctx: Ctx = {},
 ) {
-  const out = await prisma.$transaction(async (tx) => {
+  const out = await moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "result_submissions" WHERE "id" = ${submissionId} FOR UPDATE`;
     const sub = await tx.resultSubmission.findUnique({ where: { id: submissionId } });
     if (!sub) throw notFound('Result submission not found');
@@ -353,7 +354,24 @@ export async function tournamentStandings(tournamentId: string) {
 // Prize distribution — placement + capped kill pool + MVP (idempotent)
 // ---------------------------------------------------------------------------
 
+/**
+ * PHASE 18 — retryable, and safe to retry, for the same reason the deposit and
+ * withdrawal reviews are: the work is one transaction guarded by a state claim
+ * (`existingWinners` + per-row conditions). If the first attempt committed and
+ * its response was lost, the retry finds every award already CREDITED and
+ * returns a clean "already distributed" — it can never credit a second time.
+ */
 export async function distributePrizes(adminId: string, tournamentId: string, ctx: Ctx = {}) {
+  return withIdempotentRetry(
+    () => distributePrizesOnce(adminId, tournamentId, ctx),
+    {
+      attempts: 2,
+      busyMessage: 'Prize distribution hit database contention. Reload the tournament — if the winners are listed, the payout already went through.',
+    },
+  );
+}
+
+async function distributePrizesOnce(adminId: string, tournamentId: string, ctx: Ctx) {
   const currency = await getSetting('platform.currency', 'PKR');
   // Validate that there is something to rank before checking publication. This
   // keeps the actionable "verify results first" error for an empty tournament;
@@ -453,7 +471,7 @@ export async function distributePrizes(adminId: string, tournamentId: string, ct
   // adding a player who never paid, therefore cannot move prize money.
   const teamIds = [...new Set(awards.map((a) => a.teamId).filter((t): t is string => t !== null))];
 
-  const summary = await prisma.$transaction(async (tx) => {
+  const summary = await moneyTx(async (tx) => {
     // Serialize this tournament's settlement against a second admin clicking
     // "distribute" (and against cancellation/refunds) for the whole
     // transaction. The unique (tournamentId, position) index stays the hard,
@@ -782,7 +800,7 @@ export async function saveAdminResult(
     throw conflict('CONFLICT', 'Results are published and locked. Unpublish first (if permitted) to edit.');
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "matches" WHERE "id" = ${matchId} FOR UPDATE`;
     const currentMatch = await tx.match.findUnique({
       where: { id: matchId },
@@ -912,7 +930,7 @@ export async function setResultsStatus(
     return { id: matchId, resultsStatus: confirmed?.resultsStatus ?? 'CONFIRMED', resultsPublishedAt: confirmed?.resultsPublishedAt ?? null };
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await moneyTx(async (tx) => {
     const changed = await tx.match.updateMany({
       where: { id: matchId, resultsStatus: match.resultsStatus },
       data: {
@@ -953,7 +971,7 @@ export async function setResultsStatus(
  * computed prize on each row and is the only step that reveals results.
  */
 export async function confirmStandings(adminId: string, matchId: string, ctx: Ctx = {}) {
-  const computed = await prisma.$transaction(async (tx) => {
+  const computed = await moneyTx(async (tx) => {
     // Lock before reading the rows. Otherwise a save that commits while this
     // function is waiting could be overwritten by a score calculated from a
     // stale participant snapshot.

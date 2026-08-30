@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { verifyAccessToken } from '../lib/tokens';
 import { forbidden, unauthorized } from '../lib/errors';
-import { isLostConnection, isRetryableTxError } from '../lib/tx-conflict';
+import { isTransientDriverError } from '../lib/tx-conflict';
 import type { Role } from '../../generated/prisma';
 
 export interface AuthedUser {
@@ -54,7 +54,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       // row exists and its status is what rejects them below.)
       if (!user) user = await loadAccount(payload.sub);
     } catch (e) {
-      if (!isLostConnection(e) && !isRetryableTxError(e)) throw e;
+      if (!isTransientDriverError(e)) throw e; // a pure read: repeating it is always safe
       user = await loadAccount(payload.sub);
     }
     if (!user || user.status !== 'ACTIVE') {

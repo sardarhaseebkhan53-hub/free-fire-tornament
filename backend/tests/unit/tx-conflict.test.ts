@@ -7,7 +7,16 @@
 // =============================================================================
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, badRequest } from '../../src/lib/errors';
-import { isLostConnection, isRetryableTxError, readAfterUniqueViolation, withIdempotentRetry, withoutBlindRetry } from '../../src/lib/tx-conflict';
+import {
+  confirmAbsent,
+  isLostConnection,
+  isRetryableTxError,
+  isTransientDriverError,
+  isUnmappableResponse,
+  readAfterUniqueViolation,
+  withIdempotentRetry,
+  withoutBlindRetry,
+} from '../../src/lib/tx-conflict';
 
 const dbError = (code: string) => Object.assign(new Error('conflict'), { code });
 
@@ -106,5 +115,110 @@ describe('readAfterUniqueViolation', () => {
 
   it('gives up and returns null rather than looping forever', async () => {
     await expect(readAfterUniqueViolation(async () => null, 2)).resolves.toBeNull();
+  });
+});
+
+describe('confirmAbsent', () => {
+  it('returns the row on the first read without a second query', async () => {
+    let calls = 0;
+    const out = await confirmAbsent(async () => { calls += 1; return { id: 't1' }; });
+    expect(out).toEqual({ id: 't1' });
+    expect(calls).toBe(1);
+  });
+
+  it('re-reads once before letting a blank result become a refusal', async () => {
+    let calls = 0;
+    const out = await confirmAbsent(async () => {
+      calls += 1;
+      // first read comes back empty (torn connection), second one does not
+      return calls === 1 ? null : { id: 't1' };
+    });
+    expect(out).toEqual({ id: 't1' });
+    expect(calls).toBe(2);
+  });
+
+  it('still returns null for genuinely missing rows', async () => {
+    let calls = 0;
+    const out = await confirmAbsent(async () => { calls += 1; return null; }, 3);
+    expect(out).toBeNull();
+    expect(calls).toBe(3);
+  });
+});
+
+describe('isLostConnection', () => {
+  it('recognises Prisma 1017/1001/1008 by code, not only by wording', () => {
+    expect(isLostConnection({ code: 'P1017', message: 'Server has closed the connection.' })).toBe(true);
+    expect(isLostConnection({ code: 'P1001', message: 'Unable to impact' })).toBe(true);
+    expect(isLostConnection({ code: 'P1008', message: 'Timed out fetching a new connection' })).toBe(true);
+  });
+  it('recognises the driver phrasings that arrive without a code', () => {
+    expect(isLostConnection({ message: 'Connection terminated unexpectedly' })).toBe(true);
+    expect(isLostConnection({ message: 'DriverAdapterError: ConnectionClosed' })).toBe(true);
+    expect(isLostConnection({ message: 'timeout exceeded when trying to connect' })).toBe(true);
+  });
+  it('reads the SQLSTATE out of Prisma message text, where the driver hides it', () => {
+    expect(isLostConnection({ code: 'P2039', message: 'Database error. Code: `08P01`. Message: `bind message supplies 4 parameters`' })).toBe(true);
+    expect(isLostConnection({ message: 'Database error. Code: `53300`. Message: `too many connections`' })).toBe(true);
+    // A serialization failure is transient as well, but it is not a DEAD SOCKET:
+    // it belongs to the retryable-transaction bucket, and the two stay distinct.
+    expect(isLostConnection({ code: '40001', message: 'could not serialize access due to concurrent update' })).toBe(false);
+    expect(isRetryableTxError({ code: '40001' })).toBe(true);
+  });
+  it('does not swallow a business rejection', () => {
+    expect(isLostConnection({ code: 'P2002', message: 'Unique constraint failed' })).toBe(false);
+    expect(isLostConnection(new Error('Insufficient balance for this operation'))).toBe(false);
+  });
+});
+
+describe('P2028 (pool / transaction queue)', () => {
+  it('is classified as transient, because a queued burst is not a business rejection', () => {
+    expect(isRetryableTxError({ code: 'P2028' })).toBe(true);
+    expect(isRetryableTxError({ code: 'P2002' })).toBe(false);
+    expect(isRetryableTxError({ code: 'P2025' })).toBe(false);
+  });
+});
+
+describe('isTransientDriverError', () => {
+  it('catches the classes a service did not anticipate', () => {
+    // Prisma's unclassified driver failure: the request could not be completed,
+    // and it carries no code at all. This used to reach the client as a 500.
+    expect(isTransientDriverError({ name: 'PrismaClientUnknownRequestError', message: 'Database error. Code: `08P01`' })).toBe(true);
+    expect(isTransientDriverError({ name: 'PrismaClientInitializationError', message: "Can't reach database server" })).toBe(true);
+    expect(isTransientDriverError({ code: 'P2034' })).toBe(true);
+  });
+
+  it('leaves genuine faults alone', () => {
+    // A real business rejection keeps its own status — the net must not swallow it.
+    expect(isTransientDriverError(badRequest('INSUFFICIENT_BALANCE', 'insufficient balance'))).toBe(false);
+    expect(isTransientDriverError({ name: 'PrismaClientKnownRequestError', code: 'P2002', message: 'Unique constraint failed' })).toBe(false);
+    expect(isTransientDriverError({ name: 'PrismaClientRustPanicError', message: 'panicked at engine' })).toBe(false);
+    expect(isTransientDriverError(new Error('boom'))).toBe(false);
+  });
+});
+
+describe('an engine response that cannot be mapped (P2023)', () => {
+  const torn = () => ({
+    name: 'PrismaClientKnownRequestError',
+    code: 'P2023',
+    message: "Invalid `prisma.user.findUnique()` invocation\nMissing data field (Value): 'role'",
+  });
+
+  it('is busy, not broken — it reaches the client as a retryable answer', () => {
+    expect(isUnmappableResponse(torn())).toBe(true);
+    expect(isTransientDriverError(torn())).toBe(true);
+  });
+
+  it('is never replayed around a money write', async () => {
+    // The response is garbage, which says nothing about whether the INSERT behind it
+    // landed. Replaying could double-charge; refusing and letting the client check its
+    // history is the only safe move.
+    let calls = 0;
+    const err = torn();
+    // The original error propagates untouched (no CONFLICT substitution, no second
+    // attempt) so `fail()` can classify it as a retryable 503 with the
+    // "check your history" wording — which is the honest answer after a maybe.
+    await expect(withIdempotentRetry(async () => { calls++; throw err; }, { busyMessage: 'busy' }))
+      .rejects.toBe(err);
+    expect(calls).toBe(1);
   });
 });

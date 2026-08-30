@@ -10,7 +10,11 @@
 import { defineConfig } from 'vitest/config';
 
 export const TEST_DB_PORT = 55432;
-export const TEST_DATABASE_URL = `postgresql://postgres:postgres@127.0.0.1:${TEST_DB_PORT}/postgres?connection_limit=5`;
+// 20 sockets, not the old 5: the scale suite deliberately fans out (100 joins,
+// 50 withdrawals), and a pool smaller than the burst makes pg-pool hand back
+// connections the single-writer server already tore down — which shows up as
+// P2039/lost-connection noise inside the test, not as honest backpressure.
+export const TEST_DATABASE_URL = `postgresql://postgres:postgres@127.0.0.1:${TEST_DB_PORT}/postgres?connection_limit=20`;
 
 export default defineConfig({
   test: {

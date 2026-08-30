@@ -11,7 +11,7 @@
 //   • amounts at/above the configured threshold raise a fraud alert.
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { moveBalance, TX_OPTS } from './wallet.service';
@@ -102,7 +102,7 @@ async function runTransfer(senderId: string, input: TransferInput, actor: Transf
 
   const note = input.note?.trim().slice(0, 140) || null;
 
-  const transfer = await prisma.$transaction(async (tx) => {
+  const transfer = await moneyTx(async (tx) => {
     // Lock both wallets in user-id order before the daily-limit read and the
     // movements. This prevents concurrent sends from bypassing the limit and
     // avoids deadlocks when two players transfer in opposite directions.

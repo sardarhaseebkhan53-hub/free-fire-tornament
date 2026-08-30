@@ -13,7 +13,7 @@
 // CLOSED tickets are immutable — players open a new one instead.
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, forbidden, notFound } from '../lib/errors';
 import type { z } from 'zod';
 import type { createTicketSchema, ticketListQuerySchema } from '../validation/support.schema';
@@ -47,7 +47,7 @@ export async function createTicket(
   input: CreateInput,
   attachmentPath: string | null,
 ) {
-  const { ticket, message } = await prisma.$transaction(async (tx) => {
+  const { ticket, message } = await moneyTx(async (tx) => {
     const t = await tx.supportTicket.create({
       data: {
         userId,

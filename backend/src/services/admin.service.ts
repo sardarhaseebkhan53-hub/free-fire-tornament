@@ -4,7 +4,7 @@
 // settings and audit trail. Every mutation is audited; every list is paged.
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden } from '../lib/errors';
 import { getSetting, invalidateSetting } from './settings.service';
 import { notifyAllUsers } from './notification.service';
@@ -189,7 +189,7 @@ export async function setUserStatus(adminId: string, userId: string, status: 'AC
   // The status change, the forced session revocation, the player notification
   // and the audit record are ONE transaction: a crash halfway must never leave
   // a banned account with live sessions, or a suspension with no audit trail.
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await moneyTx(async (tx) => {
     const user = await tx.user.update({
       where: { id: userId },
       data: {
@@ -244,7 +244,7 @@ export async function adjustBalance(
   const amount = Math.abs(input.amount);
   const currency = await getSetting('platform.currency', 'PKR');
 
-  const out = await prisma.$transaction(async (tx) => {
+  const out = await moneyTx(async (tx) => {
     const entry = await moveBalance(tx, userId, input.bucket, direction, amount, direction === 'CREDIT' ? 'ADMIN_CREDIT' : 'ADMIN_DEBIT', {
       entityType: 'Wallet',
       reference: `ADJ${Date.now()}`,
@@ -316,7 +316,7 @@ export async function updateTournamentScoring(
     throw conflict('CONFLICT', `Scoring is frozen: match ${played.id.slice(0, 8)} is ${played.status.toLowerCase()}.`);
   }
 
-  await prisma.$transaction(async (tx) => {
+  await moneyTx(async (tx) => {
     // Conditional guard: re-check inside the transaction so a result reviewer
     // running at the same moment cannot slip between the check and the write.
     const raced = await tx.match.findFirst({
@@ -427,7 +427,7 @@ export async function createTournament(adminId: string, input: BuilderInput, ctx
     ? input.placementPoints
     : undefined;
 
-  const tournament = await prisma.$transaction(async (tx) => {
+  const tournament = await moneyTx(async (tx) => {
     const row = await tx.tournament.create({
       data: {
         title: input.title,
@@ -542,7 +542,7 @@ export async function setTournamentStatus(adminId: string, id: string, status: s
   // database has one writer and settings use the global Prisma client.
   const currency = status === 'CANCELLED' ? await getSetting('platform.currency', 'PKR') : null;
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await moneyTx(async (tx) => {
     // Lock the tournament before inspecting registrations. This serializes
     // cancellation against joins and prevents two admin clicks from refunding
     // the same registration twice.
@@ -701,7 +701,7 @@ export async function setMatchStatus(
     throw conflict('CONFLICT', `Cannot move a ${m.status.toLowerCase()} match to ${status.toLowerCase()}.`);
   }
 
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "matches" WHERE "id" = ${id} FOR UPDATE`;
     const current = await tx.match.findUnique({ where: { id } });
     if (!current) throw badRequest('NOT_FOUND', 'Match not found');
@@ -810,7 +810,7 @@ export async function recalculateLeaderboard(adminId: string, ctx: { ip?: string
     for (const m of members) add(m.userId, p, teamKills);
   }
 
-  await prisma.$transaction(async (tx) => {
+  await moneyTx(async (tx) => {
     for (const [userId, s] of agg) {
       await tx.playerStat.upsert({
         where: { userId },
@@ -1062,7 +1062,7 @@ export async function deleteTournament(adminId: string, id: string, ctx: { ip?: 
 
   // Soft delete: the row, wallet ledger, prize records and winners all stay for
   // reconciliation/audit; it is simply hidden from every admin/public list.
-  await prisma.$transaction(async (tx) => {
+  await moneyTx(async (tx) => {
     await tx.tournament.update({ where: { id }, data: { deletedAt: new Date() } });
     await tx.auditLog.create({
       data: {
@@ -1080,7 +1080,7 @@ export async function deleteMatch(adminId: string, id: string, ctx: { ip?: strin
   const m = await prisma.match.findUnique({ where: { id }, select: { id: true, matchNumber: true, deletedAt: true, tournament: { select: { title: true, deletedAt: true } } } });
   if (!m) throw badRequest('NOT_FOUND', 'Match not found');
   if (m.deletedAt) return { id: m.id, deleted: true };
-  await prisma.$transaction(async (tx) => {
+  await moneyTx(async (tx) => {
     await tx.match.update({ where: { id }, data: { deletedAt: new Date() } });
     await tx.auditLog.create({
       data: {
@@ -1350,7 +1350,7 @@ export async function listAuditLogs(filter: { action?: string; entity?: string; 
 // disputes, blogs, FAQs, ads, expenses and player stats.
 // ---------------------------------------------------------------------------
 export async function resetDemoData(actorId: string, ctx: { ip?: string; userAgent?: string } = {}) {
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     const keepRoles = { in: ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'] as const };
 
     // Content that references users/teams/tournaments — children first.

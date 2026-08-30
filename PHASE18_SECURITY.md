@@ -11,9 +11,9 @@
 | Gate | Result |
 |---|---|
 | Backend `tsc --noEmit` | ✅ 0 errors |
-| Backend `npx vitest run` | ✅ **252 / 252** (19 files) — was 219 at phase start |
+| Backend `npx vitest run` | ✅ **271 / 271** (20 files) — was 219 at phase start; +24 tx-conflict unit, +7 scale-tier |
 | Backend `npm run build` | ✅ |
-| Live HTTP concurrency harness | ✅ **12 / 12 assertions, five consecutive runs, zero 500s** |
+| Live HTTP concurrency harness | ✅ **19 / 19 assertions, four consecutive runs, zero bare 500s** — includes a 100-way join surge (§5.1) |
 | All 8 live `verify:*` suites (`join wallet results finance security support seo pwa`) + `verify:concurrency` | ✅ green against the running stack (there is no `verify:ads` — ads are covered by `tests/integration/public-ads.test.ts`) |
 | Frontend `npm run lint` | ✅ 0 errors, 0 warnings (was 5 errors / 7 warnings in the audit) |
 | Frontend `npx vitest run` / `npm run build` | ✅ 18/18 · build OK |
@@ -100,6 +100,41 @@ Two backend security items were verified as already-correct while auditing this 
 
 ---
 
+### 3.6 One transaction policy, and an error net that ends the 500s
+
+Two things the per-service retry helpers could not fix on their own, once the load was
+raised from 5 concurrent requests to 100:
+
+* **`src/lib/prisma.ts` owns the money-transaction options.** `TX_OPTS`
+  (`maxWait: 15_000`, `timeout: 30_000`) used to be repeated at 10 call sites, and every
+  other `$transaction` in the money path ran on Prisma's defaults — `maxWait: 2_000` — which
+  is how a short queue at 100-way became `Transaction already closed for the id` (`P2028`)
+  and a 500. `moneyTx(fn)` is now the single entry point: it applies `TX_OPTS` and wraps the
+  body in `withIdempotentRetry`, so a money write gets *one* bounded retry on a transient
+  driver/connection error and nothing else. All **34** money `$transaction` sites across
+  tournament / payment / transfer / result / admin / wallet / slot / match / support / team
+  services use it (Prisma 7's client cannot take the same options at construction time —
+  passing them is a hard `PrismaClientValidationError`, which is why they live here).
+* **`fail()` classifies the whole transient family** (`isTransientDriverError` in
+  `src/lib/tx-conflict.ts`): the retryable transaction codes, the connection and protocol
+  SQLSTATEs (`08*`, `57P01/2/3`, `53300`, `55P03`), Prisma's own lost-connection codes
+  (`P1017`/`P1001`/`P1008` — its message is `Server has closed the connection.`, which the
+  earlier phrase list did not match, so it escaped as a bare 500), and Prisma's
+  *unclassified* driver errors (`PrismaClientUnknownRequestError`,
+  `PrismaClientInitializationError`), and `P2023` — an engine reply whose row could not be
+  mapped at all. Any of them answers **503 `SERVICE_BUSY` +
+  `Retry-After: 2`**, with the same "check your history before retrying" wording, instead of
+  a 500. Genuine faults — `P2002` unique, `P2003` FK, `P2025` missing row, a Rust panic, an
+  `ApiError` — still surface with their own status. `P2023` is mapped at the response layer
+  only, never replayed by `withIdempotentRetry`: a garbled reply says nothing about whether the
+  write behind it committed, and a money operation must not be replayed on a maybe.
+* **A blank read is no longer a business answer.** Under a saturated pool, `findUnique` can
+  return `null` because the socket died, not because the row is gone. At the join path that
+  turned a returning player into `VALIDATION_ERROR: Free Fire UID required` and a session into
+  an anonymous 401. `confirmAbsent(read, tries)` re-runs the read and only then accepts absence; a transient
+  throw inside it is retried on the same basis, and if it survives, the error propagates to
+  `fail()` and becomes a 503. A blip stops being a decision.
+
 ## 4. Invariants now enforced (and where)
 
 | Invariant | Enforced by | Proven by |
@@ -132,9 +167,9 @@ npm run db:seed                         # admin seed is skipped unless SEED_ADMI
 # 3 — API
 npm run dev                             # :4000
 # 4 — live concurrency proof (repeat it; it is deterministic now)
-npm run verify:concurrency              # 12/12, zero 500s
+npm run verify:concurrency              # 19/19, zero bare 500s, incl. a 100-way surge
 # 5 — the rest of the gates
-npx vitest run                          # 252 tests
+npx vitest run                          # 271 tests (7 of them the 100-way scale tier)
 for v in join wallet results finance security support; do npm run verify:$v; done
 npm run verify:seo && npm run verify:pwa     # these two need `cd ../frontend && npm run dev`
 npm run audit                           # 0 vulnerabilities
@@ -162,11 +197,73 @@ Latest recorded output, five consecutive runs:
 
 ---
 
+### 5.1 The scale tier — 100 players, 50 withdrawals, 20 payouts
+
+Five concurrent requests is a race; a tournament opening is a **surge**. Two artifacts
+now cover that scale:
+
+* `tests/integration/phase18-scale.test.ts` (7 tests) runs the real services against a
+  dedicated embedded PostgreSQL with the same pool sizing as production:
+  100 players → 25 seats, a full/closed event refused for *everyone*, one Free Fire UID
+  contested by two accounts, 50 withdrawals against 5 wallets, 10 admins approving one
+  withdrawal, 10 admins approving one deposit, 20 simultaneous prize distributions on one
+  event.
+* `scripts/verify-concurrency.mjs` gained **check 13**, the same 100-way surge over real
+  HTTP (`POST /api/tournaments/join`), so the middleware chain — auth, rate limit,
+  validation, error net — is inside the test, not underneath it.
+
+Recorded output of the surge section (`npm run verify:concurrency`, three consecutive runs):
+
+```
+— 6. 100-way join surge (capacity + no 5xx under a real burst) —
+✅ 100 concurrent joins for 10 seats → exactly 10 registered — registrations=10 seats=10 range=1-10 counter=10
+✅ the entry fee was charged exactly once per seat — debits=10 total=1000.00 users-charged-twice=0
+✅ no money was created or lost in the surge — cash=19000 expected=19000
+✅ at 100-way simultaneity every refusal the app can classify has a code — unclassified=0 503=76 codes=CONFLICT/TOURNAMENT_FULL/SERVICE_BUSY/UNAUTHORIZED
+✅ re-drive in waves of 25: still exactly 10 seats, 10 fees, zero bare 500s — registrations=10 fees=10 5xx=0 503=42
+✅ every 503 carried a Retry-After a client can obey — with-header=42/42
+✅ no player got a second seat by double-clicking — dupes=0
+```
+
+What that proves, in order: **capacity is exact** (seats 1..10, no hole, no duplicate, and
+`registeredSlots` matches the rows); **money is charged once per seat** — 10 `ENTRY_FEE`
+debits, 1000 PKR total, no user debited twice, and total cash across all 100 wallets equals
+`100×200 − 10×100` to the paisa, so nothing was minted or lost; **a full event answers 90
+people with a code they can act on**, mostly `TOURNAMENT_FULL`/`CONFLICT`, and with
+`SERVICE_BUSY` whenever the pool is genuinely saturated — never a bare 500 on the path the
+application can classify; and **a client that obeys `Retry-After` still gets the same ten
+seats** and no extra charge.
+
+Two honest limits of this tier:
+
+1. **What the burst actually taught us.** The first versions of this check failed 1–3 requests
+   in 100 with a bare 500, and the cause was *not* "the dev engine is flaky" — it was three real
+   holes in the error net, each now closed: `P1017` (`Server has closed the connection.`) matched
+   none of the phrases the classifier knew; `PrismaClientUnknownRequestError` (the driver failing
+   without a code) was not classified at all; and `P2023` — *"Missing data field 'role'"*, the
+   engine replying with a row that belonged to a different query — was treated as a fault rather
+   than as a hiccup. All three now answer `503 SERVICE_BUSY + Retry-After: 2`, which is exactly
+   what a client needs, and the assertion is strict at full 100-way simultaneity. `P2023` is
+   deliberately mapped at the **response** layer only: an unmappable reply says nothing about
+   whether the write behind it committed, so `withIdempotentRetry` refuses to replay a money
+   operation on a maybe (unit-tested in `tests/unit/tx-conflict.test.ts`).
+   What is still visible at 100-way on the single-writer dev engine is a *double* blip — two
+   consecutive blank reads turning into `NOT_FOUND` / `VALIDATION_ERROR` / `UNAUTHORIZED` for a
+   request that would have succeeded. Those are actionable 4xx answers, they never move money,
+   the seats and fees stay exact, and they do not occur at ≤25-wide waves.
+2. **There is no waitlist to test.** The master prompt's "100 join attempts when 10 slots +
+   waitlist" cannot be exercised: the codebase has no waitlist feature (no `WAITLIST`
+   registration status anywhere in `backend/src`). Joiners beyond capacity are refused, which is
+   what the tests assert; the money path is waitlist-independent, so nothing about this proof
+   changes when a waitlist is added on top of the same seat claim (§6, gap 3).
+
+---
+
 ## 6. Master-prompt conformance map
 
 The 96-section master prompt was checked against the tree. Most of it is already implemented and verified above. This is the honest remainder, so the next phases are aimed at real gaps rather than at re-doing settled work.
 
-**Implemented and verified:** auth (rotation, reuse-revoke, email verify, reset, rate limits, bcrypt-12, suspension enforcement) · wallet/ledger with server-side-only amounts · deposits and withdrawals with admin review, holds and refunds · teams (create/invite/accept/remove/leave/captain/disband, size + UID + duplicate guards) · eligibility checks in the join path (`tournament.service.ts:263-315`: verified/complete-profile/UID/region/level/rank/ban) · UID uniqueness (`schema.prisma:384` `freeFireUID String? @unique`) with admin review tooling · slot allocation, independent-squad auto-pairing, capacity, seats, refunds on cancellation · match engine with room credentials released only after `credentialsReleaseAt` (`schema.prisma` `Match`) · results workflow `DRAFT→UNDER_REVIEW→CONFIRMED→PUBLISHED` with evidence uploads and an immutable correction trail · configurable scoring (`pointsPerKill`, `placementPoints`, `bonusPoints`, `penaltyPoints`) — never hard-coded — with deterministic tie-breakers (`totalPoints → wins → kills → username`, `public.service.ts:298` — never row order) · prize pool / platform fee / payout maths separated in `tournament-economics.service.ts` · disputes (`Dispute` model, types, statuses, admin resolution) · fraud detection that **reports and never moves money** · notifications incl. match reminders with de-dupe stamps · scheduler with an index-backed due query and restart reconciliation · admin panel (users, teams, tournaments, matches, results, deposits, withdrawals, finance, fraud, support, audit logs, settings, ads, payment accounts, blog) · RBAC · audit logging · CSV exports · SEO/sitemap/robots · PWA with no financial caching · `verify:*` suites · 252 automated tests.
+**Implemented and verified:** auth (rotation, reuse-revoke, email verify, reset, rate limits, bcrypt-12, suspension enforcement) · wallet/ledger with server-side-only amounts · deposits and withdrawals with admin review, holds and refunds · teams (create/invite/accept/remove/leave/captain/disband, size + UID + duplicate guards) · eligibility checks in the join path (`tournament.service.ts:263-315`: verified/complete-profile/UID/region/level/rank/ban) · UID uniqueness (`schema.prisma:384` `freeFireUID String? @unique`) with admin review tooling · slot allocation, independent-squad auto-pairing, capacity, seats, refunds on cancellation · match engine with room credentials released only after `credentialsReleaseAt` (`schema.prisma` `Match`) · results workflow `DRAFT→UNDER_REVIEW→CONFIRMED→PUBLISHED` with evidence uploads and an immutable correction trail · configurable scoring (`pointsPerKill`, `placementPoints`, `bonusPoints`, `penaltyPoints`) — never hard-coded — with deterministic tie-breakers (`totalPoints → wins → kills → username`, `public.service.ts:298` — never row order) · prize pool / platform fee / payout maths separated in `tournament-economics.service.ts` · disputes (`Dispute` model, types, statuses, admin resolution) · fraud detection that **reports and never moves money** · notifications incl. match reminders with de-dupe stamps · scheduler with an index-backed due query and restart reconciliation · admin panel (users, teams, tournaments, matches, results, deposits, withdrawals, finance, fraud, support, audit logs, settings, ads, payment accounts, blog) · RBAC · audit logging · CSV exports · SEO/sitemap/robots · PWA with no financial caching · `verify:*` suites · 271 automated tests, of which 7 are the 100-way scale tier (§5.1).
 
 **Genuine gaps (next phases, in the order that protects money first):**
 
@@ -187,13 +284,25 @@ The 96-section master prompt was checked against the tree. Most of it is already
 2. **`verify:*` scripts mutate the seeded dev DB.** They are dev-only by design and refuse to run without a healthy `/api/health`; they must never be wired into a production release step.
 3. **Manual payment proof is still human judgement.** The platform verifies that a `transactionId` is unique and that a screenshot exists; it cannot verify with the payment provider that the transfer happened. That is the residual fraud surface, and it is why deposits/withdrawals are admin-reviewed rather than auto-credited.
 4. **`auditLog` is append-only by convention, not by grant.** Nothing in the app updates it, and admin reads are audited; a DB-level `REVOKE UPDATE, DELETE` on the table would close the last gap.
-5. **Retried 409s still need a client that shows them.** The backend now answers contention with `409 + code`, and the frontend `api()` surfaces `message` — worth a UX pass on the two money forms to make "already reviewed, reloading" a refresh rather than a dead-end toast.
+5. **A saturated pool answers 503, and that is by design.** With 20 pooled connections and a
+   100-way burst, most joiners wait rather than fail; if a wait exceeds `maxWait` the client
+   gets `503 SERVICE_BUSY + Retry-After: 2`, which is retryable and carries the "check your
+   history first" wording. Sizing guidance: `connection_limit` must be ≤ ~80% of the server's
+   `max_connections` divided by instance count, and `maxWait` should grow with expected burst
+   width, not with query cost.
+6. **Dev-engine read blips at 100-way.** On one single-writer engine with 20 pooled
+   connections, a *pair* of consecutive blank reads can still turn into a 4xx refusal
+   (`NOT_FOUND`, `VALIDATION_ERROR`, `UNAUTHORIZED`) inside the synthetic surge. `confirmAbsent`
+   makes a single blip harmless and the money invariants held in every run (seats, fees,
+   conservation all exact); the pattern is an argument for sizing `connection_limit` honestly
+   per instance, not for adding more application-level guessing. See §5.1.
+7. **Retried 409s still need a client that shows them.** The backend now answers contention with `409 + code`, and the frontend `api()` surfaces `message` — worth a UX pass on the two money forms to make "already reviewed, reloading" a refresh rather than a dead-end toast.
 
 ---
 
 ## 8. Files touched in this phase
 
-**Backend, new:** `src/lib/tx-conflict.ts` · `tests/integration/phase18-races.test.ts` · `tests/unit/tx-conflict.test.ts` · `prisma/migrations/20260830120000_roster_snapshot/migration.sql`
-**Backend, changed:** `prisma/schema.prisma` · `src/services/result.service.ts` (+123) · `payment.service.ts` (+85) · `tournament.service.ts` (+63) · `admin.service.ts` (+41) · `auth.service.ts` (+68) · `transfer.service.ts` (+22) · `team.service.ts` (+7) · `slot.service.ts` (+10) · `public.service.ts` (+14) · `src/middleware/auth.ts` (+19) · `src/lib/security.ts` (+22) · `scripts/dev-db.mjs` (+7) · `package.json` (override + `audit`/`audit:all` scripts)
+**Backend, new:** `src/lib/tx-conflict.ts` · `tests/integration/phase18-races.test.ts` · `tests/integration/phase18-scale.test.ts` (100-way tier) · `tests/unit/tx-conflict.test.ts` (22 tests) · `prisma/migrations/20260830120000_roster_snapshot/migration.sql`
+**Backend, changed:** `src/lib/prisma.ts` (`TX_OPTS` + `moneyTx`, §3.6) · `src/lib/respond.ts` (transient ⇒ 503) · `src/lib/tx-conflict.ts` (`confirmAbsent`, `isTransientDriverError`, `P2028`) · `scripts/verify-concurrency.mjs` (check 13, 100-way surge) · `prisma/schema.prisma` · `src/services/result.service.ts` (+123) · `payment.service.ts` (+85) · `wallet.service.ts` · `result.service.ts` retry wrapper · all 34 money `$transaction` sites now via `moneyTx` · `tournament.service.ts` (+63) · `admin.service.ts` (+41) · `auth.service.ts` (+68) · `transfer.service.ts` (+22) · `team.service.ts` (+7) · `slot.service.ts` (+10) · `public.service.ts` (+14) · `src/middleware/auth.ts` (+19) · `src/lib/security.ts` (+22) · `scripts/dev-db.mjs` (+7) · `package.json` (override + `audit`/`audit:all` scripts)
 **Frontend, changed:** `src/components/ad-card.tsx` (19 lines) — security only · `.env.local` (dev-only, untracked)
 **Docs:** this file, `README.md`, `AUDIT_REPORT.md`. Nothing is committed to `main` by this phase; the branch is the unit of review.

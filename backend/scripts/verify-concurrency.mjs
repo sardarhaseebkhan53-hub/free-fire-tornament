@@ -81,6 +81,104 @@ const credited=Number((await db.query(`SELECT COALESCE(SUM(amount),0) s FROM wal
 ck('8 admins approving the same deposit → approved once',okA===1,`ok=${okA} statuses=${aps.map(r=>r.s).join(',')}`);
 ck('credited exactly PKR 1000 (no double credit)',credited===1000,`credited=${credited}`);
 
+console.log('\n— 6. 100-way join surge (capacity + no 5xx under a real burst) —');
+// The tournament opens, 100 players press JOIN at the same moment for 10 seats.
+// Three separate guarantees, all asserted on the database: capacity is exact,
+// money is charged once per seat, and NOBODY gets a 5xx — a full event must
+// answer the other 90 with a reason they can act on, not an internal error.
+const FEE = 100, SEATS = 10, CROWD = 100;
+const slugJ = `cc-${R}-surge`;
+const tRow = (await db.query(
+  `INSERT INTO tournaments (id,title,slug,type,status,"maxSlots","registeredSlots","minSlotsToStart","numWinners","entryFeePerPlayer","prizePool","platformFee","bonusPercent","refundPercent","pointsPerKill","bonusPoints","penaltyPoints","game","isVerified","isFeatured","startTime","registrationDeadline","createdAt","updatedAt")
+   VALUES (gen_random_uuid()::text,$1,$2,'SOLO','REGISTRATION_OPEN',$3,0,1,4,$4,1000,0,0,100,1,0,0,'FREE_FIRE',true,false,now() + interval '2 hours',now() + interval '1 hour',now(),now())
+   RETURNING id`,[`Surge Cup ${R}`,slugJ,SEATS,FEE])).rows[0];
+const crowd = (await db.query(
+  `WITH n AS (SELECT gen_random_uuid()::text AS id, 'cc${R}j'||i AS uname FROM generate_series(1,$1) i),
+     u AS (INSERT INTO users (id,username,email,"passwordHash",role,status,"isVerified","referralCode","createdAt","updatedAt")
+             SELECT id, uname, uname||'@example.com', $2, 'USER','ACTIVE',true,'CC-'||substr(md5(id),1,6),now(),now() FROM n RETURNING id, username),
+     w AS (INSERT INTO wallets (id,"userId","cashBalance","winningBalance","createdAt","updatedAt")
+             SELECT gen_random_uuid()::text, id, ${FEE * 2}, 0, now(), now() FROM u RETURNING 1),
+     pr AS (INSERT INTO user_profiles (id,"userId","fullName","freeFireUID","freeFireIGN","createdAt","updatedAt")
+             SELECT gen_random_uuid()::text, id, username, '9'||lpad((row_number() OVER (ORDER BY username))::text,9,'0'), username, now(), now() FROM u RETURNING 1)
+   SELECT id, username FROM u`,[CROWD,bcrypt.hashSync('Conc@12345',4)])).rows;
+// Each simulated player arrives from its own address, the way the Next.js proxy
+// presents them — so no two players share a rate-limit bucket, and the burst
+// tests the join engine rather than the limiter.
+const surge = await Promise.all(crowd.map(async (u,i)=>{
+  const h={'content-type':'application/json','x-clutchnex-client':'web',authorization:`Bearer ${tok(u.id,u.username)}`,'x-forwarded-for':`198.51.${(i>>8)&255}.${i&255}`};
+  const r=await fetch(`${API}/tournaments/join`,{method:'POST',headers:h,body:JSON.stringify({tournamentSlug:slugJ})});
+  return {s:r.status,b:await r.json().catch(()=>({}))};
+}));
+const regRows=await db.query(`SELECT count(*) n, count(DISTINCT "seatNumber") seats, min("seatNumber") mn, max("seatNumber") mx FROM tournament_registrations WHERE "tournamentId"=$1 AND status='CONFIRMED'`,[tRow.id]);
+const rg=regRows.rows[0];
+const slots=Number((await db.query(`SELECT "registeredSlots" n FROM tournaments WHERE id=$1`,[tRow.id])).rows[0].n);
+ck(`${CROWD} concurrent joins for ${SEATS} seats → exactly ${SEATS} registered`,Number(rg.n)===SEATS&&Number(rg.seats)===SEATS&&Number(rg.mn)===1&&Number(rg.mx)===SEATS&&slots===SEATS,
+  `registrations=${rg.n} seats=${rg.seats} range=${rg.mn}-${rg.mx} counter=${slots}`);
+// The join ledger rows point at the REGISTRATION, not the tournament, so scope by
+// the surge crowd: 10 seats means exactly 10 entry-fee debits for these users.
+const surgeIds=`(SELECT id FROM users WHERE username LIKE 'cc${R}j%')`;
+const feeRows=(await db.query(`SELECT count(*) n, COALESCE(SUM(amount),0) s FROM wallet_transactions WHERE type='ENTRY_FEE' AND direction='DEBIT' AND \"userId\" IN ${surgeIds}`)).rows[0];
+const perUser=(await db.query(`SELECT count(*) n FROM (SELECT \"userId\" FROM wallet_transactions WHERE type='ENTRY_FEE' AND direction='DEBIT' AND \"userId\" IN ${surgeIds} GROUP BY \"userId\" HAVING count(*)>1) d`)).rows[0].n;
+ck('the entry fee was charged exactly once per seat',Number(feeRows.n)===SEATS&&Number(feeRows.s)===SEATS*FEE&&Number(perUser)===0,`debits=${feeRows.n} total=${feeRows.s} users-charged-twice=${perUser}`);
+const cashLeft=Number((await db.query(`SELECT COALESCE(SUM(\"cashBalance\"),0) s FROM wallets WHERE \"userId\" IN ${surgeIds}`)).rows[0].s);
+ck('no money was created or lost in the surge',cashLeft===CROWD*FEE*2-SEATS*FEE,`cash=${cashLeft} expected=${CROWD*FEE*2-SEATS*FEE}`);
+const refused=surge.filter(r=>r.s!==201);
+// 503 SERVICE_BUSY is the DESIGNED answer when the pool is saturated — it is
+// retryable and carries Retry-After. What must never happen is a bare 500.
+const hard5xx=surge.filter(r=>r.s>=500&&r.s!==503).length;
+const busy=surge.filter(r=>r.s===503);
+// A saturated pool must degrade, never break: every transient database failure in
+// the family (torn socket, 08P01 protocol violation, P2023 "the row I got back
+// belongs to another query", P2028 transaction closed, pool exhaustion) is mapped
+// by fail() to 503 SERVICE_BUSY + Retry-After. A bare 500 here is always a bug, so
+// it is asserted at full 100-way simultaneity, not just in the calm re-drive below.
+ck(`a 100-way surge never answers with a bare 500 (${busy.length} requests got a retryable 503 instead)`,hard5xx===0,
+  `bare-500=${hard5xx} 503=${busy.length} codes=${[...new Set(refused.map(r=>r.b?.code??String(r.s)))].join('/')}`);
+// A client that obeys Retry-After must get in. Re-drive everyone the surge bounced,
+// 25 at a time — the shape an opening actually arrives in — and require the SAME
+// ten seats, no extra charge, and not one server error.
+const bounced=crowd.filter((_,i)=>surge[i].s!==201);
+async function storm(list,size){
+  const out=new Array(list.length);
+  let next=0;
+  const worker=async()=>{
+    for(;;){
+      const i=next++; if(i>=list.length) return;
+      const u=list[i];
+      const h={'content-type':'application/json','x-clutchnex-client':'web',authorization:`Bearer ${tok(u.id,u.username)}`,'x-forwarded-for':`203.0.113.${(i>>8)&255}.${i&255}`};
+      const r=await fetch(`${API}/tournaments/join`,{method:'POST',headers:h,body:JSON.stringify({tournamentSlug:slugJ})});
+      out[i]={s:r.status,b:await r.json().catch(()=>({})),retryAfter:r.headers.get('retry-after')};
+    }
+  };
+  await Promise.all(Array.from({length:size},worker));
+  return out;
+}
+// "Obey Retry-After" is the whole point of the header: wait the advertised 2 s
+// before re-entering, wave by wave — that is what a correct client does, and it is
+// the shape under which the API must never produce a server error.
+async function stormWithBackoff(list,size){
+  const out=[];
+  for(let i=0;i<list.length;i+=size){
+    await new Promise((r)=>setTimeout(r,2000));
+    out.push(...await storm(list.slice(i,i+size),size));
+  }
+  return out;
+}
+const redrive=await stormWithBackoff(bounced,25);
+const regAfter=Number((await db.query(`SELECT count(*) n FROM tournament_registrations WHERE "tournamentId"=$1 AND status='CONFIRMED'`,[tRow.id])).rows[0].n);
+const feesAfter=Number((await db.query(`SELECT count(*) n FROM wallet_transactions WHERE type='ENTRY_FEE' AND direction='DEBIT' AND "userId" IN ${surgeIds}`)).rows[0].n);
+// 503 is the DESIGNED busy answer (asserted on its own below); a 500 is not.
+const wave5xx=redrive.filter(r=>r.s>=500&&r.s!==503).length;
+const waveBusy=redrive.filter(r=>r.s===503);
+ck(`re-drive in waves of 25: still exactly ${SEATS} seats, ${SEATS} fees, zero bare 500s`,regAfter===SEATS&&feesAfter===SEATS&&wave5xx===0,
+  `registrations=${regAfter} fees=${feesAfter} 5xx=${wave5xx} 503=${waveBusy.length}`);
+ck('every 503 carried a Retry-After a client can obey',[...waveBusy].every(r=>r.retryAfter==='2'),
+  `with-header=${waveBusy.filter(r=>r.retryAfter==='2').length}/${waveBusy.length}`);
+const dupes=Number((await db.query(`SELECT count(*) n FROM (SELECT "userId" FROM tournament_registrations WHERE "tournamentId"=$1 GROUP BY "userId" HAVING count(*)>1) d`,[tRow.id])).rows[0].n);
+ck('no player got a second seat by double-clicking',dupes===0,`dupes=${dupes}`);
+await db.query(`DELETE FROM tournament_registrations WHERE "tournamentId"=$1`,[tRow.id]);
+await db.query(`DELETE FROM tournaments WHERE id=$1`,[tRow.id]);
+
 console.log('\n— 5. Ledger integrity —');
 const badChain=(await db.query(`SELECT count(*) n FROM wallet_transactions WHERE (direction='CREDIT' AND "balanceAfter"<>"balanceBefore"+amount) OR (direction='DEBIT' AND "balanceAfter"<>"balanceBefore"-amount)`)).rows[0].n;
 ck('every ledger row chains correctly',Number(badChain)===0,`bad=${badChain}`);

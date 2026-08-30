@@ -10,7 +10,7 @@
 //    atomic: either every ledger entry lands or none do.
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { TX_OPTS as SHARED_TX_OPTS, moneyTx, prisma } from '../lib/prisma';
 import { badRequest } from '../lib/errors';
 import { getSetting } from './settings.service';
 
@@ -29,7 +29,12 @@ const COLUMN: Record<Bucket, 'cashBalance' | 'coinBalance' | 'winningBalance' | 
   BONUS: 'bonusBalance',
 };
 
-export const TX_OPTS = { timeout: 20_000, maxWait: 10_000 };
+/**
+ * Kept as a re-export so the wallet/payment/admin paths all read one policy —
+ * PHASE 18 moved the numbers to `src/lib/prisma.ts` (single source of truth) and
+ * raised `maxWait`, which a burst of concurrent joins used to exceed.
+ */
+export const TX_OPTS = SHARED_TX_OPTS;
 
 export interface LedgerMeta {
   entityType?: string;
@@ -283,7 +288,7 @@ export async function convertCashToCoins(userId: string, amount: number) {
   const currency = await getSetting('platform.currency', 'PKR');
   const coins = Math.floor(amount * rate * 100) / 100;
 
-  const out = await prisma.$transaction(async (tx) => {
+  const out = await moneyTx(async (tx) => {
     const debit = await moveBalance(tx, userId, 'CASH', 'DEBIT', amount, 'COIN_CONVERSION', {
       entityType: 'Wallet',
       reference: `CNV${Date.now()}`,

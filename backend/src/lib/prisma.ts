@@ -15,7 +15,7 @@
 //     → migrations need a real, unpooled session connection.
 // =============================================================================
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '../../generated/prisma';
+import { Prisma, PrismaClient } from '../../generated/prisma';
 
 const DEFAULT_DEV_URL =
   'postgresql://postgres:postgres@127.0.0.1:5432/postgres?connection_limit=20';
@@ -73,6 +73,46 @@ function buildClient(): PrismaClient {
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 export const prisma: PrismaClient = globalForPrisma.prisma ?? buildClient();
+
+/**
+ * PHASE 18 — the transaction options a money movement runs with.
+ *
+ * Prisma's defaults (2s to GET a connection, 5s for the transaction itself) are
+ * tuned for request/response reads. A tournament opening or a payout batch
+ * legitimately queues behind a busy pool, and at those defaults the queue wait
+ * turns into `P2028 Unable to start a transaction in the given time` — a 500 for
+ * a player who did nothing wrong, and the exact failure the 100-way scale test
+ * caught. Waiting is the correct behaviour when the transaction is short and the
+ * work behind it is idempotent; `timeout` is bounded well below anything that
+ * could hold a wallet row long enough to matter, so a genuinely stuck
+ * transaction still aborts (and rolls back) rather than wedging the ledger.
+ */
+/**
+ * PHASE 18 — the transaction options every money path runs with.
+ *
+ * Prisma's defaults (2s to GET a connection, 5s for the transaction itself) are
+ * tuned for request/response reads. A tournament opening or a payout batch
+ * legitimately queues behind a busy pool, and at those defaults the wait turns
+ * into `P2028 Unable to start a transaction in the given time` — a 500 for a
+ * player who did nothing wrong. That is exactly what the 100-way scale test
+ * caught, and it is the reason this constant exists: waiting is the correct
+ * behaviour when the transaction is short, idempotent and claim-guarded.
+ *
+ * `timeout` stays bounded so a genuinely stuck transaction still aborts and
+ * rolls back instead of holding a wallet row hostage.
+ */
+export const TX_OPTS = { timeout: 20_000, maxWait: 20_000 };
+
+/**
+ * `prisma.$transaction` with {@link MONEY_TX} as the default — for money paths.
+ * A call site may still pass its own options to override either number.
+ */
+export function moneyTx<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  opts: Partial<{ maxWait: number; timeout: number; isolationLevel: Prisma.TransactionIsolationLevel }> = {},
+): Promise<T> {
+  return prisma.$transaction(fn, { ...TX_OPTS, ...opts });
+}
 
 if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;

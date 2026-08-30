@@ -673,8 +673,8 @@ same account, and `db:seed:admin` re-syncs its password hash on every run.
 | backend | `npm run db:seed` | Reset demo data |
 | backend | `npm run db:seed:admin` | Upsert permanent super-admin (production-safe) |
 | backend | `npm run typecheck` | `tsc --noEmit` |
-| backend | `npx vitest run` | Full suite — 252 tests incl. financial race tests |
-| backend | `npm run verify:concurrency` | Live burst harness: double-spend, idempotency, double approval, ledger chaining |
+| backend | `npx vitest run` | Full suite — 271 tests incl. financial race + 100-way scale tests |
+| backend | `npm run verify:concurrency` | Live burst harness (19 checks): double-spend, idempotency, double approval, ledger chaining, 100-way join surge |
 | backend | `npm run audit` | Production-dependency `npm audit` (must be 0) |
 | frontend | `npx next build` | Production build check |
 

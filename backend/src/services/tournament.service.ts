@@ -11,13 +11,13 @@
 // trusted.
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { ApiError, badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { fireCouponAbuse, fireJoinFailure } from './fraud.service';
 import { audit } from '../lib/security';
 import { moveBalance } from './wallet.service';
-import { isRetryableTxError, withIdempotentRetry } from '../lib/tx-conflict';
+import { confirmAbsent, isRetryableTxError, withIdempotentRetry } from '../lib/tx-conflict';
 
 const TEAM_SIZE: Record<'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD', number> = {
   SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4,
@@ -118,10 +118,20 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
 
 async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: string, actorUa?: string) {
   const actor: ActorCtx = { ip: actorIp, userAgent: actorUa };
-  const t = await prisma.tournament.findFirst({ where: { slug: input.tournamentSlug, deletedAt: null } });
+  // PHASE 18 — a missing tournament or account is confirmed by a second read
+  // before it becomes a refusal. A 100-way join burst produced one "Tournament
+  // not found" for an event that was on the player's screen: a blank read is
+  // indistinguishable from a missing row, and getting it wrong sends a player to
+  // their wallet to re-deposit an entry fee that was never due. A stale *positive*
+  // is still harmless: the seat is taken by a conditional UPDATE that re-asserts
+  // status, deadline and capacity inside the transaction, so nothing here can
+  // book a seat that no longer exists.
+  const t = await confirmAbsent(() =>
+    prisma.tournament.findFirst({ where: { slug: input.tournamentSlug, deletedAt: null } }),
+  );
   if (!t || t.status === 'DRAFT') throw notFound('Tournament not found');
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await confirmAbsent(() => prisma.user.findUnique({ where: { id: userId } }));
   if (!user) throw notFound('Account not found');
   if (user.status !== 'ACTIVE') throw forbidden('Account is not active.');
   if (!user.isVerified) throw forbidden('Verify your email before joining tournaments.');
@@ -162,10 +172,12 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
     // Join-time identity confirmation: values sent by the client win, but the
     // saved profile is the fallback, so a player who already saved their UID/
     // nickname can still join without retyping it (the UI prefills both).
-    const saved = await prisma.userProfile.findUnique({
-      where: { userId },
-      select: { freeFireUID: true, freeFireIGN: true },
-    });
+    // Same rule as every other read that gates a refusal: a blank result is
+    // confirmed before it becomes "complete your profile", because a player who
+    // HAS saved a UID must not be told they haven't.
+    const saved = await confirmAbsent(() =>
+      prisma.userProfile.findUnique({ where: { userId }, select: { freeFireUID: true, freeFireIGN: true } }),
+    );
     const identity = validateFFIdentity(input.freeFireUID ?? saved?.freeFireUID ?? undefined, input.freeFireIGN ?? saved?.freeFireIGN ?? undefined);
     try {
       await prisma.userProfile.upsert({
@@ -293,7 +305,7 @@ async function runJoin(
   // players paid for and what prize distribution later pays out can never
   // drift apart. Null for solo/independent entries, which pay by userId.
   let rosterSnapshot: string[] | null = null;
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     // Re-read and lock the roster after the preflight checks. A captain could
     // otherwise remove a member between validation and charging the team.
     if (input.teamId && teamSize > 1) {
@@ -526,7 +538,7 @@ export async function cancelRegistration(userId: string, tournamentSlug: string)
   // would deadlock the embedded single-writer database if performed in tx.
   const currency = await getSetting('platform.currency', 'PKR');
 
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     // Serialize cancellation against joins and other cancellations for this
     // tournament. The registration rows and wallet rows are then claimed and
     // changed in one atomic unit; a retry cannot issue a second refund.
