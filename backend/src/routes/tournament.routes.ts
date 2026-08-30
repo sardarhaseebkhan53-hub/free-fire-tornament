@@ -8,7 +8,8 @@ import { ok } from '../lib/respond';
 import { notFound } from '../lib/errors';
 import { couponLimiter, joinLimiter } from '../middleware/rateLimit';
 import { reqContext } from '../lib/security';
-import { joinSchema, couponPreviewSchema } from '../validation/tournament.schema';
+import { joinSchema, couponPreviewSchema, checkInSchema } from '../validation/tournament.schema';
+import { checkIn } from '../services/checkin.service';
 import {
   cancelRegistration, joinTournament, myRegistrations, previewCoupon,
 } from '../services/tournament.service';
@@ -38,6 +39,13 @@ tournamentRouter.get('/coupon-preview', requireAuth, couponLimiter, async (req, 
 // My registrations / matches (room credentials are added in Phase 6)
 tournamentRouter.get('/my', requireAuth, async (req, res) => {
   return ok(res, await myRegistrations(req.auth!.id));
+});
+
+// Check in for an event (PHASE 19). Idempotent, window-guarded, seat must be CONFIRMED.
+tournamentRouter.post('/check-in', requireAuth, async (req, res) => {
+  const input = checkInSchema.parse(req.body);
+  const out = await checkIn(req.auth!.id, input.tournamentSlug, reqContext(req));
+  return ok(res, out, out.alreadyCheckedIn ? 'Already checked in.' : 'Checked in — see you at the lobby.');
 });
 
 // Cancel my registration (captain cancels the whole team in team modes)

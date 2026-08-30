@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDialog } from '@/lib/use-dialog';
 import Link from 'next/link';
 import {
-  Check, Copy, Eye, EyeOff, KeyRound, Loader2, Lock, Trophy, Upload, X, XCircle,
+  Check, CheckCircle2, Clock, Copy, Eye, EyeOff, KeyRound, Loader2, Lock, Trophy, Upload, X, XCircle,
 } from 'lucide-react';
 import { EmptyState } from '@/components/ui';
 import { Reveal } from '@/components/reveal';
@@ -23,11 +23,19 @@ interface MyMatch {
   result: { placement: number | null; kills: number | null; points: number | null; status: string } | null;
   mySubmission: { status: string; placement: number | null; kills: number | null; note: string | null } | null;
 }
+/** Server-computed check-in state (the same resolver the POST route enforces). */
+interface CheckInState {
+  state: 'OPEN' | 'NOT_OPEN' | 'CLOSED' | 'MISCONFIGURED';
+  opensAt: string; closesAt: string; derived: boolean;
+  checkedInAt: string | null; noShowAt: string | null;
+}
+
 interface Item {
   tournament: {
     id: string; title: string; slug: string; type: string; map: string | null;
     status: string; startTime: string; entryFeePerPlayer: number; prizePool: number;
   };
+  checkIn: CheckInState;
   team: { name: string; tag: string } | null;
   slotNumber: number;
   myEarnings: number;
@@ -37,6 +45,95 @@ interface Standings {
   tournament: { title: string };
   standings: Array<{ rank: number; label: string; points: number; kills: number }>;
   winners: Array<{ position: number; label: string; amount: number; recipient: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// Check-in (PHASE 19). The whole point of this strip is that attendance is a
+// server-stamped fact: we render the state the API returned, and after a successful
+// POST we re-read the list instead of painting the card green ourselves. A tick every
+// 15s already runs, so a window that closes while the tab is open cannot keep showing
+// a live button.
+// ---------------------------------------------------------------------------
+function hhmm(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function CheckInStrip({ item, onChanged }: { item: Item; onChanged: () => void }) {
+  const ci = item.checkIn;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // An event with a broken window is an admin problem, not something to nag players with.
+  if (ci.state === 'MISCONFIGURED') return null;
+
+  async function checkIn() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api('/tournaments/check-in', { method: 'POST', body: { tournamentSlug: item.tournament.slug } });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Check-in failed. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (ci.checkedInAt) {
+    return (
+      <div
+        className="mt-3 flex flex-wrap items-center gap-2 rounded-input border border-success/30 bg-success/[6%] px-4 py-2.5"
+        data-testid="check-in-state"
+      >
+        <CheckCircle2 size={15} className="text-success" />
+        <span className="text-xs font-bold uppercase tracking-wide text-success">
+          Checked in at {hhmm(ci.checkedInAt)}
+        </span>
+        <span className="text-xs text-fg-3">Show up at the lobby — your seat #{String(item.slotNumber).padStart(2, '0')} is held.</span>
+        {ci.noShowAt && <span className="text-xs font-bold text-danger">A no-show was recorded before this.</span>}
+      </div>
+    );
+  }
+
+  const closed = ci.state === 'CLOSED';
+  const notOpen = ci.state === 'NOT_OPEN';
+
+  return (
+    <div
+      className="mt-3 flex flex-wrap items-center gap-3 rounded-input border border-line bg-base/60 px-4 py-2.5"
+      data-testid="check-in-state"
+    >
+      <Clock size={15} className={closed ? 'text-danger' : 'text-warning'} />
+      {notOpen && (
+        <span className="text-xs text-fg-2">
+          Check-in opens at <span className="tabular font-bold text-fg">{hhmm(ci.opensAt)}</span>. You will get a device alert when it does.
+        </span>
+      )}
+      {ci.state === 'OPEN' && (
+        <>
+          <span className="text-xs text-fg-2">
+            Check-in closes at <span className="tabular font-bold text-fg">{hhmm(ci.closesAt)}</span>.
+          </span>
+          <button
+            type="button"
+            onClick={checkIn}
+            disabled={busy}
+            data-testid="check-in-button"
+            className="inline-flex items-center gap-1.5 rounded-input bg-accent px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-white transition hover:brightness-110 active:scale-95 disabled:opacity-50"
+          >
+            {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Check in now
+          </button>
+        </>
+      )}
+      {closed && (
+        <span className="text-xs font-semibold text-danger">
+          {ci.noShowAt ? 'Check-in closed — you were marked as a no-show.' : 'Check-in closed. Contact the organiser before the lobby to keep your seat.'}
+        </span>
+      )}
+      {error && <span className="text-xs font-semibold text-danger">{error}</span>}
+    </div>
+  );
 }
 
 function CopyChip({ label, value }: { label: string; value: string }) {
@@ -216,6 +313,9 @@ export default function MyMatchesPage() {
                       )}
                     </div>
                   </div>
+
+                  {/* Check-in strip (PHASE 19) */}
+                  {tab !== 'completed' && it.checkIn && <CheckInStrip item={it} onChanged={load} />}
 
                   {/* Credentials strip */}
                   {tab !== 'completed' && m && (

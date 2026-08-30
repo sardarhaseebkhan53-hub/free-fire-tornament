@@ -9,7 +9,9 @@ import {
   Bell, CheckCheck, Gift, Headphones, Landmark, Loader2, ShieldCheck,
   Swords, Trophy, Upload, UserRound, Volume2, VolumeX, Wallet,
 } from 'lucide-react';
+import { BellRing, BellOff } from 'lucide-react';
 import { primeSoundOnGesture, playDing, isSoundEnabled, setSoundEnabled } from '@/lib/sound';
+import { disablePush, enablePush, getPushConfig, pushSupported } from '@/lib/push';
 import { deferLoad } from '@/lib/session';
 import { api, ApiClientError } from '@/lib/client-api';
 
@@ -55,6 +57,93 @@ function relTime(iso: string): string {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86_400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86_400)}d ago`;
+}
+
+// ---------------------------------------------------------------------------
+// Device alerts (PHASE 19, Web Push). One row, three honest states: the browser
+// cannot do it, the deployment has no VAPID keys, or you are (not) subscribed.
+// Deliberately inside the bell rather than in settings: it is a notification
+// preference, and a toggle the user finds only after a missed match is useless.
+// ---------------------------------------------------------------------------
+function PushAlertsToggle() {
+  const [state, setState] = useState<'loading' | 'unsupported' | 'disabled' | 'off' | 'on'>('loading');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!pushSupported()) return setState('unsupported');
+    const config = await getPushConfig();
+    if (!config.enabled) return setState('disabled');
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg?.pushManager ? await reg.pushManager.getSubscription() : null;
+      setState(sub && Notification.permission === 'granted' ? 'on' : 'off');
+    } catch {
+      setState('off');
+    }
+  }, []);
+
+  useEffect(() => { deferLoad(refresh); }, [refresh]);
+
+  // The SW cannot re-subscribe by itself (it holds no auth token) — it asks a tab.
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.data && typeof e.data === 'object' && (e.data as { type?: string }).type === 'push:resubscribe') {
+        void enablePush().then((r) => { setNote(r.message); void refresh(); });
+      }
+    };
+    navigator.serviceWorker?.addEventListener?.('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener?.('message', onMessage);
+  }, [refresh]);
+
+  async function toggle() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const result = state === 'on' ? await disablePush() : await enablePush();
+      setNote(result.message);
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (state === 'unsupported' || state === 'disabled') {
+    return (
+      <div className="flex items-center gap-2 border-t border-line bg-white/[2%] px-4 py-2.5 text-[11px] text-fg-3">
+        <BellOff size={12} />
+        {state === 'unsupported'
+          ? 'This browser cannot receive device alerts.'
+          : 'Device alerts are not enabled on this deployment.'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-line bg-white/[2%] px-4 py-2.5" data-testid="push-toggle">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-[11px] font-semibold text-fg-2">
+          <BellRing size={12} className={state === 'on' ? 'text-success' : 'text-fg-3'} />
+          Device alerts
+          <span className={state === 'on' ? 'text-success' : 'text-fg-3'}>{state === 'on' ? '· on' : '· off'}</span>
+        </span>
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={busy}
+          data-testid="push-toggle-button"
+          className="flex h-7 items-center gap-1 rounded-input border border-line px-2 text-[11px] font-bold text-fg-2 transition hover:border-accent/40 hover:text-accent disabled:opacity-40"
+        >
+          {busy ? <Loader2 size={12} className="animate-spin" /> : null}
+          {state === 'on' ? 'Turn off' : 'Turn on'}
+        </button>
+      </div>
+      {note && <p className="mt-1.5 text-[11px] leading-snug text-fg-3">{note}</p>}
+      <p className="mt-1 text-[10px] leading-snug text-fg-3">
+        Match-start and room-credential alerts. Your browser decides whether they show on the lock screen.
+      </p>
+    </div>
+  );
 }
 
 export function NotificationsBell({ variant = 'user' }: { variant?: 'user' | 'admin' }) {
@@ -212,6 +301,8 @@ export function NotificationsBell({ variant = 'user' }: { variant?: 'user' | 'ad
               );
             })}
           </div>
+
+          <PushAlertsToggle />
 
           {variant === 'admin' && (
             <div className="flex items-center gap-2 border-t border-line bg-white/[2%] px-4 py-2.5 text-[11px] text-fg-3">

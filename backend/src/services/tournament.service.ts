@@ -17,7 +17,11 @@ import { getSetting } from './settings.service';
 import { fireCouponAbuse, fireJoinFailure } from './fraud.service';
 import { audit } from '../lib/security';
 import { moveBalance } from './wallet.service';
+// One resolver for the check-in window: the join list, My Matches and the POST route all
+// read the deadline through this, so no surface can show a state the API would refuse.
+import { resolveCheckInWindow } from './checkin.service';
 import { confirmAbsent, isRetryableTxError, withIdempotentRetry } from '../lib/tx-conflict';
+import { syncTournamentParticipants } from './match.service';
 
 const TEAM_SIZE: Record<'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD', number> = {
   SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4,
@@ -107,13 +111,29 @@ function validateFFIdentity(uidRaw?: string, ignRaw?: string): { uid: string; ig
  * without this a player under load sees a 500 instead of a clean result.
  */
 export async function joinTournament(userId: string, input: JoinInput, actorIp?: string, actorUa?: string) {
-  return withIdempotentRetry(
+  const out = await withIdempotentRetry(
     () => joinTournamentOnce(userId, input, actorIp, actorUa),
     {
       attempts: 2,
       busyMessage: 'The arena is busy right now. Your entry fee was not charged — please try again.',
     },
   );
+  // PHASE 19 — a paid entry has to be visible to its match. `createMatch` snapshots
+  // participants at creation, so an event published WITH its match settings has an empty
+  // match table: the seat is booked and charged while the room roster stays blank, nobody
+  // can submit a result, and ROOM_CREDENTIALS / MATCH_STARTING have no recipients. Re-sync
+  // AFTER the money transaction has committed and treat a failure as non-fatal — a missing
+  // participant row is never a reason to roll back or refuse a charge, and staff re-sync by
+  // opening the room. Deliberately not inside the transaction.
+  const joinedId = (out as { tournament?: { id?: string } } | null)?.tournament?.id;
+  if (joinedId) {
+    try {
+      await syncTournamentParticipants(joinedId);
+    } catch (err) {
+      console.warn('[join] match participants re-sync failed (the paid entry is unaffected):', err);
+    }
+  }
+  return out;
 }
 
 async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: string, actorUa?: string) {
@@ -689,10 +709,25 @@ export async function myRegistrations(userId: string) {
         select: {
           id: true, title: true, slug: true, type: true, map: true, status: true,
           startTime: true, registrationDeadline: true, banner: true,
+          // PHASE 19 — the check-in window travels with the registration so the app can
+          // show "opens in 2h" / "closes in 9 min" without a second request, and so the
+          // state it renders is the state the server will enforce (same source, same math).
+          checkInOpensAt: true, checkInClosesAt: true,
         },
       },
       team: { select: { name: true, tag: true } },
     },
   });
-  return regs;
+  // `checkIn` is the RESOLVED window (the same function the POST route enforces), stamped
+  // with this seat's attendance — so a client rendering from this payload cannot disagree
+  // with what the server will accept. Raw columns stay on `tournament` for anything that
+  // already reads them.
+  return regs.map((reg) => ({
+    ...reg,
+    checkIn: {
+      ...resolveCheckInWindow(reg.tournament),
+      checkedInAt: reg.checkedInAt,
+      noShowAt: reg.noShowAt,
+    },
+  }));
 }

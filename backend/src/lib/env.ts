@@ -54,6 +54,20 @@ const schema = z.object({
   // joins, coupons) have their own much tighter budgets in middleware/rateLimit.
   RATE_LIMIT_PER_WINDOW: z.coerce.number().int().positive().default(600),
 
+  // --- Web Push (VAPID) -------------------------------------------------------
+  // Both halves or neither. A deployment with only the public key cannot sign a
+  // payload, and one with only the private key cannot hand the browser anything to
+  // subscribe with — either way the "notifications" toggle would look enabled and
+  // silently never deliver, which is worse than clearly disabled.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().default('mailto:admin@clutchnex.local'),
+  // A push service is a third party on the internet. It must never be able to hold a
+  // request handler or a scheduler tick open, so every send is bounded twice: by this
+  // timeout and by the library's own socket handling.
+  PUSH_TIMEOUT_MS: z.coerce.number().int().positive().max(30_000).default(4_000),
+  PUSH_MAX_FAILURES: z.coerce.number().int().positive().max(50).default(5),
+
   // --- Email (transactional: verification + password reset) -----------------
   EMAIL_PROVIDER: z.enum(['log', 'smtp', 'resend', 'postmark']).default('log'),
   EMAIL_FROM: z.string().default('CLUTCHNEX <no-reply@localhost>'),
@@ -115,6 +129,15 @@ function assertSecret(name: string, value: string) {
         `and set it in the environment — refusing to start in production.`,
     );
   }
+}
+
+// Half-configured push is a silent-failure machine: the client can subscribe (the
+// public key is served) and nothing ever arrives. Fail at boot instead.
+if (Boolean(env.VAPID_PUBLIC_KEY?.trim()) !== Boolean(env.VAPID_PRIVATE_KEY?.trim())) {
+  throw new Error(
+    'Push is half-configured: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must both be set ' +
+      '(generate a pair with `npm run push:keys`) or both left unset to disable push.',
+  );
 }
 
 if (isProd) {

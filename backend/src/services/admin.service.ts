@@ -11,6 +11,7 @@ import { notifyAllUsers } from './notification.service';
 import { computeEconomics, type PrizeInput } from './tournament-economics.service';
 import { moveBalance, TX_OPTS } from './wallet.service';
 import type { Bucket } from './wallet.service';
+import { syncTournamentParticipants } from './match.service';
 
 const num = (d: unknown) => Math.round(Number(d ?? 0) * 100) / 100;
 const pageOf = (p: number) => (Math.max(1, p) - 1);
@@ -701,7 +702,7 @@ export async function setMatchStatus(
     throw conflict('CONFLICT', `Cannot move a ${m.status.toLowerCase()} match to ${status.toLowerCase()}.`);
   }
 
-  return moneyTx(async (tx) => {
+  const out = await moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "matches" WHERE "id" = ${id} FOR UPDATE`;
     const current = await tx.match.findUnique({ where: { id } });
     if (!current) throw badRequest('NOT_FOUND', 'Match not found');
@@ -727,6 +728,19 @@ export async function setMatchStatus(
     });
     return { id, status: updated.status };
   }, TX_OPTS);
+
+  // PHASE 19 — opening the room is also the moment staff can repair a match that was
+  // created before registrations existed: re-sync its participants (idempotent) so the
+  // room table, the result rows and the credential/start notifications have their people.
+  // Outside the transaction above and never allowed to fail the status change.
+  if (m.tournamentId && ['ROOM_CREATED', 'ROOM_OPEN', 'CREDENTIALS_RELEASED', 'LIVE'].includes(status)) {
+    try {
+      await syncTournamentParticipants(m.tournamentId);
+    } catch (err) {
+      console.warn('[match] participant re-sync failed after a status change:', err);
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

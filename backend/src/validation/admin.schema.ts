@@ -187,6 +187,19 @@ export const matchUpdateSchema = z.object({
   map: z.string().trim().max(40).nullish(),
 });
 
+// Both sides optional: omitting (or nulling) one half returns it to the derived default.
+// The ordering check here is a courtesy — the service re-validates against the PROJECTED
+// window, since a derived half can be the one that breaks the sequence.
+export const checkInWindowSchema = z
+  .object({
+    opensAt: z.coerce.date().nullable().optional(),
+    closesAt: z.coerce.date().nullable().optional(),
+  })
+  .refine((v) => !v.opensAt || !v.closesAt || v.closesAt.getTime() > v.opensAt.getTime(), {
+    path: ['closesAt'],
+    message: 'Check-in must close after it opens.',
+  });
+
 export const ticketListQuerySchema = z.object({ status: z.enum(['OPEN', 'IN_PROGRESS', 'WAITING_USER', 'RESOLVED', 'CLOSED']).optional(), ...pageSchema });
 
 export const ticketReplySchema = z.object({

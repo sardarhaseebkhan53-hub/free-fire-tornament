@@ -193,7 +193,7 @@ export function JoinTournament({
 
   if (stage === 'done' && receipt) {
     return (
-      <div className="rounded-input border border-success/30 bg-success/10 px-5 py-4">
+      <div className="rounded-input border border-success/30 bg-success/10 px-5 py-4" data-testid="join-receipt">
         <p className="flex items-center gap-2 text-sm font-bold text-success">
           <ShieldCheck size={16} /> You are in! Entry of {money(receipt.totalPaid)} confirmed.
         </p>
@@ -308,11 +308,12 @@ export function JoinTournament({
           </>
         )}
 
-        {error && <p role="alert" className="mt-3 rounded-input border border-danger/30 bg-danger/10 px-3 py-2.5 text-xs font-medium text-danger">{error}</p>}
+        {error && <p role="alert" data-testid="join-error" className="mt-3 rounded-input border border-danger/30 bg-danger/10 px-3 py-2.5 text-xs font-medium text-danger">{error}</p>}
         <div className="mt-4 flex gap-2">
           <button
             onClick={confirm}
             disabled={stage === 'busy'}
+            data-testid="join-confirm"
             className="flex flex-1 items-center justify-center gap-2 rounded-input bg-accent px-4 py-3 text-sm font-bold text-white transition hover:bg-accent-strong disabled:opacity-60"
           >
             {stage === 'busy' && <Loader2 size={15} className="animate-spin" />}
@@ -330,6 +331,7 @@ export function JoinTournament({
     return (
       <button
         disabled
+        data-testid="join-full"
         className="w-full rounded-input border border-line bg-white/[3%] px-8 py-3.5 text-sm font-bold text-fg-3"
       >
         TOURNAMENT FULL — {maxSlots}/{maxSlots} seats taken
@@ -340,6 +342,7 @@ export function JoinTournament({
   return (
     <button
       onClick={start}
+      data-testid="join-open"
       className="w-full rounded-input bg-accent px-8 py-3.5 text-sm font-bold text-white shadow-[0_0_28px_rgba(139,92,246,0.45)] transition hover:bg-accent-strong"
     >
       JOIN TOURNAMENT — {money(teamSize > 1 ? entryPerTeam : entryPerPlayer)}

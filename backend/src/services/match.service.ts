@@ -10,6 +10,8 @@ import crypto from 'node:crypto';
 import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
+import { pushForNotification } from '../lib/push';
+import { resolveCheckInWindow } from './checkin.service';
 import { normalizePlacementTable } from '../lib/scoring';
 
 function randomRoomId(): string {
@@ -111,6 +113,32 @@ export async function syncParticipants(matchId: string) {
     added++;
   }
   return { added };
+}
+
+/**
+ * PHASE 19 — attach the confirmed entries to the matches a tournament ALREADY has.
+ *
+ * `createMatch` snapshots participants at creation, which is right for a match scheduled
+ * after registration closed — but publishing an event with its match settings (the admin
+ * form can do exactly that) creates the table while the entry list is still empty, and
+ * nothing ever revisited it. With no participant rows the room table is blank, a team has
+ * nowhere to submit a result, and the ROOM_CREDENTIALS / MATCH_STARTING notifications have
+ * nobody to notify: the players are invisible to their own match.
+ *
+ * Both moments that can repair it call this — a confirmed join, and staff opening the room.
+ * `syncParticipants` is idempotent, so re-running costs one indexed read per match, and
+ * callers must run it AFTER their money work has committed and swallow any failure: a
+ * missing participant row is never a reason to roll back or refuse an entry fee.
+ */
+export async function syncTournamentParticipants(tournamentId: string) {
+  if (!tournamentId) return { matches: 0, added: 0 };
+  const matches = await prisma.match.findMany({
+    where: { tournamentId, deletedAt: null },
+    select: { id: true },
+  });
+  let added = 0;
+  for (const m of matches) added += (await syncParticipants(m.id)).added;
+  return { matches: matches.length, added };
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +330,10 @@ export async function myMatches(userId: string) {
       tournament: {
         select: {
           id: true, title: true, slug: true, type: true, map: true, status: true,
-          startTime: true, entryFeePerPlayer: true, prizePool: true,
+          startTime: true, registrationDeadline: true, entryFeePerPlayer: true, prizePool: true,
+          // PHASE 19 — the window is selected here so the card renders the server's own
+          // state instead of recomputing deadlines in the browser.
+          checkInOpensAt: true, checkInClosesAt: true,
           matches: {
             where: { deletedAt: null },
             orderBy: { matchNumber: 'asc' },
@@ -370,6 +401,14 @@ export async function myMatches(userId: string) {
       },
       team: reg.team ? { name: reg.team.name, tag: reg.team.tag } : null,
       slotNumber,
+      // Check-in state for this event (PHASE 19). `resolveCheckInWindow` is the same
+      // function the POST /api/tournaments/check-in route uses to accept or refuse —
+      // deliberately shared, so a button can never promise a state the API rejects.
+      checkIn: {
+        ...resolveCheckInWindow(tournament, now),
+        checkedInAt: reg.checkedInAt,
+        noShowAt: reg.noShowAt,
+      },
       myEarnings: Number(earningsAgg._sum.amount ?? 0),
       matches: tournament.matches.map((m) => {
         const releaseAt = m.credentialsReleaseAt ? new Date(m.credentialsReleaseAt).getTime() : null;
@@ -427,6 +466,16 @@ export async function myMatches(userId: string) {
           },
         });
       }
+      // PHASE 19 — one push per match for everybody in it, fired once the rows are
+      // written. Deliberately not awaited: this loop runs inside a read path (the
+      // matches list lazily releases credentials), and a hung push service must not be
+      // able to slow a player down on the way into their own lobby.
+      pushForNotification(Array.from(users), {
+        type: 'ROOM_CREDENTIALS',
+        title: 'Room details unlocked 🔓',
+        body: 'Your room ID and password are ready in My Matches.',
+        data: { matchId, area: 'matches' },
+      });
     }
   }
 

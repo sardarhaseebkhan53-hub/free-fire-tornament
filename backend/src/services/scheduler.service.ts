@@ -6,6 +6,7 @@
 // even across server restarts, guarded by Match.startNotifiedAt.
 // =============================================================================
 import { prisma } from '../lib/prisma';
+import { pushForNotification } from '../lib/push';
 import { getSetting } from './settings.service';
 
 /** Notify participants of matches starting within the reminder window. */
@@ -63,6 +64,15 @@ export async function notifyUpcomingMatches(): Promise<number> {
       })),
     });
     sent += targets.size;
+    // PHASE 19 — the same alert as a device push, fired AFTER the rows exist and never
+    // awaited by anything that moves money. MATCH_STARTING is the one notification where
+    // a closed tab still matters, which is why it is pushed and not only queued.
+    pushForNotification(Array.from(targets), {
+      type: 'MATCH_STARTING',
+      title: minutes <= 1 ? 'Match starting now 🔴' : `Match starts in ~${minutes} min ⏱`,
+      body: `${m.tournament.title} — round ${m.round}, match #${m.matchNumber}. Room details are in My Matches.`,
+      data: { matchId: m.id, slug: m.tournament.slug, area: 'matches' },
+    });
   }
   return sent;
 }

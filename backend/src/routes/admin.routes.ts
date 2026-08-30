@@ -12,11 +12,12 @@ import {
   teamPairSchema, participantStateSchema, registrationReadySchema, resultsStatusSchema,
   adminTransactionsQuerySchema, revenueQuerySchema, financeQuerySchema, settingUpdateSchema, slotAssignSchema,
   slotClearSchema, slotLockSchema, ticketListQuerySchema,
-  ticketReplySchema, tournamentStatusSchema, upsertSeoSchema, userListQuerySchema,
+  ticketReplySchema, tournamentStatusSchema, upsertSeoSchema, userListQuerySchema, checkInWindowSchema,
   userStatusSchema, blogStatusSchema, paymentAccountSchema, paymentAccountToggleSchema,
 } from '../validation/admin.schema';
 import { listFraudAlerts, reviewFraudAlert } from '../services/fraud.service';
 import { adminWriteLimiter } from '../middleware/rateLimit';
+import { adminCheckIn, adminMarkNoShow, checkInBoard, setCheckInWindow } from '../services/checkin.service';
 import {
   adjustBalance, adjustPlayerStats, adminReports, adminStats, createAd, createBlog,
   createTournament, deleteMatch, deleteTournament, deleteUser, listAds, listAllTransactions, listAllTransactionsCsv, listAuditLogs, listBlog, listMatchesAdmin, listSeo,
@@ -160,6 +161,36 @@ adminRouter.post('/slots/:regId/lock', adminWriteLimiter, async (req, res) => {
 adminRouter.post('/slots/:regId/ready', adminWriteLimiter, async (req, res) => {
   const { ready, note } = registrationReadySchema.parse(req.body);
   return ok(res, await setRegistrationReady(req.auth!.id, String(req.params.regId), ready, note || null, ctxOf(req)), 'Ready state saved.');
+});
+
+// ---------------------------------------------------------------------------
+// Check-in board (PHASE 19) — who is actually here for this event.
+// `readyAt`/`absent` on MatchParticipant stay the admin's per-match lobby marks;
+// these endpoints are the tournament-level attendance record the player owns.
+// ---------------------------------------------------------------------------
+adminRouter.get('/tournaments/:id/check-in', async (req, res) => {
+  return ok(res, await checkInBoard(req.auth!.id, String(req.params.id)));
+});
+
+// Staff check-in at the desk (late arrival, dead phone, queue). Audited with the
+// before/after; never clears a previous noShowAt, because that is history.
+adminRouter.post('/registrations/:regId/check-in', adminWriteLimiter, async (req, res) => {
+  return ok(res, await adminCheckIn(req.auth!.id, String(req.params.regId), ctxOf(req)), 'Seat checked in.');
+});
+
+adminRouter.post('/registrations/:regId/no-show', adminWriteLimiter, async (req, res) => {
+  return ok(res, await adminMarkNoShow(req.auth!.id, String(req.params.regId), ctxOf(req)), 'Marked as no-show.');
+});
+
+// Organiser-controlled deadlines. `null` on either side returns that half to the derived
+// default (registration close to start) — the way to un-break an event after a typo.
+adminRouter.post('/tournaments/:id/check-in-window', adminWriteLimiter, async (req, res) => {
+  const input = checkInWindowSchema.parse(req.body);
+  return ok(
+    res,
+    await setCheckInWindow(req.auth!.id, String(req.params.id), { opensAt: input.opensAt ?? null, closesAt: input.closesAt ?? null }, ctxOf(req)),
+    'Check-in window saved.',
+  );
 });
 
 // Independent-registration pairing (spec §Modes): turn solo registrants into a
