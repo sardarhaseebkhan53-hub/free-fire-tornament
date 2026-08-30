@@ -104,7 +104,7 @@ export function HomeHero({
     <section className="relative overflow-hidden">
       <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
         <Image
-          src="/images/branding/hero-arena.jpg"
+          src="/images/branding/hero-arena.webp"
           alt=""
           fill
           priority

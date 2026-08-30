@@ -226,8 +226,10 @@ export async function markNoShows(now: Date = new Date()): Promise<{ tournaments
         audit({
           action: 'CHECK_IN_NO_SHOW_MARKED',
           entity: 'TournamentRegistration',
-          entityId: registration.id,
-          after: { tournamentId: t.id, windowClosedAt: shutAt.toISOString() },
+          // Keep the tournament as the audit entity for existing admin filters;
+          // registrationId in the immutable payload identifies the exact seat.
+          entityId: t.id,
+          after: { tournamentId: t.id, registrationId: registration.id, windowClosedAt: shutAt.toISOString() },
         }),
       ),
     );

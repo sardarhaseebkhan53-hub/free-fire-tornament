@@ -287,7 +287,8 @@ describe('§C no-show pass', () => {
     // unable to move a coin. No refund, no forfeit, no fee, no ledger row.
     const after = await moneySnapshot([a.id, b.id, c.id]);
     expect(after).toEqual(before);
-    expect(await db.auditLog.count({ where: { action: 'CHECK_IN_NO_SHOW_MARKED', entityId: t.id } })).toBe(1);
+    // One immutable audit event is written for each absent registration.
+    expect(await db.auditLog.count({ where: { action: 'CHECK_IN_NO_SHOW_MARKED', entityId: t.id } })).toBe(2);
   });
 
   it('is idempotent and does not re-mark an event already past', async () => {
