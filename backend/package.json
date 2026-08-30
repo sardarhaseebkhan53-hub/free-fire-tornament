@@ -34,6 +34,7 @@
     "verify:seo": "tsx scripts/verify-seo.mts",
     "verify:pwa": "tsx scripts/verify-pwa.mts",
     "verify:security": "tsx scripts/verify-security.mts",
+    "verify:concurrency": "node scripts/verify-concurrency.mjs",
     "test:auth-race": "node scripts/auth-race-test.mjs",
     "test:auth-expiry": "node scripts/auth-expiry-test.mjs"
   },

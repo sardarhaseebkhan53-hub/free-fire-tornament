@@ -2,7 +2,8 @@
 // Match Management page and the Results (publish workflow) page.
 // Room-style data table + direct result entry + Draft→Review→Confirm→Publish.
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useDialog } from '@/lib/use-dialog';
 import { Check, Download, Loader2, Lock, Search, ShieldCheck, X } from 'lucide-react';
 import { Modal, Pill } from '@/components/admin/kit';
 import { deferLoad } from '@/lib/session';
@@ -234,18 +235,23 @@ function MatchSetupEditor({ matchId, match, open, onToggle, onSaved }: {
   open: boolean; onToggle: () => void;
   onSaved: (m: MatchTableData['match']) => void;
 }) {
-  const [form, setForm] = useState({ roomId: '', roomPassword: '', notes: '', map: '', scheduledAt: '' });
+  // The editor form is DERIVED from the match it is editing: an admin edit
+  // (`draft`) wins, otherwise we always show the server's current values. This
+  // replaces an effect that copied props into state (cascading renders, and a
+  // stale form whenever the match refreshed while the panel was open).
+  const serverForm = useMemo(() => ({
+    // Identity of the server state we derived from — a refresh that actually
+    // changes the match invalidates a stale draft.
+    key: JSON.stringify([matchId, match.roomId, match.roomPassword, match.notes, match.map, match.scheduledAt]),
+    roomId: match.roomId ?? '', roomPassword: match.roomPassword ?? '',
+    notes: match.notes ?? '', map: match.map ?? '',
+    scheduledAt: match.scheduledAt ? new Date(match.scheduledAt).toISOString().slice(0, 16) : '',
+  }), [matchId, match]);
+  const [draft, setDraft] = useState<typeof serverForm | null>(null);
+  const form = draft && draft.key === serverForm.key ? draft : serverForm;
+  const setForm = (next: Omit<typeof serverForm, 'key'> & { key?: string }) =>
+    setDraft({ ...next, key: serverForm.key });
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setForm({
-        roomId: match.roomId ?? '', roomPassword: match.roomPassword ?? '',
-        notes: match.notes ?? '', map: match.map ?? '',
-        scheduledAt: match.scheduledAt ? new Date(match.scheduledAt).toISOString().slice(0, 16) : '',
-      });
-    }
-  }, [open, match]);
 
   async function save() {
     setBusy(true);
@@ -448,6 +454,8 @@ function ResultRowSheet({ p, busy, preview, onSave, onClose }: {
     penalty: draft.penalty ?? undefined,
   });
 
+  const dialogRef = useDialog<HTMLDivElement>(onClose);
+
   async function save() {
     setSaving(true);
     const ok = await onSave(p, draft);
@@ -456,9 +464,14 @@ function ResultRowSheet({ p, busy, preview, onSave, onClose }: {
   }
 
   return (
-    <div className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-label={`Edit result for ${p.playerOrTeam}`}>
+    <div className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm" onClick={onClose} role="presentation">
       <div
-        className="animate-fade-up max-h-[85vh] w-full overflow-y-auto rounded-t-[20px] border border-line bg-surface p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Edit result for ${p.playerOrTeam}`}
+        tabIndex={-1}
+        className="animate-fade-up max-h-[85vh] w-full overflow-y-auto rounded-t-[20px] border border-line bg-surface p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2">

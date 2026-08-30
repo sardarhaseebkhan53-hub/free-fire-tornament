@@ -3,6 +3,7 @@
 // with kill/placement override + auto points, screenshot proof, standings draft
 // and the idempotent prize-distribution trigger.
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Check, Loader2, RefreshCcw, Trash2, Trophy, X } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { AuthedImage, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
@@ -65,11 +66,15 @@ export default function AdminResultsPage() {
 
   // Live per-tournament scoring for the selected submission's points preview.
   useEffect(() => {
-    if (!selected) { setScoring(null); return; }
     let cancelled = false;
+    if (!selected) {
+      // Deferred so no setState happens synchronously inside the effect body.
+      void Promise.resolve().then(() => { if (!cancelled) setScoring(null); });
+      return () => { cancelled = true; };
+    }
     fetch(`/api/backend/public/tournaments/${selected.match.tournament.slug}`)
       .then((r) => r.json())
-      .then((j) => { if (!cancelled && j.success) setScoring(j.data.scoring); })
+      .then((j) => { if (!cancelled) setScoring(j.success ? j.data.scoring : null); })
       .catch(() => { if (!cancelled) setScoring(null); });
     return () => { cancelled = true; };
   }, [selected]);
@@ -331,7 +336,7 @@ export default function AdminResultsPage() {
                 </div>
               </div>
             ) : (
-              <p className="py-4 text-[11px] text-fg-3">Select a submission to load its tournament's scoring rules.</p>
+              <p className="py-4 text-[11px] text-fg-3">Select a submission to load its tournament&rsquo;s scoring rules.</p>
             )}
           </div>
         </div>
@@ -353,6 +358,7 @@ function PublishWorkflow({ tournaments, openTable, setOpenTable }: {
   openTable: string | null;
   setOpenTable: (id: string | null) => void;
 }) {
+  const router = useRouter();
   const [tourId, setTourId] = useState('');
   const [q, setQ] = useState('');
   const qs = new URLSearchParams({ page: '1', pageSize: '50', sort: 'scheduledAt', dir: 'desc' });
@@ -433,7 +439,7 @@ function PublishWorkflow({ tournaments, openTable, setOpenTable }: {
           onOpenSlots={(tournamentId: string) => {
             setOpenTable(null);
             setTourId(tournamentId);
-            window.location.href = `/admin/slots?tournament=${tournamentId}`;
+            router.push(`/admin/slots?tournament=${tournamentId}`);
           }}
         />
       )}
@@ -496,11 +502,11 @@ function useAdminListState<T>(path: string, deps: unknown[]) {
 function useTournamentStandings(tourId: string) {
   const [data, setData] = useState<Standings | null>(null);
   useEffect(() => {
-    if (!tourId) {
-      setData(null);
-      return;
-    }
     let cancelled = false;
+    if (!tourId) {
+      void Promise.resolve().then(() => { if (!cancelled) setData(null); });
+      return () => { cancelled = true; };
+    }
     api<Standings>(`/admin/tournaments/${tourId}/results`)
       .then((d) => { if (!cancelled) setData(d); })
       .catch(() => { if (!cancelled) setData(null); });

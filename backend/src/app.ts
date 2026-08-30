@@ -16,6 +16,7 @@ import { env, isProd } from './lib/env';
 import { apiLimiter } from './middleware/rateLimit';
 import { fail, ok } from './lib/respond';
 import { PRIVATE_UPLOAD_DIRS, UPLOAD_ROOT } from './lib/upload';
+import { prisma } from './lib/prisma';
 import { authRouter } from './routes/auth.routes';
 import { publicRouter } from './routes/public.routes';
 import { tournamentRouter } from './routes/tournament.routes';
@@ -74,11 +75,29 @@ export function createApp() {
   app.use(express.json({ limit: '256kb' }));
   app.use(express.urlencoded({ extended: false, limit: '64kb' }));
   app.use(cookieParser());
-  app.use('/api', apiLimiter);
+  // HEALTH CHECK — mounted BEFORE the rate limiter on purpose. Load balancers,
+  // uptime monitors and container orchestrators probe this endpoint from a
+  // small number of IPs, several times a minute, forever. Behind `apiLimiter`
+  // those probes eventually consume the shared per-IP budget and the platform
+  // starts receiving 429s for its own health checks — which reads as an
+  // unhealthy service and triggers restarts. It performs a real dependency
+  // check (a trivial DB round-trip) but never leaks connection details.
+  app.get('/api/health', async (_req, res) => {
+    const body = { status: 'ok', service: 'clutchnex-api', time: new Date().toISOString() };
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return ok(res, { ...body, database: 'up' });
+    } catch {
+      // 503 so orchestrators can act on it; no driver message is echoed back.
+      return res.status(503).json({
+        success: false,
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Service dependencies are unavailable.',
+      });
+    }
+  });
 
-  app.get('/api/health', (_req, res) =>
-    ok(res, { status: 'ok', service: 'clutchnex-api', time: new Date().toISOString() }),
-  );
+  app.use('/api', apiLimiter);
 
   app.use('/api/auth', authRouter);
   app.use('/api/public', publicRouter);

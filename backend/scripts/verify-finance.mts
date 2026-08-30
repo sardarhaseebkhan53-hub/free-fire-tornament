@@ -27,6 +27,8 @@ const API = process.env.API_URL ?? 'http://127.0.0.1:4000/api';
 const DB = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/postgres?connection_limit=5';
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET ?? 'dev-only-access-secret-change-me';
 
+import { ensureAdmin, ensureUser } from './lib/staff';
+
 let failures = 0;
 function check(name: string, cond: boolean, extra?: string) {
   console.log(`${cond ? '✅' : '❌'} ${name}${extra ? ` — ${extra}` : ''}`);
@@ -75,8 +77,10 @@ async function main() {
   const db = new pg.Client({ connectionString: DB });
   await db.connect();
 
-  const admin = signToken('verify-finance-admin', 'verify_admin', 'ADMIN');
-  const user = signToken('verify-finance-user', 'verify_user', 'USER');
+  const adminActor = await ensureAdmin(db);
+  const userActor = await ensureUser(db, 'verify_finance_user');
+  const admin = signToken(adminActor.id, adminActor.username, adminActor.role);
+  const user = signToken(userActor.id, userActor.username, userActor.role);
 
   // ---- 1. Access & RBAC ------------------------------------------------------------
   const denied = await api('/admin/finance', user);

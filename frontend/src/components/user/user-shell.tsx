@@ -2,6 +2,7 @@
 // User app shell — slim left sidebar + top chips, per design 12/14/16/17.
 // Desktop: fixed sidebar; mobile: compact header (bottom nav handles tabs).
 import { useEffect, useRef, useState } from 'react';
+import { useDialog } from '@/lib/use-dialog';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -196,9 +197,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
 
         {/* Mobile drawer — design 42 */}
         {drawerOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
-            <div className="animate-fade-in absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerRoute(null)} />
-            <div className="animate-drawer-in absolute inset-y-0 left-0 flex w-[17.5rem] max-w-[86vw] flex-col overflow-y-auto border-r border-line bg-surface pt-6 shadow-2xl">
+          <MobileDrawer onClose={() => setDrawerRoute(null)}>
               <div className="mb-6 flex items-center justify-between px-4">
                 <Logo />
                 <button
@@ -211,8 +210,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
               </div>
               {navList}
               <div className="mt-auto pt-4">{profileCard}</div>
-            </div>
-          </div>
+          </MobileDrawer>
         )}
 
         {/* Top chips row (desktop) */}
@@ -280,6 +278,30 @@ export function PageTitle({ title, sub, back }: { title: string; sub?: string; b
       )}
       <h1 className="font-display text-2xl font-bold text-fg sm:text-3xl">{title}</h1>
       {sub && <p className="mt-1 text-sm text-fg-2">{sub}</p>}
+    </div>
+  );
+}
+
+/**
+ * Mobile navigation drawer with real dialog semantics: Escape closes it, Tab
+ * stays inside it, background scrolling is locked and focus returns to the
+ * hamburger button on close.
+ */
+function MobileDrawer({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const panelRef = useDialog<HTMLDivElement>(onClose);
+  return (
+    <div className="fixed inset-0 z-50 lg:hidden" role="presentation">
+      <div className="animate-fade-in absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Main navigation"
+        tabIndex={-1}
+        className="animate-drawer-in absolute inset-y-0 left-0 flex w-[17.5rem] max-w-[86vw] flex-col overflow-y-auto border-r border-line bg-surface pt-6 shadow-2xl outline-none"
+      >
+        {children}
+      </div>
     </div>
   );
 }

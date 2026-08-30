@@ -60,8 +60,10 @@ async function main() {
   // A real admin user for the SEO/blog write paths.
   const staffId = (
     await db.query(
+      // Idempotent: the script must be re-runnable against the same database.
       `INSERT INTO users (id, username, email, "passwordHash", role, status, "isVerified", "referralCode", "createdAt", "updatedAt")
        VALUES (gen_random_uuid()::text,'seotest_admin','seotest_admin@example.com','x','ADMIN','ACTIVE',true,'RES-seo',now(),now())
+       ON CONFLICT (username) DO UPDATE SET role='ADMIN', status='ACTIVE', "deletedAt"=NULL
        RETURNING id`,
     )
   ).rows[0].id as string;

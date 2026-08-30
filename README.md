@@ -611,7 +611,7 @@ npm run dev             # http://localhost:3000
 
 | Role | Login | Password |
 |---|---|---|
-| Super admin (permanent) | `sardarghaseeb777@gmail.com` / `sardarghaseeb` | `sardar9003202@` |
+| Super admin | `SEED_ADMIN_EMAIL` / `SEED_ADMIN_USERNAME` (default `admin@clutchnex.local` / `clutchnexadmin`) | `SEED_ADMIN_PASSWORD` (dev default `ChangeMe@Dev123`) |
 | Admin | `ops@clutchnex.gg` | `OpsAdmin@123` |
 | Moderator | `mod@clutchnex.gg` | `ModPass@123` |
 | Players | `<username>@example.com` (e.g. `areeb_ff`) | `Player@123` |

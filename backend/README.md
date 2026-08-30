@@ -62,12 +62,13 @@ statement separator there.
   with `Error: Cannot find module '.../dist/index.js'`.
 - **`npm run db:migrate`** runs `prisma migrate deploy` and falls back to
   the offline SQL applier if the engine download is blocked.
-- **`npm run db:seed:admin`** (prisma/admin-seed.ts) upserts the permanent
-  super-admin (`SEED_ADMIN_EMAIL`/`SEED_ADMIN_USERNAME`, default
-  `sardarghaseeb777@gmail.com` / `sardarghaseeb`) and re-bakes the password
-  hash from `SEED_ADMIN_PASSWORD` on every run — so the owner login can never
-  desync after an `.env` change. Unlike `db:seed` it touches nothing else and
-  is production-safe.
+- **`npm run db:seed:admin`** (prisma/admin-seed.ts) upserts the super-admin
+  identified by `SEED_ADMIN_EMAIL` / `SEED_ADMIN_USERNAME` and re-bakes the
+  password hash from `SEED_ADMIN_PASSWORD` on every run — so the owner login
+  can never desync after an `.env` change. In production `SEED_ADMIN_PASSWORD`
+  is required (min 12 chars); when it is unset the seed is skipped rather than
+  provisioning a predictable password. Unlike `db:seed` it touches nothing else
+  and is production-safe.
 - The repo root's `railway.yaml` wires exactly these commands into a Railway
   `api` service — no manual build/start command entry needed.
 - In `NODE_ENV=production` the API **refuses to boot** on placeholder or
@@ -121,7 +122,7 @@ statement separator there.
 
 | Account class | Login                          | Password (dev default) |
 | ------------- | ------------------------------ | ---------------------- |
-| Super admin (permanent) | `sardarghaseeb777@gmail.com` / `sardarghaseeb` | `sardar9003202@` |
+| Super admin  | `SEED_ADMIN_EMAIL` / `SEED_ADMIN_USERNAME` (default `admin@clutchnex.local` / `clutchnexadmin`) | `SEED_ADMIN_PASSWORD` (dev default `ChangeMe@Dev123`) |
 | Admin         | `ops@clutchnex.gg`             | `OpsAdmin@123`         |
 | Moderator     | `mod@clutchnex.gg`             | `ModPass@123`          |
 | Players       | `<username>@example.com`       | `Player@123`           |

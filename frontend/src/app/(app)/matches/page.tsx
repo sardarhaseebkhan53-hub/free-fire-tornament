@@ -3,6 +3,7 @@
 // timed room credentials, per-match results, and the Phase 8 result-submission
 // flow (placement + kills + screenshot → staff verification).
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useDialog } from '@/lib/use-dialog';
 import Link from 'next/link';
 import {
   Check, Copy, Eye, EyeOff, KeyRound, Loader2, Lock, Trophy, Upload, X, XCircle,
@@ -362,9 +363,12 @@ function SubmitResultModal({ data, onClose, onDone }: { data: { item: Item; matc
     }
   }
 
+  const dialogRef = useDialog<HTMLDivElement>(onClose);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-[20px] border border-line bg-surface p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose} role="presentation">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Submit match result" tabIndex={-1}
+        className="w-full max-w-md rounded-[20px] border border-line bg-surface p-6 shadow-2xl outline-none" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h2 className="font-display text-lg font-bold text-fg">Submit Result</h2>
           <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-input border border-line text-fg-3 hover:text-fg" aria-label="Close">
@@ -461,9 +465,12 @@ function StandingsModal({ item, onClose }: { item: Item; onClose: () => void }) 
       .catch(() => setError(true));
   }, [item.tournament.slug]);
 
+  const dialogRef = useDialog<HTMLDivElement>(onClose);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-[20px] border border-line bg-surface p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose} role="presentation">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Final standings" tabIndex={-1}
+        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-[20px] border border-line bg-surface p-6 shadow-2xl outline-none" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h2 className="font-display text-lg font-bold text-fg">Final Standings</h2>
           <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-input border border-line text-fg-3 hover:text-fg" aria-label="Close">

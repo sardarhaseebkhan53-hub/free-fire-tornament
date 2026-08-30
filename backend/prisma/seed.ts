@@ -258,11 +258,12 @@ async function main() {
   // -------------------------------------------------------------------------
   // 3. Staff accounts
   // -------------------------------------------------------------------------
-  // PERMANENT super-admin — identical to prisma/admin-seed.ts (production).
-  // One identity everywhere: dev, staging and prod logins never drift.
-  const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'sardar9003202@';
-  const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'sardarghaseeb777@gmail.com';
-  const ADMIN_USERNAME = process.env.SEED_ADMIN_USERNAME ?? 'sardarghaseeb';
+  // Dev super-admin — same env vars as prisma/admin-seed.ts, so a developer
+  // who sets SEED_ADMIN_* gets one identity across dev/staging/prod. Demo
+  // credentials are DEVELOPMENT ONLY (this file refuses to run in production).
+  const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'ChangeMe@Dev123';
+  const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'admin@clutchnex.local';
+  const ADMIN_USERNAME = process.env.SEED_ADMIN_USERNAME ?? 'clutchnexadmin';
   const superAdmin = await prisma.user.create({
     data: {
       username: ADMIN_USERNAME,
@@ -270,7 +271,7 @@ async function main() {
       passwordHash: bcrypt.hashSync(ADMIN_PASSWORD, 10),
       role: 'SUPER_ADMIN', status: 'ACTIVE', isVerified: true, verifiedAt: daysAgo(60),
       referralCode: 'CLUTCH-ROOT01', lastLoginAt: hoursAgo(3),
-      profile: { create: { fullName: 'Sardar Ghaseeb', country: 'Pakistan', city: 'Islamabad' } },
+      profile: { create: { fullName: process.env.SEED_ADMIN_NAME ?? 'Platform Owner', country: 'Pakistan', city: 'Islamabad' } },
       wallet: { create: {} },
     },
   });

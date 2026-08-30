@@ -2,11 +2,12 @@
 // Admin panel shell — design 26: sidebar with ADMIN badge + section nav,
 // topbar with global search, bell and profile. RBAC-gated (ADMIN+).
 import { useEffect, useState } from 'react';
+import { useDialog } from '@/lib/use-dialog';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   ArrowUpRight, BarChart3, ClipboardList, CreditCard, FileText, Headphones,
-  Home, LayoutDashboard, LayoutGrid, Loader2, Megaphone, Search, Send, Settings, Shield, ShieldAlert,
+  Home, LayoutDashboard, Loader2, Megaphone, Search, Send, Settings, Shield, ShieldAlert,
   ScrollText, Swords, TrendingUp, Trophy, Upload, UserRound, Users, Wallet, XCircle,
 } from 'lucide-react';
 import { api } from '@/lib/client-api';
@@ -172,10 +173,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {drawer && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
-          <div className="animate-fade-in absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerRoute(null)} />
-          <div className="animate-drawer-in absolute inset-y-0 left-0 w-64 max-w-[85vw] overflow-y-auto border-r border-line bg-surface shadow-2xl">{sidebar}</div>
-        </div>
+        <MobileDrawer onClose={() => setDrawerRoute(null)} label="Admin navigation">
+          {sidebar}
+        </MobileDrawer>
       )}
     </div>
   );
@@ -195,4 +195,28 @@ export function AdminPageTitle({ title, sub, action }: { title: string; sub?: st
 
 export function AdminHomeLink() {
   return <Home size={16} className="hidden" />;
+}
+
+/**
+ * Mobile navigation drawer with real dialog semantics: Escape closes it, Tab
+ * stays inside it, background scrolling is locked and focus is restored to the
+ * hamburger button on close.
+ */
+function MobileDrawer({ onClose, label, children }: { onClose: () => void; label: string; children: React.ReactNode }) {
+  const panelRef = useDialog<HTMLDivElement>(onClose);
+  return (
+    <div className="fixed inset-0 z-50 lg:hidden" role="presentation">
+      <div className="animate-fade-in absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+        className="animate-drawer-in absolute inset-y-0 left-0 w-64 max-w-[85vw] overflow-y-auto border-r border-line bg-surface shadow-2xl outline-none"
+      >
+        {children}
+      </div>
+    </div>
+  );
 }

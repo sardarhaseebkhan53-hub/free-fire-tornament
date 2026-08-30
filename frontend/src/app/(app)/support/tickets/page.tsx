@@ -2,6 +2,7 @@
 // Support Center — design 44 (Phase 11): my tickets + thread + new-ticket form
 // with screenshot attachments. One UI for mobile (stacked) and PC (two columns).
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useDialog } from '@/lib/use-dialog';
 import Link from 'next/link';
 import {
   Headphones, ImagePlus, Loader2, Lock, MessageSquare, Paperclip, Plus, Send, ShieldCheck, X,
@@ -408,11 +409,7 @@ export default function SupportTicketsPage() {
 
       {/* New Ticket modal */}
       {modal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={() => setModal(false)}>
-          <div
-            className="max-h-[92vh] w-full overflow-y-auto rounded-t-[20px] border border-line bg-surface p-6 shadow-2xl sm:max-w-lg sm:rounded-[20px]"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <NewTicketDialog onClose={() => setModal(false)}>
             <div className="flex items-center justify-between">
               <h2 className="font-display text-lg font-bold text-fg">New Ticket</h2>
               <button onClick={() => setModal(false)} aria-label="Close" className="rounded-input border border-line p-1.5 text-fg-3 hover:text-fg"><X size={14} /></button>
@@ -500,9 +497,35 @@ export default function SupportTicketsPage() {
             >
               {fBusy ? <Loader2 size={16} className="animate-spin" /> : <Send size={15} />} Submit Ticket
             </button>
-          </div>
-        </div>
+        </NewTicketDialog>
       )}
+    </div>
+  );
+}
+
+/**
+ * Accessible wrapper for the New Ticket sheet: Escape closes it, Tab is
+ * trapped inside it, and focus returns to the trigger on close.
+ */
+function NewTicketDialog({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const dialogRef = useDialog<HTMLDivElement>(onClose);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="New support ticket"
+        tabIndex={-1}
+        className="max-h-[92vh] w-full overflow-y-auto rounded-t-[20px] border border-line bg-surface p-6 shadow-2xl outline-none sm:max-w-lg sm:rounded-[20px]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 // SEO management — design 38: per-page overrides for titles, descriptions, canonicals.
 import { useState } from 'react';
+import { useDialog } from '@/lib/use-dialog';
 import { Loader2, Plus } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Table, Td, Tr, useAdminList } from '@/components/admin/kit';
@@ -62,9 +63,12 @@ function EditModal({ row, pages, onClose, onDone }: { row: Partial<Row>; pages: 
     }
   }
 
+  const dialogRef = useDialog<HTMLDivElement>(onClose);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-[20px] border border-line bg-surface p-6" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose} role="presentation">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`SEO settings for /${row.pageSlug}`} tabIndex={-1}
+        className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-[20px] border border-line bg-surface p-6 outline-none" onClick={(e) => e.stopPropagation()}>
         <h2 className="font-display text-lg font-bold text-fg">SEO — /{row.pageSlug}</h2>
         <div className="mt-4 flex flex-col gap-3">
           <select value={pageSlug} onChange={(e) => setPageSlug(e.target.value)} className={inputCls}>

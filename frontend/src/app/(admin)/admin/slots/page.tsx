@@ -6,7 +6,8 @@
 //   ready/absent/DQ. Every action goes through the audited admin endpoints
 //   (SLOT_* audit trail server-side).
 // =============================================================================
-import { useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Loader2, Lock, LockOpen, MapPin, RefreshCcw, UserX, X, CheckCircle2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Modal, Pill, useAdminList } from '@/components/admin/kit';
@@ -33,7 +34,22 @@ interface TList { items: Array<{ id: string; title: string }> }
 type Mode = { kind: 'move' | 'clear' | 'lock' | 'ready'; regId: string; player: string; slot: number } | null;
 
 export default function AdminSlotsPage() {
-  const [tourId, setTourId] = useState('');
+  // `useSearchParams` needs a Suspense boundary during static rendering.
+  return (
+    <Suspense fallback={<div className="flex min-h-64 items-center justify-center"><Loader2 className="animate-spin text-accent" /></div>}>
+      <SlotsBoard />
+    </Suspense>
+  );
+}
+
+function SlotsBoard() {
+  // The deep link `?tournament=<id>` preselects a board. Reading it from the
+  // router (instead of an effect that calls setState) keeps the first render
+  // correct and avoids a cascading re-render.
+  const searchParams = useSearchParams();
+  const [selected, setSelected] = useState<string | null>(null);
+  const tourId = selected ?? searchParams.get('tournament') ?? '';
+  const setTourId = setSelected;
   const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
@@ -43,19 +59,32 @@ export default function AdminSlotsPage() {
   const [pairing, setPairing] = useState(false);
   const tours = useAdminList<TList>('/admin/tournaments?pageSize=50');
 
-  useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get('tournament');
-    if (t) setTourId(t);
-  }, []);
-
-  async function load(tid = tourId) {
+  const load = useCallback(async (tid = tourId) => {
     if (!tid) { setBoard(null); setLoading(false); return; }
     setLoading(true);
-    const d = await apiGet<Board>(`/admin/tournaments/${tid}/slots`);
-    setBoard(d);
-    setLoading(false);
-  }
-  useEffect(() => { void load(tourId); }, [tourId]);
+    try {
+      const d = await apiGet<Board>(`/admin/tournaments/${tid}/slots`);
+      setBoard(d);
+    } finally {
+      setLoading(false);
+    }
+  }, [tourId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!tourId) {
+      // Async so the state update never happens synchronously inside the effect.
+      void Promise.resolve().then(() => { if (!cancelled) { setBoard(null); setLoading(false); } });
+      return () => { cancelled = true; };
+    }
+    void Promise.resolve()
+      .then(() => { if (!cancelled) setLoading(true); })
+      .then(() => apiGet<Board>(`/admin/tournaments/${tourId}/slots`))
+      .then((d) => { if (!cancelled) setBoard(d); })
+      .catch(() => { if (!cancelled) setBoard(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [tourId]);
 
   async function toggleLock(entry: SlotEntry) {
     if (!entry.registrationId) return;
