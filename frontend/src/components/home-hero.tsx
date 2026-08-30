@@ -101,14 +101,17 @@ export function HomeHero({
 
   return (
     <section className="relative overflow-hidden">
-      {/* Aurora atmosphere */}
-      <div className="pointer-events-none absolute inset-0" aria-hidden>
+      {/* Aurora atmosphere — purely decorative, so it is pinned BEHIND the
+          content (z-0 vs the z-10 wrapper below). Without the explicit
+          stacking order the blurred blobs painted over the hero paragraph and
+          washed the text out. */}
+      <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
         <div className="animate-aurora-1 absolute -left-[18vw] -top-[22vw] h-[55vw] w-[55vw] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.5),transparent_65%)] blur-[90px]" />
         <div className="animate-aurora-2 absolute -right-[16vw] top-[4vh] h-[46vw] w-[46vw] rounded-full bg-[radial-gradient(circle,rgba(124,58,237,0.4),transparent_65%)] blur-[90px]" />
         <div className="animate-aurora-3 absolute bottom-[-24vw] left-[22vw] h-[40vw] w-[40vw] rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.14),transparent_65%)] blur-[90px]" />
       </div>
 
-      <div className="relative mx-auto max-w-7xl px-4 pb-10 pt-8 sm:px-6 lg:pb-16 lg:pt-14">
+      <div className="relative z-10 mx-auto max-w-7xl px-4 pb-10 pt-8 sm:px-6 lg:pb-16 lg:pt-14">
         <div className="grid items-center gap-10 lg:grid-cols-[1.2fr_0.95fr]">
           {/* Copy */}
           <div>
@@ -165,7 +168,7 @@ export function HomeHero({
                 className="relative rounded-card border border-line bg-surface/70 p-5 backdrop-blur-xl"
                 style={{ boxShadow: '0 24px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)' }}
               >
-                <div className="absolute -inset-px rounded-card bg-[linear-gradient(140deg,rgba(139,92,246,0.5),transparent_40%,transparent_60%,rgba(245,185,66,0.3))] [mask:linear-gradient(#000_0_0)_content-box,linear-gradient(#000_0_0)] [mask-composite:exclude] p-px" aria-hidden />
+                <div className="pointer-events-none absolute -inset-px z-0 rounded-card bg-[linear-gradient(140deg,rgba(139,92,246,0.5),transparent_40%,transparent_60%,rgba(245,185,66,0.3))] p-px [mask:linear-gradient(#000_0_0)_content-box,linear-gradient(#000_0_0)] [mask-composite:exclude]" aria-hidden />
                 <div className="flex items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-1.5 rounded-pill bg-danger px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-white shadow-[0_0_14px_rgba(239,68,68,0.5)]">
                     <span className="animate-blink h-1.5 w-1.5 rounded-full bg-white" />

@@ -148,7 +148,10 @@ export default function AdminSlotsPage() {
               <div key={s.slot}
                 className={`rounded-card border p-4 transition ${filled ? 'border-line bg-white/[3%]' : 'border-dashed border-line/60 bg-transparent'} ${s.locked ? 'ring-1 ring-warning/40' : ''}`}>
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="font-display text-lg font-bold text-fg" title={`Slot ${s.slot}`}>{slotLabel(s.slot)}</span>
+                  <span className="flex items-baseline gap-1.5" title={`Slot ${s.slot}`}>
+                    <span className="font-display text-lg font-bold text-fg">{slotLabel(s.slot)}</span>
+                    <span className="tabular text-[11px] font-semibold text-fg-3">#{s.slot}</span>
+                  </span>
                   <div className="flex items-center gap-1.5">
                     {s.locked ? <Lock size={12} className="text-warning" /> : <LockOpen size={12} className="text-fg-3" />}
                     {filled && <Pill status={s.status ?? 'CONFIRMED'} />}

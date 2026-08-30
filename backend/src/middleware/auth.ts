@@ -59,7 +59,14 @@ const RANK: Record<Role, number> = {
 export function requireRole(min: Role) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.auth) return next(unauthorized('UNAUTHORIZED', 'Authentication required.'));
-    if (RANK[req.auth.role] < RANK[min]) {
+    // FAIL CLOSED. This used to be a bare `RANK[req.auth.role] < RANK[min]`.
+    // For any role not present in RANK the lookup yields `undefined`, and
+    // `undefined < 2` is false in JS — so an unknown or missing role SKIPPED
+    // the denial branch and was granted admin access. Resolve both ranks
+    // explicitly and reject anything we cannot positively authorise.
+    const actual = RANK[req.auth.role];
+    const required = RANK[min];
+    if (typeof actual !== 'number' || typeof required !== 'number' || actual < required) {
       return next(forbidden('You do not have permission to perform this action.'));
     }
     return next();

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
-import { AuthedImage, Pill, useAdminList } from '@/components/admin/kit';
+import { AuthedImage, Pager, Pill, useAdminList } from '@/components/admin/kit';
 import { api , apiGet } from '@/lib/client-api';
 
 interface Ticket {
@@ -18,7 +18,12 @@ const TABS = [['OPEN','Open'],['IN_PROGRESS','In Progress'],['WAITING_USER','Wai
 
 export default function AdminSupportPage() {
   const [tab, setTab] = useState('OPEN');
-  const { data, loading, setData } = useAdminList<Page>(`/admin/tickets?status=${tab}&pageSize=25`, [tab]);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 25;
+  const { data, loading, setData } = useAdminList<Page>(
+    `/admin/tickets?status=${tab}&page=${page}&pageSize=${PAGE_SIZE}`,
+    [tab, page],
+  );
   const [selected, setSelected] = useState<Ticket | null>(null);
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
@@ -29,7 +34,7 @@ export default function AdminSupportPage() {
     try {
       await api(`/admin/tickets/${selected.id}/reply`, { method: 'POST', body: { body: reply.trim(), close } });
       setReply('');
-      const fresh = await apiGet<Page>(`/admin/tickets?status=${tab}&pageSize=25`);
+      const fresh = await apiGet<Page>(`/admin/tickets?status=${tab}&page=${page}&pageSize=${PAGE_SIZE}`);
       if (fresh) {
         setData(fresh);
         const again = (fresh.items as Ticket[]).find((t) => t.id === selected.id);
@@ -47,7 +52,7 @@ export default function AdminSupportPage() {
       <AdminPageTitle title="Support" sub="Player tickets — reply, resolve, keep the arena friendly." />
       <div className="mb-4 flex flex-wrap gap-1.5">
         {TABS.map(([key, label]) => (
-          <button key={key} onClick={() => { setTab(key); setSelected(null); }}
+          <button key={key} onClick={() => { setTab(key); setPage(1); setSelected(null); }}
             className={`rounded-input px-4 py-2 text-xs font-bold transition ${tab === key ? 'bg-accent text-white' : 'border border-line bg-white/[2%] text-fg-2 hover:text-fg'}`}>
             {label}
           </button>
@@ -71,6 +76,7 @@ export default function AdminSupportPage() {
               </button>
             ))}
             {data?.items.length === 0 && <p className="px-1 py-6 text-center text-xs text-fg-3">No {tab.toLowerCase()} tickets.</p>}
+            <Pager page={page} total={data?.total ?? 0} pageSize={PAGE_SIZE} onPage={setPage} />
           </div>
 
           <div className="glass rounded-card p-5">

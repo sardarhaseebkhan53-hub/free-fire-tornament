@@ -23,6 +23,7 @@
     "db:migrate:cli": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "db:backfill-prize-pool": "tsx prisma/backfill-prize-pool.ts",
     "db:seed:admin": "tsx prisma/admin-seed.ts",
     "studio": "prisma studio",
     "verify:join": "tsx scripts/verify-join-engine.mts",

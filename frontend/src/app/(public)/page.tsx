@@ -124,10 +124,10 @@ export default async function HomePage() {
             {MODES.map((m) => {
               const Icon = m.icon;
               return (
-                <Reveal delay={MODES.indexOf(m) * 70} key={m.type}><Link
+                <Reveal delay={MODES.indexOf(m) * 70} key={m.type} className="h-full"><Link
                   key={m.type}
                   href={`/tournaments?type=${m.type}`}
-                  className="glass group relative overflow-hidden rounded-card p-6 transition duration-300 hover:-translate-y-1.5 hover:border-accent/50 hover:shadow-[0_18px_44px_-14px_rgba(0,0,0,0.7)]"
+                  className="glass group relative flex h-full flex-col overflow-hidden rounded-card p-6 transition duration-300 hover:-translate-y-1.5 hover:border-accent/50 hover:shadow-[0_18px_44px_-14px_rgba(0,0,0,0.7)]"
                 >
                   <span className="relative inline-flex h-11 w-11 items-center justify-center rounded-input bg-accent/25 text-accent shadow-[0_0_18px_rgba(139,92,246,0.3)] backdrop-blur-sm">
                     <Icon size={20} />

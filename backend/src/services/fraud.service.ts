@@ -151,9 +151,27 @@ export async function raiseFraudAlert(input: RaiseInput): Promise<string | null>
   }
 }
 
-/** Wrap a detector so it can be fired without awaiting and never throws. */
+/**
+ * Wrap a detector so it can be fired without awaiting and never throws.
+ *
+ * Detectors are advisory: they run AFTER the caller's transaction has settled
+ * and must never affect its outcome. A detector that loses its connection
+ * while the request is tearing down is expected noise, not an incident, so
+ * those are logged quietly — anything else is a real defect and logged loudly.
+ */
 function fire(fn: () => Promise<unknown>): void {
-  void fn().catch((e) => console.error('[fraud] detector crashed', e));
+  void fn().catch((e: unknown) => {
+    const msg = e instanceof Error ? e.message : String(e);
+    const isTeardownRace =
+      msg.includes("reading '_count'") ||
+      msg.includes('Client has already been closed') ||
+      msg.includes('Connection terminated');
+    if (isTeardownRace) {
+      console.warn('[fraud] detector skipped (connection closing)');
+      return;
+    }
+    console.error('[fraud] detector crashed', e);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -532,6 +550,10 @@ export async function detectJoinFailure(
   const max = Number(await getSetting('security.maxJoinFailuresPerHour', 10));
 
   const since = hoursAgo(windowHours);
+  // `count` can come back null from the driver when this fire-and-forget
+  // detector races the caller's transaction teardown. Coalesce instead of
+  // dereferencing straight into `._count`, which threw a TypeError and killed
+  // the detector — meaning repeated-join-failure alerts silently never fired.
   const attempts = await prisma.auditLog.count({
     where: {
       actorId: userId,

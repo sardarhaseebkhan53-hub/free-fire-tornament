@@ -38,6 +38,36 @@ type ApiInit = Omit<RequestInit, 'body'> & { body?: unknown; form?: FormData };
 let refreshInFlight: Promise<boolean> | null = null;
 
 /**
+ * Circuit breaker. Once the backend says the refresh cookie is gone (401/403),
+ * the session is unrecoverable without a fresh sign-in: every further attempt
+ * is guaranteed to fail. Without this flag the SessionKeeper poll + every page
+ * request kept re-firing /auth/refresh forever, flooding the console with
+ * "401 (Unauthorized)" and hammering the API. A successful sign-in stores a new
+ * token, which re-arms the breaker automatically.
+ */
+let sessionDead = false;
+/** Soft backoff for transient (network) refresh failures. */
+let nextRefreshAllowedAt = 0;
+const REFRESH_BACKOFF_MS = 10_000;
+
+/** Wipe the local session and tell every session hook in the tab. */
+function killLocalSession(): void {
+  sessionDead = true;
+  try {
+    localStorage.removeItem('cn_access');
+  } catch {
+    /* storage disabled — nothing to clear */
+  }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('storage'));
+}
+
+/** Called when a token is present again (fresh sign-in) — re-arm refreshing. */
+export function resetSessionBreaker(): void {
+  sessionDead = false;
+  nextRefreshAllowedAt = 0;
+}
+
+/**
  * Single-flight refresh: when several requests hit a 401 at the same moment
  * (access-token expiry usually coincides with a page firing parallel calls),
  * they ALL await ONE refresh instead of racing with the same single-use
@@ -54,6 +84,8 @@ function refreshAccessToken(): Promise<boolean> {
 
 async function doRefreshAccessToken(): Promise<boolean> {
   if (!getToken()) return false;
+  // Session already proven dead, or we failed very recently — don't spam.
+  if (sessionDead || Date.now() < nextRefreshAllowedAt) return false;
   if (process.env.NODE_ENV === 'development') {
     console.info('[auth] access token expired — refreshing via cookie…');
   }
@@ -65,8 +97,14 @@ async function doRefreshAccessToken(): Promise<boolean> {
     });
     if (!refreshed.ok) {
       // Dev-only diagnostics — never log tokens, cookies or credentials.
-      if (process.env.NODE_ENV === 'development') {
-        console.info(`[auth] refresh failed (${refreshed.status}) — session is dead; sign-in required.`);
+      // Logged ONCE: the breaker below stops any further attempt.
+      if (refreshed.status === 401 || refreshed.status === 403) {
+        if (process.env.NODE_ENV === 'development') {
+          console.info(`[auth] refresh rejected (${refreshed.status}) — session ended; sign-in required.`);
+        }
+        killLocalSession();
+      } else {
+        nextRefreshAllowedAt = Date.now() + REFRESH_BACKOFF_MS;
       }
       return false;
     }
@@ -81,8 +119,12 @@ async function doRefreshAccessToken(): Promise<boolean> {
       }
       return true;
     }
+    // 200 but no token in the envelope — treat as an ended session.
+    killLocalSession();
     return false;
   } catch (e) {
+    // Network blip: back off briefly, but keep the session alive.
+    nextRefreshAllowedAt = Date.now() + REFRESH_BACKOFF_MS;
     if (process.env.NODE_ENV === 'development') {
       console.info('[auth] refresh request failed (network):', e instanceof Error ? e.message : e);
     }

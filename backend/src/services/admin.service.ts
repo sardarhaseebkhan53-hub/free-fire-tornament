@@ -383,6 +383,12 @@ export async function createTournament(adminId: string, input: BuilderInput, ctx
         map: input.map || null,
         status: input.publish ? 'REGISTRATION_OPEN' : 'DRAFT',
         entryFeePerPlayer: new Prisma.Decimal(input.entryFeePerPlayer),
+        // The advertised prize pool is the sum of the configured prizes.
+        // It was never persisted on create, so every new tournament showed
+        // "PKR 0" in the admin table and on the public cards.
+        prizePool: new Prisma.Decimal(
+          input.prizes.reduce((sum, p) => sum + Number(p.amount || 0), 0),
+        ),
         maxSlots: input.maxSlots,
         minSlotsToStart: input.minSlotsToStart,
         numWinners: input.numWinners,

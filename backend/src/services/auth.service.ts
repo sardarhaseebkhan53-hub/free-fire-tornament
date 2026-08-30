@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma';
-import { env } from '../lib/env';
+import { env, devTokenEchoAllowed } from '../lib/env';
 import {
   ApiError, badRequest, conflict, unauthorized,
 } from '../lib/errors';
@@ -15,7 +15,7 @@ import {
   signAccessToken, type AccessTokenPayload,
 } from '../lib/tokens';
 import type { Prisma } from '../../generated/prisma';
-import { sendMail, verificationEmail, passwordResetEmail } from './email.service';
+import { sendMail, verificationEmail, passwordResetEmail, passwordChangedEmail } from './email.service';
 import { getSetting } from './settings.service';
 import { applyWalletTx } from './wallet.service';
 import { fireLoginAbuse, fireRefreshReuse, fireRegistrationFraud } from './fraud.service';
@@ -27,7 +27,9 @@ const BCRYPT_ROUNDS = 12;
 
 const REFRESH_TTL_MS = () => env.JWT_REFRESH_TTL_DAYS * 24 * 3_600_000;
 const VERIFY_TTL_MS = 24 * 3_600_000;
-const RESET_TTL_MS = 3_600_000;
+// Spec §6.7 — password reset links expire in 15–30 minutes. A shorter window
+// materially shrinks the exposure of a leaked or intercepted reset email.
+const RESET_TTL_MS = 30 * 60_000;
 
 export interface RequestContext {
   ip?: string;
@@ -185,7 +187,7 @@ export async function register(input: RegisterInput, ctx: RequestContext) {
   // Same IP/device registering many accounts is the classic bonus-farming play.
   fireRegistrationFraud(user.id, ctx);
 
-  return { user, verificationTokenDevOnly: env.NODE_ENV === 'development' ? token : undefined };
+  return { user, verificationTokenDevOnly: devTokenEchoAllowed ? token : undefined };
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +234,7 @@ export async function resendVerification(emailRaw: string, ctx: RequestContext) 
   if (!user || user.isVerified) return { sent: true };
   const token = await issueToken(user.id, 'EMAIL_VERIFICATION', VERIFY_TTL_MS, ctx);
   await sendMail(verificationEmail(email, token));
-  return { sent: true, verificationTokenDevOnly: env.NODE_ENV === 'development' ? token : undefined };
+  return { sent: true, verificationTokenDevOnly: devTokenEchoAllowed ? token : undefined };
 }
 
 // ---------------------------------------------------------------------------
@@ -453,7 +455,7 @@ export async function forgotPassword(emailRaw: string, ctx: RequestContext) {
   if (!user) return { sent: true };
   const token = await issueToken(user.id, 'PASSWORD_RESET', RESET_TTL_MS, ctx);
   await sendMail(passwordResetEmail(email, token));
-  return { sent: true, resetTokenDevOnly: env.NODE_ENV === 'development' ? token : undefined };
+  return { sent: true, resetTokenDevOnly: devTokenEchoAllowed ? token : undefined };
 }
 
 export async function resetPassword(token: string, newPassword: string, ctx: RequestContext = {}) {
@@ -470,6 +472,16 @@ export async function resetPassword(token: string, newPassword: string, ctx: Req
       data: { revokedAt: new Date() },
     }),
   ]);
+  // Out-of-band security alert (spec §6.17). Best-effort: a mail failure must
+  // never make the completed password reset look like it failed.
+  const resetUser = await prisma.user.findUnique({
+    where: { id: row.userId }, select: { email: true },
+  });
+  if (resetUser?.email) {
+    try {
+      await sendMail(passwordChangedEmail(resetUser.email, { ip: ctx.ip }));
+    } catch { /* alert is best-effort */ }
+  }
   await audit({
     actorId: row.userId,
     action: 'PASSWORD_RESET',
@@ -541,6 +553,11 @@ export async function changePassword(userId: string, currentPassword: string, ne
       data: { revokedAt: new Date() },
     }),
   ]);
+  if (user.email) {
+    try {
+      await sendMail(passwordChangedEmail(user.email, { ip: ctx.ip }));
+    } catch { /* alert is best-effort */ }
+  }
   await audit({
     actorId: userId,
     action: 'PASSWORD_CHANGED',
