@@ -80,6 +80,10 @@ export async function joinByCode(userId: string, codeRaw: string) {
     if (existing) throw conflict('CONFLICT', `You already belong to a ${team.type.toLowerCase()} team.`);
     const members = await tx.teamMember.count({ where: { teamId: team.id } });
     if (members >= CAPACITY[team.type as TeamType]) throw badRequest('VALIDATION_ERROR', 'This team is full.');
+    // PHASE 18 — paid rosters are frozen: while this team holds a confirmed
+    // entry in an unfinished tournament nobody may join it (the newcomer never
+    // paid an entry fee for that event, so they must not become an awardee).
+    await assertTeamRosterMutable(tx, team.id);
 
     const member = await tx.teamMember.create({
       data: { teamId: team.id, userId, role: 'MEMBER' },
@@ -239,6 +243,9 @@ export async function respondInvite(userId: string, inviteId: string, accept: bo
     if (members >= CAPACITY[team.type as TeamType]) {
       throw badRequest('VALIDATION_ERROR', 'The team filled up before you accepted.');
     }
+    // PHASE 18 — same freeze as the join-code path: a team with a paid entry in
+    // an unfinished tournament cannot gain members while that entry is live.
+    await assertTeamRosterMutable(tx, team.id);
 
     const updated = await tx.teamInvite.updateMany({
       where: { id: inviteId, status: 'PENDING' },

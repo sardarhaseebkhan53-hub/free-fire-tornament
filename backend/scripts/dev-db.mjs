@@ -16,7 +16,12 @@ const db = new PGlite(DATA_DIR);
 // idleTimeout tears down stale connections so abandoned transaction state is
 // rolled back instead of wedging the shared session.
 const server = new PGLiteSocketServer({
-  db, port: PORT, host: '0.0.0.0', maxConnections: 10, idleTimeout: 120_000,
+  // 20, not the previous 10: the API's pool takes `connection_limit` clients
+  // and the concurrency harness deliberately fires 5-8 money transactions at
+  // once. With 10 sockets the burst exhausts the server and pg-pool starts
+  // handing back torn connections ("Connection terminated unexpectedly"),
+  // which makes the harness measure the dev sandbox instead of the app.
+  db, port: PORT, host: '0.0.0.0', maxConnections: 20, idleTimeout: 300_000,
 });
 
 await server.start();

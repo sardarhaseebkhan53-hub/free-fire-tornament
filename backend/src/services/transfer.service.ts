@@ -16,6 +16,7 @@ import { badRequest, conflict, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { moveBalance, TX_OPTS } from './wallet.service';
 import { raiseFraudAlert } from './fraud.service';
+import { isIdempotentKeyCollision, isLostConnection, isRetryableTxError, withIdempotentRetry } from '../lib/tx-conflict';
 import { audit } from '../lib/security';
 import { notifyAdmins } from './notification.service';
 
@@ -34,7 +35,28 @@ export interface TransferActor {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * PHASE 18 — a transfer is always issued with a client `requestId`, and the
+ * (senderId, requestId) unique anchor + replay lookup make a retry safe: a
+ * commit whose response was lost returns the ORIGINAL transfer instead of
+ * sending the money twice. Genuine database contention is therefore retried
+ * rather than surfaced as a 500.
+ */
 export async function createTransfer(senderId: string, input: TransferInput, actor: TransferActor = {}) {
+  return withIdempotentRetry(
+    () => runTransfer(senderId, input, actor),
+    {
+      busyMessage: 'Your wallet is being updated by another operation. Please try that again.',
+      // A P2002 here is the (senderId, requestId) key, and it means "the
+      // winning attempt is still committing" — replaying it returns the
+      // ORIGINAL transfer, so it is safe (and desirable) to retry instead of
+      // surfacing a raw unique-violation as a 500.
+      retry: (e) => isRetryableTxError(e) || isLostConnection(e) || isIdempotentKeyCollision(e),
+    },
+  );
+}
+
+async function runTransfer(senderId: string, input: TransferInput, actor: TransferActor) {
   // All settings reads happen OUTSIDE the transaction (single-writer dev DB
   // deadlock rule — same as the join engine).
   const [

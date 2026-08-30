@@ -18,7 +18,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../../generated/prisma';
 
 const DEFAULT_DEV_URL =
-  'postgresql://postgres:postgres@127.0.0.1:5432/postgres?connection_limit=5';
+  'postgresql://postgres:postgres@127.0.0.1:5432/postgres?connection_limit=20';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']);
 
@@ -34,14 +34,18 @@ function buildClient(): PrismaClient {
   const isLocal = !parsed || LOCAL_HOSTS.has(parsed.hostname.replace(/^\[|\]$/g, ''));
 
   // Pool size: explicit `?connection_limit=N` in the URL always wins.
-  // Otherwise 5 per process locally, 10 per process against a pooled managed
-  // endpoint. Size it so `instances × connection_limit` stays well under the
+  // Otherwise 20 per process locally, 10 per process against a pooled managed
+  // endpoint. The local number is deliberately not tiny: one money operation
+  // can hold a transaction for its whole lifetime while the auth middleware
+  // reads the account on the way in, so a 5-socket pool queues behind bursts of
+  // five and the embedded dev server starts handing back torn sockets (which
+  // then surface as P2039 / blank reads instead of honest backpressure). Size it so `instances × connection_limit` stays well under the
   // provider cap (Neon pooler: 10,000 — 2 instances × 10 is trivially safe
   // while absorbing 1,000–2,000 concurrent users; PgBouncer does the rest).
   const explicitLimit = Number(parsed?.searchParams.get('connection_limit') ?? NaN);
   const max = Number.isFinite(explicitLimit) && explicitLimit > 0
     ? explicitLimit
-    : isLocal ? 5 : 10;
+    : isLocal ? 20 : 10;
 
   // TLS: managed Postgres (Neon, Supabase, RDS…) requires SSL. `pg` honours
   // `?sslmode=` in the URL, but we pass an explicit setting so a missing
@@ -54,8 +58,9 @@ function buildClient(): PrismaClient {
 
   const adapter = new PrismaPg({
     connectionString,
-    // Recycle pooled sockets BEFORE the dev PGlite server's 120s idle teardown,
-    // so the pool never hands out connections the server has already closed.
+    // Recycle pooled sockets BEFORE the dev PGlite server's idle teardown
+    // (300s, see scripts/dev-db.mjs), so the pool never hands out connections
+    // the server has already closed.
     max,
     idleTimeoutMillis: isLocal ? 90_000 : 30_000,
     connectionTimeoutMillis: 10_000,

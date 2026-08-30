@@ -14,6 +14,7 @@
 // and admin moves until explicitly unlocked.
 // =============================================================================
 import crypto from 'node:crypto';
+import { Prisma } from '../../generated/prisma';
 import { prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { TX_OPTS } from './wallet.service';
@@ -375,7 +376,14 @@ export async function pairIndependentTeam(
 
     await tx.tournamentRegistration.updateMany({
       where: { id: { in: ids } },
-      data: { teamId: team.id },
+      // PHASE 18 — pairing IS this team's registration moment, so the roster is
+      // frozen here exactly like a captain-led join: the four who paid (and only
+      // they) are who the prize money belongs to.
+      data: {
+        teamId: team.id,
+        rosterUserIds: [...new Set(regs.map((r) => r.userId))].sort() as unknown as Prisma.InputJsonValue,
+        rosterCapturedAt: new Date(),
+      },
     });
 
     for (const r of regs) {

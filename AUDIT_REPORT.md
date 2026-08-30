@@ -9,6 +9,32 @@
 
 **Release recommendation: NO-GO until the release blockers below are fixed and retested.**
 
+> ### ✅ Status — 30 August 2026 (Phase 18)
+>
+> **Every P0 in this audit is closed, and every finding was re-verified against the
+> source rather than assumed.** See
+> [PHASE18_SECURITY.md](./PHASE18_SECURITY.md) for the `file:line` evidence per
+> finding, the two additional security issues found during that pass (a spoofable
+> `X-Forwarded-For` origin and a stored-XSS path in admin ad embeds), and the
+> residual-risk list.
+>
+> Nine of the eleven blockers were already fixed in the code this audit was written
+> against; prize-distribution lifecycle and post-registration roster mutability were
+> genuinely open and are closed here, together with the dependency audit.
+>
+> Proof, all green: 252 backend tests (21 financial race tests, 12 unit tests on the
+> retry semantics), 8 `verify:*` suites, and `npm run verify:concurrency` — a live
+> HTTP burst harness — at 12/12 across five consecutive runs with **zero 5xx and
+> zero spurious 401s**, including "8 admins approve one deposit → `200,409×7`,
+> credited exactly once" and "5 concurrent 800-PKR withdrawals on a 1000 balance →
+> exactly one wins". `npm audit` is 0 in both packages, frontend lint is 0, and both
+> production builds pass.
+>
+> **Release recommendation is now conditional-GO:** the remaining NO-GO items are
+> operational, not architectural — no CI workflow enforcing these gates, and the
+> `onDelete: Cascade` edges on financial rows (§5.1–5.2 of the Phase 18 report).
+> No UI was changed: the design was not the problem.
+
 The repository has a credible foundation: the requested architecture is present, the Prisma schema and migration history are aligned locally, manual payments and wallet movements use server-side calculations, PWA/SEO infrastructure is substantial, and the existing automated suites cover many important happy paths. However, several concurrency, lifecycle, authorization, privacy, and admin-client defects can cause incorrect financial state, expose protected data, or leave a tournament in a state that does not match its ledger history.
 
 This audit intentionally contains **no runtime implementation changes**. The next implementation phase must remain targeted and additive, and must not start until the UI direction in [`UI_CONCEPTS.md`](./UI_CONCEPTS.md) is approved.

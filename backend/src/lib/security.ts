@@ -18,14 +18,26 @@ export interface RequestContext {
 }
 
 /**
- * Client IP. `app.set('trust proxy', 1)` makes `req.ip` the last proxy hop;
- * behind the Next.js proxy (or a CDN) the browser IP arrives in
- * X-Forwarded-For, so prefer its FIRST entry — that is the origin client.
+ * Client IP — PHASE 18 corrected the hop it trusts.
+ *
+ * `X-Forwarded-For` is a chain each proxy APPENDS to, so the FIRST entry is the
+ * value the caller chose. Reading it unconditionally let anyone send
+ * `X-Forwarded-For: 1.2.3.4` and become a different origin for every
+ * IP-keyed control: login lockout, deposit burst, registration bursts, coupon
+ * abuse, the audit trail and the financial rate limiters.
+ *
+ * Our own hop (the Next.js `/api/backend` proxy) appends the address the edge
+ * reported (`x-real-ip`), so the LAST entry is the one a trusted party wrote.
+ * `app.set('trust proxy', 1)` computes exactly that for `req.ip`, which is the
+ * fallback for a direct (non-proxied) deployment.
  */
 export function clientIp(req: Request): string | undefined {
   const xff = req.headers['x-forwarded-for'];
-  const first = Array.isArray(xff) ? xff[0] : xff?.split(',')[0];
-  const ip = first?.trim() || req.headers['x-real-ip'] || req.ip;
+  const chain = (Array.isArray(xff) ? xff.join(',') : xff ?? '')
+    .split(',')
+    .map((hop) => hop.trim())
+    .filter(Boolean);
+  const ip = chain[chain.length - 1] ?? req.ip;
   return typeof ip === 'string' ? ip.slice(0, 64) : undefined;
 }
 

@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { verifyAccessToken } from '../lib/tokens';
 import { forbidden, unauthorized } from '../lib/errors';
+import { isLostConnection, isRetryableTxError } from '../lib/tx-conflict';
 import type { Role } from '../../generated/prisma';
 
 export interface AuthedUser {
@@ -20,6 +21,9 @@ declare global {
   }
 }
 
+const loadAccount = (id: string) =>
+  prisma.user.findUnique({ where: { id }, select: { id: true, role: true, username: true, status: true } });
+
 /**
  * Requires a valid Bearer access token and a current, active account.
  *
@@ -34,10 +38,25 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
   if (!token) return next(unauthorized('UNAUTHORIZED', 'Authentication required.'));
   try {
     const payload = verifyAccessToken(token);
-    const user = await prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { id: true, role: true, username: true, status: true },
-    });
+    // The account read below is the price of refusing stale bearer tokens (a
+    // suspended player must lose access immediately, not at token expiry). Both
+    // ways this read can misfire under load — throwing, or coming back blank —
+    // are retried once, because a pure read is always safe to repeat and a
+    // session must not die (401) or 500 because the pool hiccupped.
+    let user: Awaited<ReturnType<typeof loadAccount>>;
+    try {
+      user = await loadAccount(payload.sub);
+      // A blank read here means "this account does not exist", which is also
+      // exactly what a torn pooled connection looks like to the caller. A
+      // signed, unexpired token must not turn into a forced logout because of
+      // infrastructure, so confirm a missing account with one clean re-read
+      // before rejecting it. (Suspended/banned accounts are unaffected: the
+      // row exists and its status is what rejects them below.)
+      if (!user) user = await loadAccount(payload.sub);
+    } catch (e) {
+      if (!isLostConnection(e) && !isRetryableTxError(e)) throw e;
+      user = await loadAccount(payload.sub);
+    }
     if (!user || user.status !== 'ACTIVE') {
       return next(unauthorized('UNAUTHORIZED', 'Account is not active.'));
     }

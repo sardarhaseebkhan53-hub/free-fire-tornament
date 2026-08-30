@@ -19,7 +19,7 @@ import { sendMail, verificationEmail, passwordResetEmail, passwordChangedEmail }
 import { getSetting } from './settings.service';
 import { applyWalletTx } from './wallet.service';
 import { fireLoginAbuse, fireRefreshReuse, fireRegistrationFraud } from './fraud.service';
-import { audit } from '../lib/security';
+import { audit, auditIn } from '../lib/security';
 import { rankFor } from '../lib/rank';
 
 /** bcrypt cost — 12 is the current OWASP floor for bcryptjs (≈250ms/hash). */
@@ -473,16 +473,30 @@ export async function resetPassword(token: string, newPassword: string, ctx: Req
   const row = await findToken(token, 'PASSWORD_RESET');
   if (!row) throw badRequest('TOKEN_INVALID', 'Reset link is invalid or has expired.');
 
-  await prisma.$transaction([
-    prisma.user.update({
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
       where: { id: row.userId },
       data: { passwordHash: bcrypt.hashSync(newPassword, BCRYPT_ROUNDS) },
-    }),
-    prisma.authToken.updateMany({
+    });
+    await tx.authToken.updateMany({
       where: { userId: row.userId, revokedAt: null },
       data: { revokedAt: new Date() },
-    }),
-  ]);
+    });
+    // PHASE 18 — a credential change that also killed every session must not be
+    // provable only by the person who did it. The audit row is written INSIDE
+    // the transaction: if it cannot be persisted, the reset rolls back instead
+    // of committing an untraceable security event. (The mail alert below stays
+    // best-effort on purpose — it is a notification, not a record.)
+    await auditIn(tx, {
+      actorId: row.userId,
+      action: 'PASSWORD_RESET',
+      entity: 'User',
+      entityId: row.userId,
+      after: { allSessionsRevoked: true },
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+    });
+  });
   // Out-of-band security alert (spec §6.17). Best-effort: a mail failure must
   // never make the completed password reset look like it failed.
   const resetUser = await prisma.user.findUnique({
@@ -493,15 +507,6 @@ export async function resetPassword(token: string, newPassword: string, ctx: Req
       await sendMail(passwordChangedEmail(resetUser.email, { ip: ctx.ip }));
     } catch { /* alert is best-effort */ }
   }
-  await audit({
-    actorId: row.userId,
-    action: 'PASSWORD_RESET',
-    entity: 'User',
-    entityId: row.userId,
-    after: { allSessionsRevoked: true },
-    ip: ctx.ip,
-    userAgent: ctx.userAgent,
-  });
   return { reset: true };
 }
 
@@ -557,27 +562,30 @@ export async function changePassword(userId: string, currentPassword: string, ne
     });
     throw unauthorized('INVALID_CREDENTIALS', 'Current password is incorrect.');
   }
-  await prisma.$transaction([
-    prisma.user.update({ where: { id: userId }, data: { passwordHash: bcrypt.hashSync(newPassword, BCRYPT_ROUNDS) } }),
-    prisma.authToken.updateMany({
+  const hash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: userId }, data: { passwordHash: hash } });
+    await tx.authToken.updateMany({
       where: { userId, type: 'REFRESH', revokedAt: null },
       data: { revokedAt: new Date() },
-    }),
-  ]);
+    });
+    // PHASE 18 — same guarantee as the reset flow: the password change, the
+    // session revocation and their audit record are one atomic commit.
+    await auditIn(tx, {
+      actorId: userId,
+      action: 'PASSWORD_CHANGED',
+      entity: 'User',
+      entityId: userId,
+      after: { refreshSessionsRevoked: true },
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+    });
+  });
   if (user.email) {
     try {
       await sendMail(passwordChangedEmail(user.email, { ip: ctx.ip }));
     } catch { /* alert is best-effort */ }
   }
-  await audit({
-    actorId: userId,
-    action: 'PASSWORD_CHANGED',
-    entity: 'User',
-    entityId: userId,
-    after: { refreshSessionsRevoked: true },
-    ip: ctx.ip,
-    userAgent: ctx.userAgent,
-  });
   return { changed: true };
 }
 

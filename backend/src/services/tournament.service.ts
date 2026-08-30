@@ -17,6 +17,7 @@ import { getSetting } from './settings.service';
 import { fireCouponAbuse, fireJoinFailure } from './fraud.service';
 import { audit } from '../lib/security';
 import { moveBalance } from './wallet.service';
+import { isRetryableTxError, withIdempotentRetry } from '../lib/tx-conflict';
 
 const TEAM_SIZE: Record<'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD', number> = {
   SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4,
@@ -96,7 +97,26 @@ function validateFFIdentity(uidRaw?: string, ignRaw?: string): { uid: string; ig
   return { uid, ign };
 }
 
+/**
+ * PHASE 18 — the entry point is wrapped in a transient-conflict retry, not just
+ * the join transaction. The inner `runJoinWithRetry` only covers the financial
+ * transaction itself, while the preflight reads (account, tournament, profile,
+ * settings) run before it — and on the embedded single-writer database (and on
+ * a real one, on 40001/40P01) a read can also fail with a transport-level
+ * error. Those attempts have written nothing at all, so re-running is safe;
+ * without this a player under load sees a 500 instead of a clean result.
+ */
 export async function joinTournament(userId: string, input: JoinInput, actorIp?: string, actorUa?: string) {
+  return withIdempotentRetry(
+    () => joinTournamentOnce(userId, input, actorIp, actorUa),
+    {
+      attempts: 2,
+      busyMessage: 'The arena is busy right now. Your entry fee was not charged — please try again.',
+    },
+  );
+}
+
+async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: string, actorUa?: string) {
   const actor: ActorCtx = { ip: actorIp, userAgent: actorUa };
   const t = await prisma.tournament.findFirst({ where: { slug: input.tournamentSlug, deletedAt: null } });
   if (!t || t.status === 'DRAFT') throw notFound('Tournament not found');
@@ -226,27 +246,14 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
 }
 
 /**
- * Transient-conflict codes from the database/Prisma layer. These are NOT
- * business rejections — they mean "two joins touched the same rows at once,
- * this attempt lost the race". Retrying is correct and safe: the whole
- * transaction rolled back, so no seat was taken and no money moved.
- *
- *   P2034 — transaction write conflict / deadlock (Prisma's documented code)
- *   P2039 — internal transaction error surfaced by the embedded PGlite driver
- *   40001 — Postgres serialization_failure
- *   40P01 — Postgres deadlock_detected
- *
- * Without this a player racing others for the last seats saw a raw
- * "P2039" leak straight through to the UI instead of a clean result.
+ * Runs the join transaction, retrying only on transient write conflicts
+ * (P2034 / P2039 / 40001 / 40P01 — see `src/lib/tx-conflict.ts`, which is the
+ * single classifier shared by the join, withdrawal and transfer paths). Those
+ * codes are NOT business rejections: they mean "two writers touched the same
+ * rows and this attempt lost", and the whole transaction rolled back, so no
+ * seat was taken and no money moved. Without the retry a player racing others
+ * for the last seats saw a raw database code leak straight into the UI.
  */
-const RETRYABLE_TX_CODES = new Set(['P2034', 'P2039', '40001', '40P01']);
-
-function isRetryableTxError(e: unknown): boolean {
-  const code = (e as { code?: string }).code;
-  return typeof code === 'string' && RETRYABLE_TX_CODES.has(code);
-}
-
-/** Runs the join transaction, retrying only on transient write conflicts. */
 async function runJoinWithRetry(
   ...args: Parameters<typeof runJoin>
 ): Promise<Awaited<ReturnType<typeof runJoin>>> {
@@ -281,6 +288,11 @@ async function runJoin(
   independentTeam = false,
 ) {
   const actorIp = actor.ip;
+  // PHASE 18 — the roster this paid seat is locked to. Captured from the
+  // LOCKED re-read below (never from the preflight snapshot), so what the
+  // players paid for and what prize distribution later pays out can never
+  // drift apart. Null for solo/independent entries, which pay by userId.
+  let rosterSnapshot: string[] | null = null;
   return prisma.$transaction(async (tx) => {
     // Re-read and lock the roster after the preflight checks. A captain could
     // otherwise remove a member between validation and charging the team.
@@ -306,6 +318,8 @@ async function runJoin(
       if (currentIds.length !== requestedIds.length || currentIds.some((id, i) => id !== requestedIds[i])) {
         throw conflict('CONFLICT', 'The team roster changed. Refresh and try again.');
       }
+      // Frozen here: the same ids that are about to be charged.
+      rosterSnapshot = currentIds;
     }
 
     // 1. Double-join guard (fast path — unique index is the hard guarantee)
@@ -432,6 +446,15 @@ async function runJoin(
         couponId: isJoiner ? couponId : null,
         walletTxId: ledgerEntry.id,
         seatNumber,
+        // PHASE 18 — immutable paid roster. Every member row of one team entry
+        // carries the identical sorted id list, so any of them can be used to
+        // reconstruct exactly who the prize money belongs to.
+        ...(rosterSnapshot
+          ? {
+              rosterUserIds: rosterSnapshot as unknown as Prisma.InputJsonValue,
+              rosterCapturedAt: new Date(),
+            }
+          : {}),
       };
       const reg = await tx.tournamentRegistration.upsert({
         where: { tournamentId_userId: { tournamentId: t.id, userId: pid } },

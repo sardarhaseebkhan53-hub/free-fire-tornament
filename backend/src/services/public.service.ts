@@ -311,11 +311,21 @@ export async function leaderboard(opts: { period?: 'all' | 'weekly' | 'monthly';
 
 // ---------------------------------------------------------------------------
 export async function recentWinners(take = 8) {
-  // Only winners whose tournament results were PUBLISHED are public.
+  // PHASE 18 — an event is only "won" when the WHOLE event is published.
+  // `some` here revealed a champion while round 2 was still being reviewed: the
+  // final-results endpoint already required every match to be PUBLISHED, so the
+  // winners feed had to be held to the same gate or the two pages contradicted
+  // each other (and the site crowned a winner that could still change).
   const winners = await prisma.winner.findMany({
     where: {
       status: 'CREDITED',
-      tournament: { matches: { some: { resultsStatus: 'PUBLISHED' } } },
+      tournament: {
+        deletedAt: null,
+        AND: [
+          { matches: { some: { resultsStatus: 'PUBLISHED' } } },
+          { matches: { none: { resultsStatus: { not: 'PUBLISHED' } } } },
+        ],
+      },
     },
     orderBy: { creditedAt: 'desc' },
     take,

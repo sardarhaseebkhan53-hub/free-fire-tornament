@@ -286,10 +286,45 @@ export async function updateTournamentScoring(
   input: { pointsPerKill: number; placementPoints: number[]; bonusPoints: number; penaltyPoints: number },
   ctx: { ip?: string },
 ) {
-  const t = await prisma.tournament.findUnique({ where: { id }, select: { id: true, pointsPerKill: true, placementPoints: true, bonusPoints: true, penaltyPoints: true } });
+  const t = await prisma.tournament.findUnique({
+    where: { id },
+    select: {
+      id: true, status: true, pointsPerKill: true, placementPoints: true, bonusPoints: true, penaltyPoints: true,
+      matches: { select: { id: true, resultsStatus: true, resultsFinalized: true, status: true } },
+    },
+  });
   if (!t) throw badRequest('NOT_FOUND', 'Tournament not found');
 
+  // PHASE 18 — scoring freeze. The scoring formula is part of a match's
+  // historical record: changing it after results exist would silently rewrite
+  // standings (and in the worst case the prize money already credited) without
+  // changing the numbers the results were calculated from. Before any result
+  // review starts it is free to tune; afterwards it is frozen.
+  if (t.status === 'COMPLETED' || t.status === 'CANCELLED') {
+    throw conflict('CONFLICT', `Scoring is frozen for a ${t.status.toLowerCase()} tournament.`);
+  }
+  const started = t.matches.find((m) => m.resultsStatus !== 'DRAFT' || m.resultsFinalized);
+  if (started) {
+    throw conflict(
+      'CONFLICT',
+      `Scoring is frozen: match ${started.id.slice(0, 8)} already has results in ${started.resultsStatus.toLowerCase()}. `
+        + 'Revert the results to DRAFT first — standings that were calculated must never drift from the formula used.',
+    );
+  }
+  const played = t.matches.find((m) => m.status !== 'SCHEDULED');
+  if (played) {
+    throw conflict('CONFLICT', `Scoring is frozen: match ${played.id.slice(0, 8)} is ${played.status.toLowerCase()}.`);
+  }
+
   await prisma.$transaction(async (tx) => {
+    // Conditional guard: re-check inside the transaction so a result reviewer
+    // running at the same moment cannot slip between the check and the write.
+    const raced = await tx.match.findFirst({
+      where: { tournamentId: id, OR: [{ resultsStatus: { not: 'DRAFT' } }, { resultsFinalized: true }, { status: { not: 'SCHEDULED' } }] },
+      select: { id: true },
+    });
+    if (raced) throw conflict('CONFLICT', 'A match started while you were saving. Scoring is now frozen for this tournament.');
+
     await tx.tournament.update({
       where: { id },
       data: {
@@ -499,7 +534,9 @@ export async function setTournamentStatus(adminId: string, id: string, status: s
   if (!transitions[t.status]?.includes(status)) {
     throw conflict('CONFLICT', `Cannot move a ${t.status.toLowerCase()} tournament to ${status.toLowerCase()}.`);
   }
-  if (status === t.status) return { id, status };
+  // No-op transition (already in that state): same response shape as a real
+  // transition, so callers never have to guess whether refund fields exist.
+  if (status === t.status) return { id, status, refundedTotal: 0, registrationsRefunded: 0 };
 
   // Settings are read outside the financial transaction because the embedded
   // database has one writer and settings use the global Prisma client.
