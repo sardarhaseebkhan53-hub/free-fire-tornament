@@ -1,4 +1,5 @@
 // Sticky glass navbar — spec §Navigation (public desktop + mobile).
+import Image from 'next/image';
 import Link from 'next/link';
 import { NavbarClient } from './navbar-client';
 
@@ -24,11 +25,16 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-base/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-input bg-accent font-display text-sm font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.5)]">
-            C
-          </span>
-          <span className="font-display text-lg font-bold tracking-tight text-fg">
+        <Link href="/" aria-label="CLUTCHNEX home" className="flex min-w-0 items-center gap-2">
+          <Image
+            src="/images/branding/clutchnex-logo.jpg"
+            alt=""
+            width={48}
+            height={48}
+            priority
+            className="h-9 w-9 rounded-input object-cover sm:h-10 sm:w-10"
+          />
+          <span className="font-display text-lg font-bold tracking-tight text-fg sm:text-xl">
             CLUTCH<span className="text-accent">NEX</span>
           </span>
         </Link>
