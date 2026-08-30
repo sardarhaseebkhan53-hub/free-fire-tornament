@@ -35,10 +35,12 @@ import { deflateSync } from 'node:zlib';
 
 const API = process.env.JOURNEY_API_URL ?? 'http://localhost:4000/api';
 const DB = process.env.JOURNEY_DB_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/postgres';
-const SECRET = process.env.JOURNEY_JWT_SECRET ?? 'dev-access-secret-0123456789abcdefghijklmnop';
+const SECRET = process.env.JOURNEY_JWT_SECRET ?? 'dev-only-access-secret-change-me';
 import jwt from 'jsonwebtoken';
 
 const RUN = `j${Date.now().toString(36)}`;
+const UID_BASE = String(Date.now()).slice(-9);
+const journeyUid = (n) => `9${UID_BASE}${typeof n === 'number' ? n : String(n).charCodeAt(0) - 96}`;
 let pass = 0;
 let fail = 0;
 const ck = (name, cond, extra) => {
@@ -147,7 +149,7 @@ step('1. Register and sign in');
  * the run still says which route it took. A `via` of 'register endpoint' vs
  * 'sql fixture (rate limited)' is printed, because an honest report beats a green one.
  */
-async function insertFixturePlayer(username, password, { withIdentity }) {
+async function insertFixturePlayer(username, password, { withIdentity, n }) {
   const hash = bcrypt.hashSync(password, 10);
   const email = `${username}@journey.test`;
   const ins = await q(
@@ -162,7 +164,7 @@ async function insertFixturePlayer(username, password, { withIdentity }) {
   await q(
     `INSERT INTO user_profiles (id, "userId", "fullName", "freeFireUID", "freeFireIGN", "createdAt", "updatedAt")
      VALUES (gen_random_uuid()::text, $1, $2, $3, $4, now(), now())`,
-    [id, `Journey ${username}`, withIdentity ? String(1_000_000_000 + Math.floor(Math.random() * 8_999_999_999)).slice(0, 10) : null, withIdentity ? `JJ${username}` : null],
+    [id, `Journey ${username}`, withIdentity ? journeyUid(n) : null, withIdentity ? `JJ${username}` : null],
   );
   return id;
 }
@@ -178,13 +180,13 @@ const mkPlayer = async (n, { withIdentity = true } = {}) => {
       email: `${username}@journey.test`,
       password,
       confirmPassword: password,
-      ...(withIdentity ? { freeFireUID: String(1_000_000_000 + Math.floor(Math.random() * 8_999_999_999)).slice(0, 10), freeFireIGN: `JJ${n}` } : {}),
+      ...(withIdentity ? { freeFireUID: journeyUid(n), freeFireIGN: `JJ${n}` } : {}),
     },
   });
   if (!reg.ok) {
     if (reg.c === 'RATE_LIMITED') {
       via = 'sql fixture (rate limited)';
-      await insertFixturePlayer(username, password, { withIdentity });
+      await insertFixturePlayer(username, password, { withIdentity, n });
     } else {
       throw new Error(`register ${n} failed: ${reg.s} ${reg.c} ${reg.m}`);
     }
@@ -556,13 +558,13 @@ ck('the duplicate attempt changed no credit', Number(creditsAfter.rows[0].s) ===
 // 8. Wallet → withdrawal → payout
 // ---------------------------------------------------------------------------
 step('8. Wallet and withdrawal');
-const walletNow = await q(`SELECT "userId","cashBalance","winningBalance" FROM wallets WHERE "userId"=ANY($1::text[])`, [cohort.map((c) => c.id)]);
+const walletNow = await q(`SELECT "userId","cashBalance","winningBalance","bonusBalance" FROM wallets WHERE "userId"=ANY($1::text[])`, [cohort.map((c) => c.id)]);
 const perUser = new Map(walletNow.rows.map((r) => [r.userId, r]));
 let conserved = true;
 for (const p of cohort) {
   const ledger = await q(`SELECT COALESCE(SUM(CASE WHEN direction='CREDIT' THEN amount ELSE -amount END),0) s FROM wallet_transactions WHERE "userId"=$1`, [p.id]);
   const w = perUser.get(p.id);
-  const held = Number(w?.cashBalance ?? 0) + Number(w?.winningBalance ?? 0);
+  const held = Number(w?.cashBalance ?? 0) + Number(w?.winningBalance ?? 0) + Number(w?.bonusBalance ?? 0);
   if (Math.abs(held - Number(ledger.rows[0].s)) > 0.005) {
     conserved = false;
     console.log(`   ${p.username}: wallet ${held} != ledger ${ledger.rows[0].s}`);
@@ -689,7 +691,7 @@ await q('DELETE FROM push_subscriptions WHERE endpoint = ANY($1::text[])', [[ep,
 step('11. Financial conservation for this cohort');
 const totals = await q(`
   SELECT
-    (SELECT COALESCE(SUM("cashBalance"+"winningBalance"),0) FROM wallets WHERE "userId" = ANY($1::text[])) AS held,
+    (SELECT COALESCE(SUM("cashBalance"+"winningBalance"+"bonusBalance"),0) FROM wallets WHERE "userId" = ANY($1::text[])) AS held,
     (SELECT COALESCE(SUM(CASE WHEN direction='CREDIT' THEN amount ELSE -amount END),0) FROM wallet_transactions WHERE "userId" = ANY($1::text[])) AS ledger,
     (SELECT count(*) FROM wallet_transactions WHERE "userId" = ANY($1::text[]) AND "balanceAfter" < 0) AS negatives`, [cohort.map((c) => c.id)]);
 const held = Number(totals.rows[0].held);

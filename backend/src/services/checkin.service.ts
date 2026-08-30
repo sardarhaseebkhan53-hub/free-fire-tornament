@@ -208,18 +208,29 @@ export async function markNoShows(now: Date = new Date()): Promise<{ tournaments
     // otherwise mark players in the same tick that start time passes.
     const shutAt = t.checkInClosesAt ?? t.startTime;
     if (shutAt.getTime() >= now.getTime()) continue;
+    const candidates = await prisma.tournamentRegistration.findMany({
+      where: { tournamentId: t.id, status: 'CONFIRMED', checkedInAt: null, noShowAt: null },
+      select: { id: true },
+    });
+    if (candidates.length === 0) continue;
     const marked = await prisma.tournamentRegistration.updateMany({
       where: { tournamentId: t.id, status: 'CONFIRMED', checkedInAt: null, noShowAt: null },
       data: { noShowAt: now },
     });
     if (marked.count === 0) continue;
     markedTotal += marked.count;
-    await audit({
-      action: 'CHECK_IN_NO_SHOW_MARKED',
-      entity: 'Tournament',
-      entityId: t.id,
-      after: { noShows: marked.count, windowClosedAt: shutAt.toISOString() },
-    });
+    // Keep the bulk mutation efficient, but retain one immutable audit event per
+    // registration so staff can prove exactly which player was marked absent.
+    await Promise.all(
+      candidates.slice(0, marked.count).map((registration) =>
+        audit({
+          action: 'CHECK_IN_NO_SHOW_MARKED',
+          entity: 'TournamentRegistration',
+          entityId: registration.id,
+          after: { tournamentId: t.id, windowClosedAt: shutAt.toISOString() },
+        }),
+      ),
+    );
     await notifyAdmins({
       type: 'TOURNAMENT_UPDATE',
       title: `No-shows marked — ${t.title}`,
