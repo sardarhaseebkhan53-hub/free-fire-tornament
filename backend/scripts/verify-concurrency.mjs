@@ -23,7 +23,7 @@ import pg from 'pg'; import jwt from 'jsonwebtoken'; import bcrypt from 'bcryptj
 // the embedded single-writer dev engine. Defaults are the dev stack, unchanged.
 const API=process.env.CONCURRENCY_API_URL ?? 'http://localhost:4000/api';
 const DB=process.env.CONCURRENCY_DB_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/postgres';
-const S=process.env.CONCURRENCY_JWT_SECRET ?? 'dev-access-secret-0123456789abcdefghijklmnop';
+const S=process.env.CONCURRENCY_JWT_SECRET ?? 'dev-only-access-secret-change-me';
 let pass=0,fail=0;const ck=(n,c,x)=>{console.log(`${c?'✅':'❌'} ${n}${x?` — ${x}`:''}`);c?pass++:fail++;};
 const tok=(id,u,r='USER')=>jwt.sign({sub:id,role:r,username:u},S,{expiresIn:'15m'});
 async function api(p,{token,body,method}={}){const h={'content-type':'application/json','x-clutchnex-client':'web'};if(token)h.authorization=`Bearer ${token}`;
