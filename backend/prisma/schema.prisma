@@ -124,6 +124,27 @@ enum TournamentStatus {
   CANCELLED
 }
 
+/// Lifecycle of an event's Free Fire room (admin-managed — see room.service.ts).
+/// These are exactly the four labels the admin panel and the player card show, so a
+/// screenshot of either one is enough to explain a dispute.
+///
+/// The value is a CACHE, not the truth: the release is derived from timestamps on every
+/// read (that is what makes a missed scheduler tick harmless), and only CANCELLED is a
+/// state an admin action alone can set or clear.
+enum RoomStatus {
+  /// No Room ID / password has been entered yet.
+  NOT_ADDED
+  /// Credentials exist but the release window has not been reached (or the
+  /// admin has hidden the room) — nothing is served to players.
+  SCHEDULED
+  /// Credentials exist and the release window has passed — visible to the
+  /// players who hold a confirmed seat, and to them only.
+  AVAILABLE
+  /// Admin cancelled the room: credentials stop being visible immediately and
+  /// stay invisible until an explicit re-activation.
+  CANCELLED
+}
+
 enum RegistrationStatus {
   CONFIRMED
   CANCELLED
@@ -590,6 +611,9 @@ model Tournament {
 
   startTime            DateTime
   registrationDeadline DateTime
+  /// One-to-one with the room record (roomId/roomPassword live THERE, on purpose —
+  /// see the model comment for why this is not eleven columns on this table).
+  room          TournamentRoom?
   // PHASE 19 — check-in window. When either side is NULL it is DERIVED from the
   // tournament's own timestamps (open at registrationDeadline, close at startTime),
   // so an event created before this feature still has a working check-in.
@@ -612,6 +636,51 @@ model Tournament {
   @@index([type])
   @@index([startTime])
   @@map("tournaments")
+}
+
+model TournamentRoom {
+  id           String     @id @default(cuid())
+  tournamentId String     @unique
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  // The two values this whole feature exists to hold. They are on a table of their own
+  // rather than eleven columns on `tournaments` for one reason: a tournament row gets
+  // read and SPREAD wholesale all over this codebase (the public detail response is
+  // literally `{ ...core }`), so a column here would be one forgotten `select` away from
+  // shipping a live password to every visitor. On this table, a response carries a
+  // credential only if a query deliberately asked for it.
+  roomId       String?
+  roomPassword String?
+
+  status       RoomStatus @default(NOT_ADDED)
+
+  /// Pinned release instant, set by an admin who wants an exact moment. NULL = DERIVED
+  /// from the event's own `startTime` (so moving the start moves the release, exactly like
+  /// the check-in window) minus `releaseMinutes`.
+  releaseAt    DateTime?
+  /// Per-event lead time in minutes before start. NULL = the platform-wide value
+  /// (`tournament.roomReleaseMinutes` Setting, then ROOM_RELEASE_MINUTES env, default 5).
+  releaseMinutes Int?
+  /// Stamped the first time the CURRENT credentials actually unlocked — the exactly-once
+  /// guard for the "room is open" notification. Reset to NULL when an admin rotates the
+  /// credentials, so players are told once about each version of the room.
+  releasedAt   DateTime?
+  /// Admin "hide / disable": the room is kept but never served, even past its release
+  /// time. A one-click "show room" clears it — no re-typing of credentials.
+  hiddenAt     DateTime?
+  /// Admin cancellation of the ROOM (not of the event). Terminal for the credential read
+  /// path until an explicit re-activation clears it; the values stay in the row so a
+  /// mis-click is recoverable, but nothing serves them while this is set.
+  cancelledAt  DateTime?
+  cancelReason String?
+  /// Staff note about the room ("lobby re-created at 21:32", "captain has it too").
+  /// Admin-only: it is never part of a player-facing response.
+  note         String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([status])
+  @@map("tournament_rooms")
 }
 
 model TournamentRegistration {

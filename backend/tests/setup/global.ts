@@ -70,6 +70,7 @@ async function seedBaseline(client: pg.Client) {
     ['tournament.startReminderMinutes', 5],
     ['tournament.defaultPointsPerKill', 1],
     ['tournament.roomCredentialsReleaseMinutesBeforeStart', 30],
+    ['tournament.roomReleaseMinutes', 5],
     ['tournament.allowIndependentDuo', false],
     ['tournament.allowIndependentSquad', false],
     ['ads.enabled', false],

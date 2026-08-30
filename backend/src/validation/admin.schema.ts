@@ -73,6 +73,18 @@ export const createTournamentSchema = z.object({
   penaltyPoints: z.coerce.number().int().min(0).max(9999).default(0),
   roomId: z.string().trim().max(20).optional().default(''),
   roomPassword: z.string().trim().max(30).optional().default(''),
+  // The event's OWN room (Room ID / password on the tournament, released on the room
+  // schedule). Deliberately a nested object rather than reusing the two fields above:
+  // those seed the first MATCH's credentials and predate this feature, so keeping them
+  // separate means no existing caller of this endpoint changes meaning.
+  room: z
+    .object({
+      roomId: z.string().trim().max(40).optional().default(''),
+      roomPassword: z.string().trim().max(60).optional().default(''),
+      releaseMinutesBeforeStart: z.coerce.number().int().min(0).max(1440).nullish(),
+      note: z.string().trim().max(400).optional().default(''),
+    })
+    .optional(),
   matchNumber: z.coerce.number().int().min(1).max(500).optional().default(1),
   matchMap: z.string().trim().max(40).optional().default(''),
   matchScheduledOffsetMinutes: z.coerce.number().int().min(0).max(1440).optional().default(0),
@@ -103,6 +115,38 @@ export const tournamentScoringSchema = z.object({
 
 export const tournamentStatusSchema = z.object({
   status: z.enum(['DRAFT', 'REGISTRATION_OPEN', 'LIVE', 'COMPLETED', 'CANCELLED']),
+});
+
+/**
+ * Tournament room — the admin's add/update payload.
+ *
+ * Every field is `nullish` rather than optional-with-default, because "leave the Room ID
+ * alone" and "clear the Room ID" are different instructions and the service has to be
+ * able to tell them apart. `''` means clear: a form that blanks a field is the admin
+ * removing a value, not a transport accident.
+ *
+ * The credential patterns live in room.service (they are shared with the builder), so the
+ * schema only bounds length — this is the layer that refuses an oversized body, not the
+ * layer that decides what a room ID is.
+ */
+export const tournamentRoomSchema = z
+  .object({
+    roomId: z.string().trim().max(40).nullish(),
+    roomPassword: z.string().trim().max(60).nullish(),
+    /** Pinned release instant; null/'' re-derives it from the event's start time. */
+    releaseAt: z.string().trim().max(40).nullish(),
+    releaseMinutesBeforeStart: z.coerce.number().int().min(0).max(1440).nullish(),
+    enabled: z.boolean().optional(),
+    note: z.string().trim().max(400).nullish(),
+  })
+  // Nothing sent is not the same as an empty room: the service rejects "clear both", but
+  // an accidental `{}` (a form submitted before hydration) must not be a silent write.
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to save — change a room field first.' });
+
+/** The four room switches. A reason is mandatory for CANCEL, enforced in the service. */
+export const tournamentRoomStatusSchema = z.object({
+  action: z.enum(['HIDE', 'SHOW', 'CANCEL', 'REACTIVATE']),
+  reason: z.string().trim().max(200).optional(),
 });
 
 export const matchStatusSchema = z.object({

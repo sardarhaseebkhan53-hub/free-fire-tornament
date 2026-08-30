@@ -22,7 +22,9 @@ export default function AdminAuditLogsPage() {
       <AdminPageTitle title="Audit Logs" sub="Every balance change, approval, ban and settings edit — immutable." />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        {['', 'DEPOSIT', 'WITHDRAWAL', 'BALANCE_ADJUSTED', 'RESULT', 'USER_', 'SETTING', 'TOURNAMENT', 'PRIZES'].map((a) => (
+        {/* Prefix-ish chips: the API filters with `contains`, so 'ROOM' catches every
+            ROOM_* action (UPDATED / HIDDEN / VISIBLE / CANCELLED / REACTIVATED). */}
+        {['', 'DEPOSIT', 'WITHDRAWAL', 'BALANCE_ADJUSTED', 'RESULT', 'USER_', 'SETTING', 'TOURNAMENT', 'PRIZES', 'ROOM'].map((a) => (
           <button key={a || 'all'} onClick={() => { setAction(a); setPage(1); }}
             className={`rounded-input px-3.5 py-2 text-xs font-bold transition ${action === a ? 'bg-accent text-white' : 'border border-line bg-white/[2%] text-fg-2 hover:text-fg'}`}>
             {a === '' ? 'All' : a.replaceAll('_', ' ')}
@@ -39,7 +41,7 @@ export default function AdminAuditLogsPage() {
               <Tr key={a.id}>
                 <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(a.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}</Td>
                 <Td className="font-semibold text-fg">{a.actor}</Td>
-                <Td><span className={`text-xs font-bold ${(a.action.includes('REJECT') || a.action.includes('BAN')) ? 'text-danger' : a.action.includes('APPROVED') || a.action.includes('PAID') || a.action.includes('VERIFIED') ? 'text-success' : 'text-fg-2'}`}>{a.action.replaceAll('_', ' ')}</span></Td>
+                <Td><span className={`text-xs font-bold ${(a.action.includes('REJECT') || a.action.includes('BAN') || a.action === 'ROOM_CANCELLED') ? 'text-danger' : a.action.includes('APPROVED') || a.action.includes('PAID') || a.action.includes('VERIFIED') || a.action === 'ROOM_VISIBLE' ? 'text-success' : a.action === 'ROOM_HIDDEN' ? 'text-warning' : 'text-fg-2'}`}>{a.action.replaceAll('_', ' ')}</span></Td>
                 <Td className="text-xs text-fg-2">{a.entity}{a.entityId ? ` · ${a.entityId.slice(-6)}` : ''}</Td>
                 <Td>
                   <button onClick={() => setDetail(a)} className="rounded-input border border-line px-2.5 py-1 text-[11px] font-bold text-fg-2 hover:text-accent">Inspect</button>

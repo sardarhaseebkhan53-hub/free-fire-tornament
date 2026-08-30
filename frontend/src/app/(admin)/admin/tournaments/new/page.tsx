@@ -23,6 +23,11 @@ export default function TournamentBuilderPage() {
   const [description, setDescription] = useState('');
   const [startTime, setStartTime] = useState('');
   const [deadline, setDeadline] = useState('');
+  // The event's own Custom Room, optional at creation. Kept separate from the per-match
+  // credentials (which the Matches screen owns) — a lobby the whole event shares, and one
+  // that has to be reachable before the first match starts.
+  const [roomInput, setRoomInput] = useState({ roomId: '', roomPassword: '', lead: '' });
+  const roomTouched = roomInput.roomId.trim() !== '' || roomInput.roomPassword.trim() !== '' || roomInput.lead.trim() !== '';
   const [maxSlots, setMaxSlots] = useState('48');
   const [minSlots, setMinSlots] = useState('8');
   const [entryFee, setEntryFee] = useState('50');
@@ -83,6 +88,17 @@ export default function TournamentBuilderPage() {
             kind: p.kind, label: p.label, amount: Number(p.amount),
             ...(p.kind === 'KILL_POOL' ? { perKill: Number(p.perKill ?? 0), cap: Number(p.cap ?? p.amount) } : {}),
           })),
+          // Only sent when something was typed: an absent `room` means "no row at all",
+          // which the room panel then treats as `Room Not Added`.
+          ...(roomTouched
+            ? {
+                room: {
+                  roomId: roomInput.roomId.trim(),
+                  roomPassword: roomInput.roomPassword.trim(),
+                  ...(roomInput.lead.trim() ? { releaseMinutesBeforeStart: Number(roomInput.lead) } : {}),
+                },
+              }
+            : {}),
           publish, confirmLoss,
         },
       });
@@ -164,6 +180,29 @@ export default function TournamentBuilderPage() {
               <Field label="Minimum slots to start *">
                 <input value={minSlots} onChange={(e) => setMinSlots(e.target.value.replace(/[^\d]/g, ''))} className={inputCls} />
               </Field>
+            </div>
+
+            <div className="rounded-card border border-line bg-white/[3%] p-4">
+              <p className="font-display text-sm font-bold uppercase tracking-[0.12em] text-fg">Custom room (optional)</p>
+              <p className="mt-1 text-xs text-fg-2">
+                Leave it empty and add the room later from the tournament list — players see <strong>Room Not Added</strong> until you do.
+                Anything you enter here stays hidden from every player until{' '}
+                <strong>a few minutes before the start time</strong> (5 by default; the number below overrides it for this event only).
+              </p>
+              <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                <Field label="Room ID">
+                  <input value={roomInput.roomId} onChange={(e) => setRoomInput({ ...roomInput, roomId: e.target.value })} autoComplete="off" className={inputCls} placeholder="123456789" />
+                </Field>
+                <Field label="Room password">
+                  <input value={roomInput.roomPassword} onChange={(e) => setRoomInput({ ...roomInput, roomPassword: e.target.value })} autoComplete="off" className={inputCls} placeholder="abcd12" />
+                </Field>
+                <Field label="Minutes before start">
+                  <input value={roomInput.lead} onChange={(e) => setRoomInput({ ...roomInput, lead: e.target.value.replace(/[^\d]/g, '') })} inputMode="numeric" className={inputCls} placeholder="5" />
+                </Field>
+              </div>
+              {roomInput.roomPassword.trim() !== '' && roomInput.roomId.trim() === '' ? (
+                <p className="mt-2 text-xs font-semibold text-warning">A password with no Room ID cannot be saved — players need both to get in.</p>
+              ) : null}
             </div>
           </div>
         )}

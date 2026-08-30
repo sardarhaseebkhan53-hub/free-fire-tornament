@@ -132,3 +132,19 @@ export const adminWriteLimiter = rateLimit({
   limit: 240,
   message: message('Too many admin actions — slow down.'),
 });
+
+/**
+ * The tournament room card. Reads are cheap, but this is the one endpoint that can
+ * return a live Room ID / password, so it gets its own budget rather than riding the
+ * global ceiling: a scraped-per-event enumeration of `/tournaments/:slug/room` is a
+ * credential-fishing attempt, not browsing. The allowance is sized for the card's own
+ * polling (a countdown that re-checks once the window elapses), not for a client that
+ * refetches every second.
+ */
+export const roomLimiter = rateLimit({
+  ...base,
+  windowMs: 15 * 60_000,
+  limit: 90,
+  keyGenerator: userOrIp,
+  message: message('Too many room lookups — the room card only needs to refresh once the countdown ends.'),
+});

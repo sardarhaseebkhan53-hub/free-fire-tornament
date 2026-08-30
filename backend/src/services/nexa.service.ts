@@ -53,7 +53,7 @@ const RULES: Rule[] = [
     intent: 'room_credentials',
     patterns: [/room\s*id/i, /room\s*password/i, /credential/i, /room\s*code/i],
     answer: () =>
-      `Room IDs and passwords unlock automatically in My Matches exactly at the release time shown on your match card — and only for registered players. ${LIMIT_NOTICE} If the release time passed and nothing unlocked, open a TECHNICAL ticket and staff will check.`,
+      `Room IDs and passwords unlock automatically at the release time shown on your card — in My Matches for match rooms, and on the tournament's Room card for event rooms (a few minutes before start, by default 5). Only players holding a confirmed seat can see them, and they disappear the moment staff cancel a room. ${LIMIT_NOTICE} If the release time passed and nothing unlocked, open a TECHNICAL ticket and staff will check.`,
     quickReplies: ['When is my match?', 'How do I join a tournament?'],
     guarded: true,
   },
@@ -157,7 +157,7 @@ const RULES: Rule[] = [
     intent: 'schedule',
     patterns: [/(when|kab).{0,24}(match|start|tournament|room)/i, /schedule/i, /timing/i],
     answer: () =>
-      'Every tournament card shows its start time and the match schedule lives on its details page. Room credentials unlock on your My Matches card at the release moment — watch the countdown there.',
+      'Every tournament card shows its start time and the match schedule lives on its details page. Room credentials unlock on your My Matches card (match rooms) or the tournament\'s Room card (event rooms) at the release moment — watch the countdown there.',
     quickReplies: ['How do room unlocks work?', 'Join a tournament'],
   },
   {

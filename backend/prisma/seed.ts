@@ -171,7 +171,8 @@ async function main() {
     ['tournament.defaultPointsPerKill', 1, 'Default points awarded per kill'],
     ['tournament.defaultRefundPercent', 100, 'Refund percentage when a tournament is cancelled'],
     ['tournament.registrationCutoffMinutes', 30, 'Registration closes N minutes before start'],
-    ['tournament.roomCredentialsReleaseMinutesBeforeStart', 30, 'Room ID/password unlock window'],
+    ['tournament.roomCredentialsReleaseMinutesBeforeStart', 30, 'Room ID/password unlock window (per-match rooms)'],
+    ['tournament.roomReleaseMinutes', 5, 'Minutes before an event starts that its TOURNAMENT room (Room ID + password) unlocks for registered players. The built-in default is the ROOM_RELEASE_MINUTES env var; an event can pin its own lead or an exact instant in the admin room panel.'],
     ['tournament.allowIndependentDuo', true, 'Allow players to register DUO without a team and get paired later by admin'],
     ['tournament.allowIndependentSquad', true, 'Allow players to register SQUAD / Clash Squad without a team and get paired later by admin'],
     ['ads.enabled', false, 'Show admin-managed advertisements across the public site (off by default)'],
@@ -446,7 +447,7 @@ async function main() {
   // -------------------------------------------------------------------------
   const RULES_COMMON = [
     '• Emulator play is not allowed — mobile devices only.',
-    '• Room ID and password are released 30 minutes before start inside My Matches.',
+    '• Room ID and password are released automatically shortly before start (per-match rooms: 30 minutes; event rooms: the configured lead, 5 minutes by default) — in My Matches and on the tournament page. They are visible only to players holding a confirmed seat.',
     '• Screenshots of the final scoreboard are required for result verification.',
     '• Hacks, scripts, teaming or impersonation lead to permanent BAN and forfeiture.',
     '• Admin decisions on disputes are final.',
@@ -535,6 +536,74 @@ async function main() {
       },
     }),
   };
+
+  // -------------------------------------------------------------------------
+  // 7b. Tournament ROOMS — one event per interesting state of the room lifecycle,
+  // so the admin panel and the player room card can both be seen working without
+  // staging anything by hand.
+  //
+  // The room lives on its own table (tournament_rooms) precisely so that no response
+  // which spreads a tournament row can carry a credential. `releaseAt` is left NULL on
+  // the events below: the release is DERIVED from each event's own startTime minus the
+  // configured lead, which is what production does too.
+  // -------------------------------------------------------------------------
+  const roomState = (t: { startTime: Date }) => new Date(t.startTime.getTime() - 5 * 60_000);
+
+  // (1) Squad cup, 48h out: entered, timed, nothing visible — "Room Scheduled".
+  await prisma.tournamentRoom.create({
+    data: {
+      tournamentId: tournaments.squadOpen.id,
+      roomId: '7412580',
+      roomPassword: 'CNX4821',
+      status: 'SCHEDULED',
+      note: 'Custom room, lock after 1st zone. Observed spectator slots stay open.',
+    },
+  });
+
+  // (2) Clash Squad, starts in 5h but pinned open already: "Room Available" for the
+  // squads holding seats, which is the state a player screenshots to support.
+  await prisma.tournamentRoom.create({
+    data: {
+      tournamentId: tournaments.csOpen.id,
+      roomId: '9638520',
+      roomPassword: 'CLSNX220',
+      status: 'AVAILABLE',
+      releaseAt: roomState(tournaments.csOpen),
+      releasedAt: new Date(),
+      note: 'Pinned release for the CS final — same lobby for both rounds.',
+    },
+  });
+
+  // (3) Duo weekly: the admin typed it early and then HID it while the lobby is
+  // re-made — kept in the database, invisible to players, one click from being shown.
+  await prisma.tournamentRoom.create({
+    data: {
+      tournamentId: tournaments.duoOpen.id,
+      roomId: '1597534',
+      roomPassword: 'DUO7744',
+      status: 'SCHEDULED',
+      hiddenAt: hoursAgo(1),
+      releaseAt: roomState(tournaments.duoOpen),
+      note: 'Hidden: the organizer is re-creating the lobby, password changes after.',
+    },
+  });
+
+  // (4) A cancelled event keeps its cancelled room visible in the panel as
+  // "Room Cancelled" — the record of what was cancelled, and why.
+  await prisma.tournamentRoom.create({
+    data: {
+      tournamentId: tournaments.cancelled.id,
+      roomId: '8529631',
+      roomPassword: 'PGR7712',
+      status: 'CANCELLED',
+      releaseAt: roomState(tournaments.cancelled),
+      cancelledAt: daysAgo(1),
+      cancelReason: 'Minimum player count was not reached — entries refunded 100%.',
+    },
+  });
+
+  // (5) `tournaments.soloDone` / the draft intentionally have NO room row: that is the
+  // "Room Not Added" state, and it is proven to render from the absence of a record.
 
   // -------------------------------------------------------------------------
   // 8. Registrations + entry-fee ledger debits

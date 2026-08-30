@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight, Coins, Copy, Check, Crown, Gamepad2, Gift, Headphones,
-  Lock, Plus, Target, Swords, Trophy, Upload, Users, Wallet as WalletIcon,
+  Lock, Plus, ShieldAlert, Swords, Target, Trophy, Unlock, Upload, Users, Wallet as WalletIcon,
 } from 'lucide-react';
 import { api } from '@/lib/client-api';
 import { useHasSession } from '@/lib/session';
@@ -17,7 +17,7 @@ import { Skeleton } from '@/components/ui';
 import { TournamentImage } from '@/components/tournament-image';
 import { RankBadge } from '@/components/rank-badge';
 import { fmt } from '@/lib/format';
-import type { RankInfo } from '@/lib/types';
+import type { RankInfo, RoomState } from '@/lib/types';
 
 interface Me {
   username: string; isVerified: boolean; referralCode: string;
@@ -30,6 +30,12 @@ interface Reg {
   id: string; status: string; registeredAt: string; seatNumber: number | null;
   tournament: { id: string; title: string; slug: string; type: string; map: string | null; status: string; startTime: string; banner: string | null };
   team: { name: string; tag: string } | null;
+  /**
+   * The event's room, already resolved server-side (status + timing, never values). Read
+   * from this instead of computing a release time from `startTime` here: the admin can pin
+   * any instant they like, and a countdown the dashboard invents is a countdown that lies.
+   */
+  room?: RoomState | null;
 }
 interface Tx { id: string; type: string; amount: number; direction: string; createdAt: string; description: string | null }
 interface LbRow { rank: number; user: { username: string; profile: { freeFireIGN: string | null } }; totalPoints: number }
@@ -366,14 +372,84 @@ function UpcomingMatch({ reg }: { reg: Reg }) {
             </div>
           ))}
         </div>
-        <div className="mt-4 flex items-center gap-2.5 rounded-input border border-line bg-base/60 px-3.5 py-2.5">
-          <Lock size={14} className="text-warning" />
-          <p className="text-xs text-fg-2">
-            Room is locked — credentials unlock in My Matches{' '}
-            <span className="text-warning">{msToCountdown(Math.max(0, left - 30 * 60_000))}</span> before start.
-          </p>
-        </div>
+        <RoomLine reg={reg} fallbackMs={Math.max(0, left - 30 * 60_000)} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * One line about the event room on a player's dashboard.
+ *
+ * It renders the server's state verbatim and never a value — the ID and password are only
+ * ever served by `GET /api/tournaments/:slug/room`, and duplicating that answer here (a
+ * cached `roomId` on the registration row, say) is how a "hidden" credential ends up in a
+ * payload nobody reviewed. With no state to show it falls back to the older sentence about
+ * per-match credentials, which is still the true story for those.
+ */
+function RoomLine({ reg, fallbackMs }: { reg: Reg; fallbackMs: number }) {
+  const room = reg.room;
+  const href = `/tournaments/${reg.tournament.slug}`;
+  const shell = 'mt-4 flex items-start gap-2.5 rounded-input border border-line bg-base/60 px-3.5 py-2.5';
+
+  if (!room) {
+    return (
+      <div className={shell}>
+        <Lock size={14} className="mt-0.5 shrink-0 text-warning" />
+        <p className="text-xs text-fg-2">
+          Room is locked — credentials unlock in My Matches{' '}
+          <span className="text-warning">{msToCountdown(fallbackMs)}</span> before start.
+        </p>
+      </div>
+    );
+  }
+
+  if (room.status === 'AVAILABLE') {
+    return (
+      <div className={`${shell} border-success/35 bg-success/[6%]`}>
+        <Unlock size={14} className="mt-0.5 shrink-0 text-success" />
+        <p className="text-xs text-fg-2">
+          <strong className="text-success">Room is open.</strong>{' '}
+          <Link href={href} className="font-semibold text-accent hover:underline">Room ID and password</Link> are on the tournament page — get in the lobby before it starts.
+        </p>
+      </div>
+    );
+  }
+
+  if (room.status === 'CANCELLED') {
+    return (
+      <div className={`${shell} border-danger/35 bg-danger/[6%]`}>
+        <ShieldAlert size={14} className="mt-0.5 shrink-0 text-danger" />
+        <p className="text-xs text-fg-2">
+          <strong className="text-danger">Room cancelled.</strong>
+          {room.cancelReason ? ` ${room.cancelReason}` : ' Check the tournament page for what happens next.'}
+        </p>
+      </div>
+    );
+  }
+
+  if (room.status === 'NOT_ADDED') {
+    return (
+      <div className={shell}>
+        <Lock size={14} className="mt-0.5 shrink-0 text-fg-3" />
+        <p className="text-xs text-fg-2">Room not added yet — you will be notified the moment it opens.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={shell}>
+      <Lock size={14} className="mt-0.5 shrink-0 text-warning" />
+      <p className="text-xs text-fg-2">
+        Room opens in{' '}
+        {room.releaseInMs !== null && room.releaseInMs > 0 ? (
+          <span className="text-warning">{msToCountdown(room.releaseInMs)}</span>
+        ) : (
+          <span className="text-warning">a moment</span>
+        )}
+        {room.hidden ? ' (an admin hid it again)' : ''} ·{' '}
+        <Link href={href} className="font-semibold text-accent hover:underline">open the room card</Link>
+      </p>
     </div>
   );
 }
