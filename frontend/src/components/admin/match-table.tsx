@@ -142,7 +142,7 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
           <>
             {/* Workflow bar */}
             <div className="mb-4 flex flex-wrap items-center gap-2 rounded-input border border-line bg-white/[3%] px-3 py-2.5">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-fg-3">Results workflow</span>
+              <span className="text-[11px] font-bold uppercase tracking-wide text-fg-2">Results workflow</span>
               <Pill status={rs} />
               <span className="text-[11px] text-fg-3">{data.filled}/{data.totalSeats} seats · map {data.match.map ?? '—'}</span>
               <div className="ml-auto flex flex-wrap gap-1.5">
@@ -278,7 +278,7 @@ function MatchSetupEditor({ matchId, match, open, onToggle, onSaved }: {
   return (
     <div className="mb-3">
       <button onClick={onToggle} className="text-[11px] font-bold text-fg-3 hover:text-fg">
-        {open ? '▾ hide' : '▸ match setup —'} map {match.map ?? '—'} · room {match.roomId ?? 'auto'} · creds {match.credentialsReleaseAt ? 'released' : 'locked'}
+        {open ? '▾ hide' : '▸ match setup —'} map {match.map ?? '—'} · room {match.roomId ?? 'auto'} · creds {match.credentialsReleaseAt ? 'configured' : 'not configured'}
       </button>
       {open && (
         <div className="mt-2 grid gap-2 rounded-input border border-line bg-white/[3%] p-3 sm:grid-cols-4">

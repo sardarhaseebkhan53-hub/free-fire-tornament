@@ -94,8 +94,17 @@ export async function getTournamentBySlug(slug: string) {
         where: { status: 'CONFIRMED' },
         select: {
           seatNumber: true,
-          user: { select: { username: true, avatar: true, profile: { select: { showPublicProfile: true } } } },
-          team: { select: { name: true, tag: true } },
+          user: { select: { username: true, avatar: true, profile: { select: { showPublicProfile: true, freeFireUID: true, freeFireIGN: true } } } },
+          team: {
+            select: {
+              name: true,
+              tag: true,
+              members: {
+                select: { user: { select: { username: true, profile: { select: { freeFireUID: true, freeFireIGN: true } } } } },
+                orderBy: { joinedAt: 'asc' },
+              },
+            },
+          },
         },
         orderBy: [{ seatNumber: 'asc' }, { registeredAt: 'asc' }],
         // Was hard-coded to 48, which silently truncated the seat list for
@@ -142,10 +151,24 @@ export async function getTournamentBySlug(slug: string) {
     })),
     participants: registrations.map((registration) => ({
       seatNumber: registration.seatNumber,
-      team: registration.team,
+      team: registration.team
+        ? {
+            name: registration.team.name,
+            tag: registration.team.tag,
+            members: registration.team.members.map((member) => ({
+              username: member.user.profile?.freeFireIGN ?? member.user.username,
+              uid: member.user.profile?.freeFireUID ?? null,
+            })),
+          }
+        : null,
       user: registration.user.profile?.showPublicProfile === false
-        ? { username: 'Anonymous player', avatar: null }
-        : { username: registration.user.username, avatar: registration.user.avatar },
+        ? { username: 'Anonymous player', avatar: null, uid: null, ign: null }
+        : {
+            username: registration.user.username,
+            avatar: registration.user.avatar,
+            uid: registration.user.profile?.freeFireUID ?? null,
+            ign: registration.user.profile?.freeFireIGN ?? null,
+          },
     })),
   };
 }

@@ -7,9 +7,10 @@ import { msToCountdown } from '@/lib/format';
 import { useTimeLeft, useTimeUntil } from '@/lib/client-time';
 
 function Rendered({ left, className }: { left: number | null; className?: string }) {
-  if (left === null) return <span className={`tabular ${className ?? ''}`}>--:--:--</span>;
-  if (left <= 0) return <span className={className}>Now</span>;
-  return <span className={`tabular ${className ?? ''}`}>{msToCountdown(left)}</span>;
+  const classes = `tabular ${className ?? ''}`;
+  if (left === null || !Number.isFinite(left)) return <span className={classes}>--:--:--</span>;
+  if (left <= 0) return <span className={classes}>Now</span>;
+  return <span className={classes}>{msToCountdown(left)}</span>;
 }
 
 /** Counts down a duration measured from when the component mounts. */

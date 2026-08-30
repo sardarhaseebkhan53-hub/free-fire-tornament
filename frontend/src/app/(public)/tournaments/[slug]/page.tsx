@@ -5,7 +5,7 @@ import { notFound } from 'next/navigation';
 import { Clock, MapPin, ShieldCheck, Skull, Star, Users } from 'lucide-react';
 import { apiServerSafe } from '@/lib/api';
 import type { TournamentDetails } from '@/lib/types';
-import { money, MODE_LABEL, STATUS_LABEL, dateTime, displayStatus, slotLabel } from '@/lib/format';
+import { money, MODE_LABEL, STATUS_LABEL, dateTime, displayStatus } from '@/lib/format';
 import { Badge, Avatar } from '@/components/ui';
 import { Reveal } from '@/components/reveal';
 import { Countdown, CountdownUntil } from '@/components/countdown';
@@ -198,48 +198,50 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             </div>
           </section>
 
-          {/* Participants — seat grid (spec: 48-seat allocation) */}
+          {/* Participants — numeric Free Fire-style seat board */}
           <section className="glass rounded-card p-6">
-            <h2 className="font-display text-lg font-bold text-fg">Registered {t.type === 'SOLO' ? 'Players' : 'Teams'}</h2>
-            <p className="mt-1 text-xs text-fg-3">
-              {t.slotsLeft > 0
-                ? <>Seats {t.registeredSlots} of {t.maxSlots} occupied · <strong className="text-warning">{t.slotsLeft} remaining</strong></>
-                : <>All {t.maxSlots} seats are occupied — tournament is full.</>}
-            </p>
-            {/* Seat grid — mirrors the admin slot board so a player sees exactly
-                which seats are taken and which are still open. Every seat shows
-                both its letter label (A, B, C…) and its seat number (#1, #2…). */}
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="font-display text-lg font-bold text-fg">Custom Room Lobby</h2>
+                <p className="mt-1 text-xs text-fg-2">{t.registeredSlots} of {t.maxSlots} slots occupied · <strong className="text-success">{t.slotsLeft} available</strong></p>
+              </div>
+              <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.12em] text-fg-2">
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-success" /> Available</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-accent" /> Confirmed</span>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {Array.from({ length: t.maxSlots }, (_, idx) => {
                 const seat = idx + 1;
                 const p = t.participants.find((x) => x.seatNumber === seat);
-                const name = p ? (p.team ? `${p.team.name} [${p.team.tag}]` : p.user.username) : null;
+                const teamName = p?.team ? `${p.team.name} [${p.team.tag}]` : null;
+                const members = p?.team?.members ?? (p ? [{ username: p.user.ign ?? p.user.username, uid: p.user.uid }] : []);
                 return (
-                  <div
-                    key={seat}
-                    title={`Seat ${slotLabel(seat)} · #${seat}${name ? ` — ${name}` : ' — open'}`}
-                    className={`rounded-card border p-3 transition ${
-                      p
-                        ? 'border-line bg-white/[3%]'
-                        : 'border-dashed border-line/60 bg-transparent'
-                    }`}
-                  >
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="font-display text-base font-bold text-fg">{slotLabel(seat)}</span>
-                      <span className="tabular text-[11px] font-semibold text-fg-3">#{seat}</span>
+                  <div key={seat} className={`rounded-card border p-4 ${p ? 'border-accent/35 bg-accent/[0.07]' : 'border-dashed border-success/35 bg-success/[0.035]'}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-display text-sm font-bold uppercase tracking-[0.14em] text-fg">Slot {String(seat).padStart(2, '0')}</span>
+                      <span className={`rounded-pill px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.12em] ${p ? 'bg-accent/15 text-accent' : 'bg-success/10 text-success'}`}>{p ? 'Confirmed' : 'Available'}</span>
                     </div>
                     {p ? (
-                      <div className="mt-2 flex items-center gap-2">
-                        <Avatar name={p.team?.name ?? p.user.username} size={22} />
-                        <span className="truncate text-xs font-semibold text-fg-2">{name}</span>
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Avatar name={p.team?.name ?? p.user.username} size={24} />
+                          <span className="truncate text-sm font-bold text-fg">{teamName ?? (p.user.ign ?? p.user.username)}</span>
+                        </div>
+                        {members.map((member, memberIndex) => (
+                          <div key={`${member.username}-${memberIndex}`} className="flex items-center justify-between gap-3 rounded-input bg-black/20 px-2.5 py-1.5 text-[11px]">
+                            <span className="truncate font-semibold text-fg-2">{member.username}</span>
+                            <span className="shrink-0 font-mono text-fg-3">{member.uid ? `UID: ${member.uid}` : 'UID unavailable'}</span>
+                          </div>
+                        ))}
                       </div>
                     ) : (
-                      <p className="mt-2 text-[11px] text-fg-3">Open seat</p>
+                      <p className="mt-3 text-xs font-semibold text-success/90">Open for registration</p>
                     )}
                   </div>
                 );
               })}
-              {t.participants.length === 0 && <p className="text-sm text-fg-3">Be the first to join.</p>}
+              {t.participants.length === 0 && <p className="text-sm text-fg-2">Be the first to join.</p>}
             </div>
           </section>
         </div>

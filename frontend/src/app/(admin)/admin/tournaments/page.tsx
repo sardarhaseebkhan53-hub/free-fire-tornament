@@ -25,6 +25,7 @@ export default function AdminTournamentsPage() {
   const { data, loading, setData } = useAdminList<Page>(`/admin/tournaments?page=${page}&pageSize=15`, [page]);
   const [busy, setBusy] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [cancelling, setCancelling] = useState<string | null>(null);
 
   async function setStatus(id: string, status: string) {
     setBusy(id);
@@ -93,13 +94,24 @@ export default function AdminTournamentsPage() {
                         → {FLOW[t.status]!.replace('_', ' ')}
                       </button>
                     )}
-                    {['DRAFT', 'REGISTRATION_OPEN'].includes(t.status) && (
+                    {['DRAFT', 'REGISTRATION_OPEN', 'LIVE'].includes(t.status) && (
                       <button
-                        onClick={() => { if (window.confirm('Cancel this tournament? Only possible with no confirmed players.')) setStatus(t.id, 'CANCELLED'); }}
-                        disabled={busy === t.id}
-                        className="rounded-input border border-danger/30 px-2.5 py-1 text-[11px] font-bold text-danger disabled:opacity-50"
+                        onClick={async () => {
+                          const confirmed = window.confirm(
+                            `Cancel “${t.title}”? Every confirmed registration will be marked refunded and credited according to the tournament refund policy. This cannot be undone.`,
+                          );
+                          if (!confirmed) return;
+                          setCancelling(t.id);
+                          try {
+                            await setStatus(t.id, 'CANCELLED');
+                          } finally {
+                            setCancelling(null);
+                          }
+                        }}
+                        disabled={busy === t.id || cancelling === t.id}
+                        className="rounded-input border border-danger/30 px-2.5 py-1 text-[11px] font-bold text-danger transition hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        Cancel
+                        {cancelling === t.id ? 'Refunding…' : 'Cancel + refund'}
                       </button>
                     )}
                     {['DRAFT', 'CANCELLED', 'COMPLETED'].includes(t.status) && (

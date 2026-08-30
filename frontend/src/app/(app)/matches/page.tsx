@@ -145,11 +145,13 @@ function CopyChip({ label, value }: { label: string; value: string }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       }}
+      type="button"
       className="inline-flex items-center gap-1.5 rounded-input border border-line bg-white/[4%] px-3 py-1.5 text-xs font-semibold text-fg transition hover:border-accent/40"
       aria-label={`Copy ${label}`}
+      title={`Copy ${label}`}
     >
-      <span className="text-fg-3">{label}:</span> <span className="tabular">{value}</span>
-      {copied ? <Check size={12} className="text-success" /> : <Copy size={12} className="text-fg-3" />}
+      <span className="text-fg-2">{label}:</span> <span className="tabular">{value}</span>
+      {copied ? <Check size={12} className="text-success" /> : <Copy size={12} className="text-fg-2" />}
     </button>
   );
 }
@@ -328,27 +330,35 @@ export default function MyMatchesPage() {
                           <CopyChip label="Room ID" value={m.roomId} />
                           {m.roomPassword && (
                             <span className="inline-flex items-center gap-1.5 rounded-input border border-line bg-white/[4%] px-3 py-1.5 text-xs font-semibold text-fg">
-                              <span className="text-fg-3">Password:</span>
+                              <span className="text-fg-2">Password:</span>
                               <span className="tabular">{pwVisible[m.id] ? m.roomPassword : '•••••'}</span>
                               <button onClick={() => setPwVisible((v) => ({ ...v, [m.id]: !v[m.id] }))} aria-label="Toggle password visibility">
-                                {pwVisible[m.id] ? <EyeOff size={12} className="text-fg-3" /> : <Eye size={12} className="text-fg-3" />}
+                                {pwVisible[m.id] ? <EyeOff size={12} className="text-fg-2" /> : <Eye size={12} className="text-fg-2" />}
                               </button>
-                              <button onClick={() => navigator.clipboard?.writeText(m.roomPassword ?? '').catch(() => {})} aria-label="Copy password">
-                                <Copy size={12} className="text-fg-3" />
+                              <button
+                                type="button"
+                                onClick={() => navigator.clipboard?.writeText(m.roomPassword ?? '').catch(() => {})}
+                                aria-label="Copy password"
+                                title="Copy password"
+                                className="inline-flex items-center gap-1 rounded-input border border-line px-1.5 py-0.5 text-[10px] font-bold text-fg-2 hover:border-accent/40 hover:text-fg"
+                              >
+                                <Copy size={12} /> Copy
                               </button>
                             </span>
                           )}
                         </div>
                       ) : (
-                        <p className="flex items-center gap-3 text-sm text-fg-2">
-                          <span className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white/[4%]"><Lock size={15} className="text-warning" /></span>
-                          <span className="inline-flex flex-wrap items-center gap-1.5">
-                            Room details available in
-                            {m.releaseInMs !== null && m.releaseInMs > 0
-                              ? <Countdown targetMs={m.releaseInMs} className="tabular text-base font-bold text-accent" />
-                              : 'a moment'}
-                          </span>
-                        </p>
+                        <div className="flex flex-wrap items-center gap-3" aria-live="polite">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-warning/30 bg-warning/10"><Lock size={16} className="text-warning" /></span>
+                          <div className="min-w-[12rem]">
+                            <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-fg-2">Room details available in</p>
+                            {m.releaseInMs !== null && m.releaseInMs > 0 ? (
+                              <Countdown targetMs={m.releaseInMs} className="mt-1 inline-flex rounded-pill border border-accent/35 bg-accent/15 px-3 py-1 font-mono text-lg font-extrabold tracking-wide text-accent" />
+                            ) : (
+                              <span className="mt-1 inline-flex rounded-pill border border-warning/30 bg-warning/10 px-3 py-1 text-xs font-bold text-warning">Preparing your room</span>
+                            )}
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}

@@ -106,7 +106,7 @@ export const tournamentStatusSchema = z.object({
 });
 
 export const matchStatusSchema = z.object({
-  status: z.enum(['UPCOMING', 'SCHEDULED', 'ROOM_CREATED', 'ROOM_OPEN', 'LIVE', 'COMPLETED', 'CANCELLED']),
+  status: z.enum(['UPCOMING', 'SCHEDULED', 'ROOM_CREATED', 'ROOM_OPEN', 'CREDENTIALS_RELEASED', 'LIVE', 'COMPLETED', 'CANCELLED']),
 });
 
 export const matchListQuerySchema = z.object({
