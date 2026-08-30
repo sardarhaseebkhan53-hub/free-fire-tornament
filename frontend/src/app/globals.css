@@ -18,8 +18,9 @@
   --color-info: #3b82f6;
   --color-warning: #f59e0b;
   --color-fg: #f4f6fb;
-  --color-fg-2: #98a2b8;
-  --color-fg-3: #5d6b85;
+  /* Raised contrast: secondary copy must remain readable over hero artwork and glass. */
+  --color-fg-2: #c0c8d9;
+  --color-fg-3: #8693ad;
   --color-line: rgba(255, 255, 255, 0.08);
 
   /* Typography — self-hosted Space Grotesk (display) + Inter (body) via @fontsource */

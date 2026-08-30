@@ -25,7 +25,15 @@ interface Row {
 interface Page { items: Row[]; total: number; page: number; pageSize: number }
 interface TList { items: Array<{ id: string; title: string }> }
 
-const STATUS_FILTERS = ['', 'SCHEDULED', 'ROOM_CREATED', 'ROOM_OPEN', 'LIVE', 'COMPLETED', 'CANCELLED'] as const;
+const STATUS_FILTERS = ['', 'UPCOMING', 'SCHEDULED', 'ROOM_CREATED', 'ROOM_OPEN', 'CREDENTIALS_RELEASED', 'LIVE', 'COMPLETED', 'CANCELLED'] as const;
+const NEXT_MATCH_ACTION: Record<string, { status: string; label: string; tone: string }> = {
+  UPCOMING: { status: 'SCHEDULED', label: 'Schedule match', tone: 'bg-accent/15 text-accent' },
+  SCHEDULED: { status: 'ROOM_CREATED', label: 'Prepare room', tone: 'bg-accent/15 text-accent' },
+  ROOM_CREATED: { status: 'ROOM_OPEN', label: 'Open room', tone: 'bg-warning/15 text-warning' },
+  ROOM_OPEN: { status: 'LIVE', label: 'Start match', tone: 'bg-danger/15 text-danger' },
+  CREDENTIALS_RELEASED: { status: 'LIVE', label: 'Start match', tone: 'bg-danger/15 text-danger' },
+  LIVE: { status: 'COMPLETED', label: 'Close match', tone: 'bg-success/15 text-success' },
+};
 
 export default function AdminMatchesPage() {
   const router = useRouter();
@@ -36,6 +44,7 @@ export default function AdminMatchesPage() {
   const [page, setPage] = useState(1);
   const [createFor, setCreateFor] = useState(false);
   const [manageId, setManageId] = useState<string | null>(null);
+  const [statusBusy, setStatusBusy] = useState<string | null>(null);
 
   const tours = useAdminList<TList>('/admin/tournaments?pageSize=50');
   const qs = new URLSearchParams({ page: String(page), pageSize: '15', sort, dir: sort === 'scheduledAt' ? 'desc' : 'asc' });
@@ -50,11 +59,15 @@ export default function AdminMatchesPage() {
   }
 
   async function changeStatus(id: string, next: string) {
+    if (next === 'COMPLETED' && !window.confirm('Close this live match? Results remain a separate admin workflow and must still be entered, reviewed, confirmed, and published.')) return;
+    setStatusBusy(id);
     try {
       await api(`/admin/matches/${id}/status`, { method: 'POST', body: { status: next } });
       await refresh();
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Status change failed');
+    } finally {
+      setStatusBusy(null);
     }
   }
 
@@ -129,11 +142,14 @@ export default function AdminMatchesPage() {
                 <Td>
                   <div className="flex flex-wrap gap-1.5">
                     <button onClick={() => setManageId(m.id)} className="rounded-input bg-accent/15 px-2.5 py-1 text-[11px] font-bold text-accent">Manage</button>
-                    {m.status === 'SCHEDULED' && (
-                      <button onClick={() => changeStatus(m.id, 'LIVE')} className="rounded-input bg-danger/15 px-2.5 py-1 text-[11px] font-bold text-danger">Go Live</button>
-                    )}
-                    {m.status === 'LIVE' && (
-                      <button onClick={() => changeStatus(m.id, 'COMPLETED')} className="rounded-input bg-success/15 px-2.5 py-1 text-[11px] font-bold text-success">Complete</button>
+                    {NEXT_MATCH_ACTION[m.status] && (
+                      <button
+                        onClick={() => void changeStatus(m.id, NEXT_MATCH_ACTION[m.status]!.status)}
+                        disabled={statusBusy === m.id}
+                        className={`rounded-input px-2.5 py-1 text-[11px] font-bold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 ${NEXT_MATCH_ACTION[m.status]!.tone}`}
+                      >
+                        {statusBusy === m.id ? 'Saving…' : NEXT_MATCH_ACTION[m.status]!.label}
+                      </button>
                     )}
                     {m.status === 'COMPLETED' && m.resultsStatus !== 'PUBLISHED' &&
                       <button onClick={() => setManageId(m.id)} className="rounded-input bg-reward/15 px-2.5 py-1 text-[11px] font-bold text-reward">Enter Results</button>}

@@ -57,8 +57,12 @@ export interface TournamentDetails extends TournamentSummary {
   }>;
   participants: Array<{
     seatNumber: number | null;
-    user: { username: string; avatar: string | null };
-    team: { name: string; tag: string } | null;
+    user: { username: string; avatar: string | null; uid: string | null; ign: string | null };
+    team: {
+      name: string;
+      tag: string;
+      members: Array<{ username: string; uid: string | null }>;
+    } | null;
   }>;
 }
 

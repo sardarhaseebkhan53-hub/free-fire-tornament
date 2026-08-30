@@ -12,20 +12,11 @@ export function compact(n: number): string {
 }
 
 /**
- * Spreadsheet-style seat label: #1 → A, #2 → B … #26 → Z, #27 → AA …
- * Used on the admin slot board and player-facing seat chips so seats read as
- * A–Z instead of only zero-padded numbers.
+ * Numeric Free Fire seat label. The backend seatNumber remains authoritative;
+ * this helper only formats that number for user-facing copy.
  */
 export function slotLabel(n: number): string {
-  const value = Math.max(1, Math.floor(Number(n) || 1));
-  let out = '';
-  let x = value;
-  while (x > 0) {
-    x -= 1;
-    out = String.fromCharCode(65 + (x % 26)) + out;
-    x = Math.floor(x / 26);
-  }
-  return out;
+  return String(Math.max(1, Math.floor(Number(n) || 1)));
 }
 
 export function dateTime(d: string | Date): string {
