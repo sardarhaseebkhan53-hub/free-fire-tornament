@@ -4,6 +4,7 @@
 // wins ticker and trust strip. Data arrives as serializable props from the
 // server page; every clock value flows through the client-time hooks so SSR
 // and hydration always agree.
+import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowRight, Play, ShieldCheck } from 'lucide-react';
 import { useNow, useTimeUntil } from '@/lib/client-time';
@@ -101,6 +102,18 @@ export function HomeHero({
 
   return (
     <section className="relative overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
+        <Image
+          src="/images/branding/hero-arena.jpg"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover object-[68%_center] opacity-75"
+        />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,#070A14_0%,rgba(7,10,20,0.96)_28%,rgba(7,10,20,0.52)_58%,rgba(7,10,20,0.16)_100%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,10,20,0.48),transparent_36%,#070A14_100%)]" />
+      </div>
       {/* Aurora atmosphere — purely decorative, so it is pinned BEHIND the
           content (z-0 vs the z-10 wrapper below). Without the explicit
           stacking order the blurred blobs painted over the hero paragraph and
@@ -117,17 +130,17 @@ export function HomeHero({
           <div>
             <span className="inline-flex items-center gap-2 rounded-pill border border-accent/30 bg-accent/10 px-3.5 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.22em] text-accent">
               <span className="animate-blink h-1.5 w-1.5 rounded-full bg-success" />
-              Pakistan&rsquo;s Free Fire arena
+                Pakistan&rsquo;s competitive arena
             </span>
             <h1 className="mt-5 font-display text-[2.1rem] font-bold uppercase italic leading-[1.02] tracking-tight text-fg sm:text-5xl lg:text-6xl">
-              Play verified.
+              Enter the arena.
               <br />
-              <span className="animate-gradient-shift bg-[linear-gradient(92deg,#C4B5FD_0%,#8B5CF6_45%,#F5B942_100%)] bg-[length:220%_100%] bg-clip-text text-transparent">
-                Win with confidence.
+              <span className="animate-gradient-shift bg-[linear-gradient(92deg,#F8FAFC_0%,#C4B5FD_42%,#8B5CF6_74%,#F5B942_100%)] bg-[length:220%_100%] bg-clip-text text-transparent">
+                Clutch the win.
               </span>
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-relaxed text-fg-2 sm:text-base">
-              Join skill-based Free Fire tournaments with verified rooms, fair results and PKR payouts —
+              Compete in verified Free Fire tournaments with transparent PKR prize pools, fair results and accountable payouts —
               add money via JazzCash or EasyPaisa, lock your slot and clutch the prize.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -135,13 +148,13 @@ export function HomeHero({
                 href="/tournaments"
                 className="inline-flex items-center gap-2 rounded-input bg-accent px-6 py-3 text-sm font-bold uppercase tracking-wide text-white shadow-[0_0_28px_rgba(139,92,246,0.45)] transition duration-200 hover:bg-accent-strong hover:shadow-[0_0_34px_rgba(139,92,246,0.6)] active:scale-[0.98]"
               >
-                <Play size={16} /> Find a tournament
+                <Play size={16} /> Browse tournaments
               </Link>
               <Link
-                href="/legal/how-it-works"
+                href="/register"
                 className="inline-flex items-center gap-2 rounded-input border border-line bg-white/[3%] px-6 py-3 text-sm font-semibold uppercase tracking-wide text-fg-2 transition duration-200 hover:border-accent/40 hover:text-fg active:scale-[0.98]"
               >
-                How It Works <ArrowRight size={15} />
+                Create account <ArrowRight size={15} />
               </Link>
               <InstallButton />
             </div>
