@@ -6,9 +6,10 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { Prisma, type DepositStatus, type WithdrawalStatus } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
+import { readAfterUniqueViolation, withIdempotentRetry, withoutBlindRetry } from '../lib/tx-conflict';
 import { moveBalance, TX_OPTS } from './wallet.service';
 import { fireDepositFraud, fireRejectedDepositTid, fireWithdrawalFraud } from './fraud.service';
 import { notifyAdmins } from './notification.service';
@@ -296,9 +297,35 @@ function serializeDeposit(d: {
 // (any active state may be REJECTED → ledger reversal).
 // ---------------------------------------------------------------------------
 
+type WithdrawalInput = { amount: number; method: 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER' | 'NAYAPAY' | 'SADAPAY'; accountName: string; accountNumber: string; accountDetails?: string; requestId?: string };
+
+/**
+ * PHASE 18 — the withdrawal request path is the one money mutation where a
+ * lost response is dangerous: the debit is atomic, so a retry after a silent
+ * commit would file a SECOND payout for the same money. The client-supplied
+ * `requestId` (unique per player) is what makes a retry safe, so the two cases
+ * are deliberately handled differently:
+ *
+ *   • with a key    → retry genuine database contention (idempotent replay
+ *                     returns the original withdrawal, never a duplicate);
+ *   • without a key → never retry; surface a clean 409 the player can act on
+ *                     instead of a raw 500 leaking a database code.
+ */
 export async function requestWithdrawal(
   userId: string,
-  input: { amount: number; method: 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER' | 'NAYAPAY' | 'SADAPAY'; accountName: string; accountNumber: string; accountDetails?: string; requestId?: string },
+  input: WithdrawalInput,
+  ctx: Ctx,
+) {
+  const busy = 'Your wallet is being updated by another operation. Please try that again.';
+  if (input.requestId?.trim()) {
+    return withIdempotentRetry(() => requestWithdrawalOnce(userId, input, ctx), { busyMessage: busy });
+  }
+  return withoutBlindRetry(() => requestWithdrawalOnce(userId, input, ctx), busy);
+}
+
+async function requestWithdrawalOnce(
+  userId: string,
+  input: WithdrawalInput,
   ctx: Ctx,
 ) {
   const min = Number(await getSetting('wallet.minWithdrawal', 300));
@@ -334,7 +361,7 @@ export async function requestWithdrawal(
   const reference = `WDL${Date.now()}${Math.floor(100 + Math.random() * 900)}`;
   let out;
   try {
-    out = await prisma.$transaction(async (tx) => {
+    out = await moneyTx(async (tx) => {
     const wd = await tx.withdrawal.create({
       data: {
         userId,
@@ -403,9 +430,15 @@ export async function requestWithdrawal(
     }, TX_OPTS);
   } catch (e) {
     if (requestId && isUniqueViolation(e)) {
-      const existing = await prisma.withdrawal.findUnique({ where: { userId_requestId: { userId, requestId } } });
+      const existing = await readAfterUniqueViolation(() =>
+        prisma.withdrawal.findUnique({ where: { userId_requestId: { userId, requestId } } }),
+      );
       const prior = await replay(existing);
       if (prior) return prior;
+      // The key collided but the row is not readable yet: this request was NOT
+      // filed twice (the insert above failed and the transaction rolled back),
+      // so report a conflict the player can act on instead of a 500.
+      throw conflict('CONFLICT', 'That withdrawal request is already being recorded. Check your withdrawal history before trying again.');
     }
     throw e;
   }
@@ -440,7 +473,7 @@ export async function listMyWithdrawals(userId: string, page: number, pageSize: 
 /** Player cancels a still-PENDING withdrawal → holding released. */
 export async function cancelWithdrawal(userId: string, id: string, ctx: Ctx) {
   const currency = await getSetting('platform.currency', 'PKR');
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     const wd = await tx.withdrawal.findUnique({ where: { id } });
     if (!wd || wd.userId !== userId) throw notFound('Withdrawal not found');
     if (wd.status !== 'PENDING') {
@@ -541,7 +574,30 @@ export async function listDeposits(filter: { status?: string; page: number; page
   };
 }
 
+/**
+ * PHASE 18 — an admin review is retry-safe by construction: the terminal
+ * decision is applied by a conditional `UPDATE … WHERE status = 'PENDING'`, so
+ * a second attempt can never credit the same deposit twice. That makes genuine
+ * database contention (two admins clicking at the same instant) worth
+ * retrying instead of surfacing as a 500 in the admin panel.
+ */
 export async function reviewDeposit(
+  adminId: string,
+  depositId: string,
+  action: 'APPROVE' | 'REJECT',
+  note: string,
+  ctx: Ctx,
+) {
+  return withIdempotentRetry(
+    () => reviewDepositOnce(adminId, depositId, action, note, ctx),
+    {
+      attempts: 2,
+      busyMessage: 'This deposit is being reviewed by another admin. Reload to see its current status.',
+    },
+  );
+}
+
+async function reviewDepositOnce(
   adminId: string,
   depositId: string,
   action: 'APPROVE' | 'REJECT',
@@ -553,7 +609,7 @@ export async function reviewDeposit(
   // Referral reward gate: the referrer is paid when the referred player's
   // FIRST approved deposit reaches this minimum (default PKR 100).
   const referralMin = Number(await getSetting('referral.minFirstDeposit', 100));
-  const out = await prisma.$transaction(async (tx) => {
+  const out = await moneyTx(async (tx) => {
     const dep = await tx.deposit.findUnique({ where: { id: depositId } });
     if (!dep) throw notFound('Deposit not found');
     if (dep.status !== 'PENDING') {
@@ -568,7 +624,7 @@ export async function reviewDeposit(
       data: { status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED' },
     });
     if (claimed.count !== 1) {
-      throw conflict('CONFLICT', 'This deposit was reviewed by another admin.');
+      throw conflict('CONFLICT', 'This deposit has already been reviewed (possibly by an earlier attempt of your own). Reload to see its current status.');
     }
 
     const now = new Date();
@@ -654,7 +710,7 @@ export async function deleteDeposit(adminId: string, depositId: string, ctx: Ctx
   if (dep.status === 'APPROVED') {
     throw conflict('CONFLICT', 'Approved deposits cannot be deleted because the wallet was already credited.');
   }
-  await prisma.$transaction(async (tx) => {
+  await moneyTx(async (tx) => {
     await tx.deposit.delete({ where: { id: depositId } });
     await tx.auditLog.create({
       data: {
@@ -698,7 +754,28 @@ const WITHDRAWAL_FLOW: Record<string, { from: string[]; to: string }> = {
   REJECT: { from: ['PENDING', 'APPROVED', 'PROCESSING'], to: 'REJECTED' },
 };
 
+/** PHASE 18 — retry-safe for the same reason as the deposit review: every
+ * payout transition claims the row conditionally, so a retry after a lost race
+ * either applies the next legal step or reports a conflict — it can never
+ * reverse a held withdrawal twice. */
 export async function reviewWithdrawal(
+  adminId: string,
+  withdrawalId: string,
+  action: 'APPROVE' | 'PROCESS' | 'PAID' | 'REJECT',
+  note: string,
+  paidReference: string,
+  ctx: Ctx,
+) {
+  return withIdempotentRetry(
+    () => reviewWithdrawalOnce(adminId, withdrawalId, action, note, paidReference, ctx),
+    {
+      attempts: 2,
+      busyMessage: 'This withdrawal is being updated by another admin. Reload to see its current status.',
+    },
+  );
+}
+
+async function reviewWithdrawalOnce(
   adminId: string,
   withdrawalId: string,
   action: 'APPROVE' | 'PROCESS' | 'PAID' | 'REJECT',
@@ -709,7 +786,7 @@ export async function reviewWithdrawal(
   // Settings reads stay OUTSIDE the transaction (Phase 5 deadlock fix).
   const currency = await getSetting('platform.currency', 'PKR');
   const flow = WITHDRAWAL_FLOW[action]!;
-  const out = await prisma.$transaction(async (tx) => {
+  const out = await moneyTx(async (tx) => {
     const wd = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
     if (!wd) throw notFound('Withdrawal not found');
     if (!flow.from.includes(wd.status)) {
@@ -727,7 +804,7 @@ export async function reviewWithdrawal(
       data: { status: flow.to as WithdrawalStatus },
     });
     if (claimed.count !== 1) {
-      throw conflict('CONFLICT', 'This withdrawal was updated by another admin.');
+      throw conflict('CONFLICT', 'This withdrawal has already been updated (possibly by an earlier attempt of your own). Reload to see its current status.');
     }
 
     let reversalWalletTxId: string | undefined;

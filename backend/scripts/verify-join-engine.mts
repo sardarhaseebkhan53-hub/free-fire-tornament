@@ -142,8 +142,30 @@ async function main() {
   const dupRegs = await db.query(
     `SELECT count(*) n FROM tournament_registrations WHERE "tournamentId"=(SELECT id FROM tournaments WHERE slug='race-test-double') AND "userId"=(SELECT id FROM users WHERE username='racetest_1')`,
   );
+  // What a double-click must NEVER do is create a second seat, a second charge, or
+  // a seat number that disagrees between the two tabs. Both tabs ANSWERING with
+  // success is correct — the loser of the insert race reads back the winner's row and
+  // reports the same registration, which is why a retry after a timeout never looks
+  // like an error to the player. (On the single-writer dev engine the second tab gets
+  // ALREADY_REGISTERED instead; on real Postgres both can succeed. Same invariant.)
+  const seats = new Set([a, b].filter((r) => r.json.success).map((r) => String(r.json.data?.seatNumber)));
+  const slotsAfter = await db.query(`SELECT "registeredSlots" n FROM tournaments WHERE slug='race-test-double'`);
+  // Scoped by `reference` (the join writes the tournament slug there) rather than
+  // entityId, which the join path does not set — so this counts exactly the fees
+  // charged for THIS tournament, whoever paid them.
+  const feeRows = await db.query(
+    `SELECT count(*) n FROM wallet_transactions
+      WHERE type='ENTRY_FEE' AND direction='DEBIT' AND reference='race-test-double'
+        AND "userId"=(SELECT id FROM users WHERE username='racetest_1')`,
+  );
   check('double-click: exactly 1 registration wins', doubleOk === 1 && doubleDup === 1, `ok=${doubleOk} dup=${doubleDup}`);
   check('double-click: DB holds a single row', Number(dupRegs.rows[0].n) === 1);
+  // The real invariants, asserted on the database rather than on the status codes —
+  // a paid seat must never be re-assigned to whoever's request lands second, and the
+  // fee must be debited once (this is what caught the upsert-on-a-locked-row bug).
+  check('double-click: charged once, one seat, capacity not over-counted',
+    Number(feeRows.rows[0].n) === 1 && seats.size <= 1 && Number(slotsAfter.rows[0].n) === 1,
+    `fees=${feeRows.rows[0].n} seats=${[...seats].join('|') || '-'} registeredSlots=${slotsAfter.rows[0].n}`);
 
   // ---- 3. TEAM JOIN: seeded HHK squad ---------------------------------------
   const hhk = await db.query(`SELECT t.id, t."captainId", u.username FROM teams t JOIN users u ON u.id=t."captainId" WHERE t.tag='HHK'`);

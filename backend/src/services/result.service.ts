@@ -18,7 +18,8 @@
 // defense. Financial records are never silently changed by leaderboard edits.
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
+import { withIdempotentRetry } from '../lib/tx-conflict';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { moveBalance, TX_OPTS } from './wallet.service';
@@ -81,7 +82,7 @@ export async function submitResult(
   });
   if (!participant) throw forbidden('Only participants of this match can submit results.');
 
-  const submission = await prisma.$transaction(async (tx) => {
+  const submission = await moneyTx(async (tx) => {
     // Serialize duplicate submissions for the same match participant. Without
     // this lock, two simultaneous screenshots can both pass the preflight
     // query and enter the review queue.
@@ -171,7 +172,7 @@ export async function reviewResult(
   opts: { note?: string; placement?: number; kills?: number } = {},
   ctx: Ctx = {},
 ) {
-  const out = await prisma.$transaction(async (tx) => {
+  const out = await moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "result_submissions" WHERE "id" = ${submissionId} FOR UPDATE`;
     const sub = await tx.resultSubmission.findUnique({ where: { id: submissionId } });
     if (!sub) throw notFound('Result submission not found');
@@ -353,7 +354,24 @@ export async function tournamentStandings(tournamentId: string) {
 // Prize distribution — placement + capped kill pool + MVP (idempotent)
 // ---------------------------------------------------------------------------
 
+/**
+ * PHASE 18 — retryable, and safe to retry, for the same reason the deposit and
+ * withdrawal reviews are: the work is one transaction guarded by a state claim
+ * (`existingWinners` + per-row conditions). If the first attempt committed and
+ * its response was lost, the retry finds every award already CREDITED and
+ * returns a clean "already distributed" — it can never credit a second time.
+ */
 export async function distributePrizes(adminId: string, tournamentId: string, ctx: Ctx = {}) {
+  return withIdempotentRetry(
+    () => distributePrizesOnce(adminId, tournamentId, ctx),
+    {
+      attempts: 2,
+      busyMessage: 'Prize distribution hit database contention. Reload the tournament — if the winners are listed, the payout already went through.',
+    },
+  );
+}
+
+async function distributePrizesOnce(adminId: string, tournamentId: string, ctx: Ctx) {
   const currency = await getSetting('platform.currency', 'PKR');
   // Validate that there is something to rank before checking publication. This
   // keeps the actionable "verify results first" error for an empty tournament;
@@ -447,15 +465,57 @@ export async function distributePrizes(adminId: string, tournamentId: string, ct
 
   if (!awards.length) throw badRequest('VALIDATION_ERROR', 'No awards could be generated from the standings.');
 
-  // Resolve recipients to ledger targets (team awards split across members).
+  // PHASE 18 — recipients are resolved from the roster frozen when the entry
+  // fee was PAID (`TournamentRegistration.rosterUserIds`), never from the
+  // team's live membership. Removing a paid player after registration, or
+  // adding a player who never paid, therefore cannot move prize money.
   const teamIds = [...new Set(awards.map((a) => a.teamId).filter((t): t is string => t !== null))];
-  const teams = teamIds.length
-    ? await prisma.team.findMany({ where: { id: { in: teamIds } }, select: { id: true, members: { select: { userId: true } } } })
-    : [];
-  const membersOf = new Map(teams.map((t) => [t.id, t.members.map((m) => m.userId)]));
 
-  const summary = await prisma.$transaction(async (tx) => {
-    const results: Array<{ position: number; label: string; amount: number; credited: Array<{ userId: string; share: number }> }> = [];
+  const summary = await moneyTx(async (tx) => {
+    // Serialize this tournament's settlement against a second admin clicking
+    // "distribute" (and against cancellation/refunds) for the whole
+    // transaction. The unique (tournamentId, position) index stays the hard,
+    // database-level guarantee; the lock makes the outcome deterministic
+    // instead of a lost-update race that aborts with a raw P2002.
+    await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${tournamentId} FOR UPDATE`;
+
+    const rosterRows = teamIds.length
+      ? await tx.tournamentRegistration.findMany({
+          where: { tournamentId, teamId: { in: teamIds }, status: 'CONFIRMED' },
+          select: { teamId: true, userId: true, rosterUserIds: true, rosterCapturedAt: true },
+        })
+      : [];
+    const snapshotOf = new Map<string, string[]>();
+    for (const row of rosterRows) {
+      if (!row.teamId) continue;
+      const ids = Array.isArray(row.rosterUserIds)
+        ? (row.rosterUserIds as unknown[]).filter((v): v is string => typeof v === 'string')
+        : [];
+      if (ids.length) {
+        // Every paid member row of one team entry carries the same frozen list;
+        // union them so a partially written legacy row cannot shrink a split.
+        const merged = new Set([...(snapshotOf.get(row.teamId) ?? []), ...ids]);
+        snapshotOf.set(row.teamId, [...merged].sort());
+      }
+    }
+    // A team without a snapshot on ANY of its paid rows means either a
+    // pre-Phase-18 registration or a team entry that is not backed by
+    // registrations in this tournament: fall back to live membership (the
+    // historical behaviour) and record that fallback in the audit row, so a
+    // settlement is never silently derived from mutable state.
+    const noSnapshotTeams = teamIds.filter((id) => !snapshotOf.has(id));
+    const liveTeams = noSnapshotTeams.length
+      ? await tx.team.findMany({
+          where: { id: { in: noSnapshotTeams } },
+          select: { id: true, members: { select: { userId: true } } },
+        })
+      : [];
+    const liveOf = new Map(liveTeams.map((t) => [t.id, t.members.map((m) => m.userId).sort()]));
+
+    const results: Array<{
+      position: number; label: string; amount: number; recipients: 'SNAPSHOT' | 'LIVE_MEMBERSHIP';
+      credited: Array<{ userId: string; share: number }>;
+    }> = [];
     for (const award of awards) {
       // (tournamentId, position) unique — the double-distribution anchor.
       const exists = await tx.winner.findUnique({
@@ -474,8 +534,38 @@ export async function distributePrizes(adminId: string, tournamentId: string, ct
         },
       });
 
-      const memberIds = award.teamId ? (membersOf.get(award.teamId) ?? []) : award.userId ? [award.userId] : [];
+      // Recipients: the frozen paid roster for a team award, otherwise the
+      // individual the standings rank. `memberIds` order is deterministic
+      // (sorted), so every member's share is reproducible and auditable.
+      let memberIds: string[] = [];
+      let recipients: 'SNAPSHOT' | 'LIVE_MEMBERSHIP' = 'SNAPSHOT';
+      if (award.teamId) {
+        const frozen = snapshotOf.get(award.teamId);
+        if (frozen?.length) {
+          memberIds = frozen;
+        } else {
+          memberIds = liveOf.get(award.teamId) ?? [];
+          recipients = 'LIVE_MEMBERSHIP';
+        }
+      } else if (award.userId) {
+        memberIds = [award.userId];
+      }
       if (!memberIds.length) throw badRequest('VALIDATION_ERROR', `No recipient members for award "${award.label}".`);
+
+      // A payout must never be silently re-routed: if someone in the frozen
+      // roster has no wallet any more (hard-deleted account), stop the whole
+      // settlement instead of redistributing their share to the others.
+      const wallets = await tx.wallet.findMany({ where: { userId: { in: memberIds } }, select: { userId: true } });
+      const payable = new Set(wallets.map((w) => w.userId));
+      const stranded = memberIds.filter((id) => !payable.has(id));
+      if (stranded.length) {
+        throw conflict(
+          'CONFLICT',
+          `Award "${award.label}" cannot be settled: ${stranded.length} roster member(s) no longer have a wallet. `
+            + 'Resolve the account (restore or credit manually) and distribute again.',
+        );
+      }
+
       const baseShare = Math.floor((award.amount / memberIds.length) * 100) / 100;
       let allocated = 0;
       let firstTxId: string | undefined;
@@ -503,11 +593,23 @@ export async function distributePrizes(adminId: string, tournamentId: string, ct
         });
         credited.push({ userId: uid, share });
       }
+      // Reconciliation gate: the ledger credits must equal the award to the
+      // cent — no cent is created or lost by the split, and the remainder of
+      // an uneven division goes to the last member (deterministic, by id).
+      const creditedTotal = Math.round(credited.reduce((s, c) => s + c.share, 0) * 100) / 100;
+      const awardTotal = Math.round(award.amount * 100) / 100;
+      if (creditedTotal !== awardTotal) {
+        throw conflict(
+          'CONFLICT',
+          `Award "${award.label}" does not reconcile: ${awardTotal} to split, ${creditedTotal} credited. Nothing was paid.`,
+        );
+      }
+
       await tx.winner.update({
         where: { id: winner.id },
         data: { status: 'CREDITED', walletTxId: firstTxId, creditedAt: new Date() },
       });
-      results.push({ position: award.position, label: award.label, amount: award.amount, credited });
+      results.push({ position: award.position, label: award.label, amount: award.amount, recipients, credited });
     }
 
     if (!results.length) {
@@ -520,8 +622,17 @@ export async function distributePrizes(adminId: string, tournamentId: string, ct
       data: {
         actorId: adminId, action: 'PRIZES_DISTRIBUTED', entity: 'Tournament', entityId: tournamentId,
         after: {
-          awards: results.map((r) => ({ position: r.position, label: r.label, amount: r.amount })),
+          awards: results.map((r) => ({
+            position: r.position, label: r.label, amount: r.amount,
+            recipients: r.recipients, paidTo: r.credited.length,
+          })),
           totalPaid: Math.round(results.reduce((t, r) => t + r.amount, 0) * 100) / 100,
+          // Reconciliation + provenance of the recipient lists (audit must show
+          // that the split came from the frozen roster, not a live membership read).
+          totalCredited: Math.round(
+            results.reduce((t, r) => t + r.credited.reduce((s, c) => s + c.share, 0), 0) * 100,
+          ) / 100,
+          recipientSource: results.some((r) => r.recipients === 'LIVE_MEMBERSHIP') ? 'LIVE_MEMBERSHIP_FALLBACK' : 'REGISTRATION_SNAPSHOT',
         },
         ip: ctx.ip, userAgent: ctx.userAgent,
       },
@@ -529,11 +640,21 @@ export async function distributePrizes(adminId: string, tournamentId: string, ct
     return results;
   }, TX_OPTS);
 
+  const awarded = Math.round(summary.reduce((t, r) => t + r.amount, 0) * 100) / 100;
+  const creditedTotal = Math.round(
+    summary.reduce((t, r) => t + r.credited.reduce((s, c) => s + c.share, 0), 0) * 100,
+  ) / 100;
   return {
     tournament: { id: tournament.id, title: tournament.title },
     awards: summary,
     teamSize: teamSizeOf(tournament.type),
-    totalPaid: Math.round(summary.reduce((t, r) => t + r.amount, 0) * 100) / 100,
+    totalPaid: awarded,
+    // Every cent awarded must equal every cent credited; a non-zero remainder
+    // is a bug, not a rounding policy, so it is reported instead of hidden.
+    reconciliation: { awarded, credited: creditedTotal, unassignedRemainder: Math.round((awarded - creditedTotal) * 100) / 100 },
+    recipientSource: summary.some((r) => r.recipients === 'LIVE_MEMBERSHIP')
+      ? 'LIVE_MEMBERSHIP_FALLBACK' as const
+      : 'REGISTRATION_SNAPSHOT' as const,
   };
 }
 
@@ -679,7 +800,7 @@ export async function saveAdminResult(
     throw conflict('CONFLICT', 'Results are published and locked. Unpublish first (if permitted) to edit.');
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "matches" WHERE "id" = ${matchId} FOR UPDATE`;
     const currentMatch = await tx.match.findUnique({
       where: { id: matchId },
@@ -809,7 +930,7 @@ export async function setResultsStatus(
     return { id: matchId, resultsStatus: confirmed?.resultsStatus ?? 'CONFIRMED', resultsPublishedAt: confirmed?.resultsPublishedAt ?? null };
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await moneyTx(async (tx) => {
     const changed = await tx.match.updateMany({
       where: { id: matchId, resultsStatus: match.resultsStatus },
       data: {
@@ -850,7 +971,7 @@ export async function setResultsStatus(
  * computed prize on each row and is the only step that reveals results.
  */
 export async function confirmStandings(adminId: string, matchId: string, ctx: Ctx = {}) {
-  const computed = await prisma.$transaction(async (tx) => {
+  const computed = await moneyTx(async (tx) => {
     // Lock before reading the rows. Otherwise a save that commits while this
     // function is waiting could be overwritten by a score calculated from a
     // stale participant snapshot.

@@ -4,7 +4,7 @@
 // 2 (duo) and 4 (squad); only captains manage membership.
 // =============================================================================
 import crypto from 'node:crypto';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import type { Prisma, TeamType } from '../../generated/prisma';
 
@@ -61,7 +61,7 @@ export async function rotateTeamJoinCode(adminId: string, teamId: string, ctx: {
 /** Player — join a DUO/SQUAD team via code (accepts CNX-XXXXX or raw code). */
 export async function joinByCode(userId: string, codeRaw: string) {
   const code = codeRaw.trim().toUpperCase();
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     // Lock in a stable order: user first, then team. This serializes the
     // one-duo/one-squad invariant and the target team's capacity check.
     const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
@@ -80,6 +80,10 @@ export async function joinByCode(userId: string, codeRaw: string) {
     if (existing) throw conflict('CONFLICT', `You already belong to a ${team.type.toLowerCase()} team.`);
     const members = await tx.teamMember.count({ where: { teamId: team.id } });
     if (members >= CAPACITY[team.type as TeamType]) throw badRequest('VALIDATION_ERROR', 'This team is full.');
+    // PHASE 18 — paid rosters are frozen: while this team holds a confirmed
+    // entry in an unfinished tournament nobody may join it (the newcomer never
+    // paid an entry fee for that event, so they must not become an awardee).
+    await assertTeamRosterMutable(tx, team.id);
 
     const member = await tx.teamMember.create({
       data: { teamId: team.id, userId, role: 'MEMBER' },
@@ -105,7 +109,7 @@ export async function createTeam(userId: string, input: { name: string; tag: str
   // collision is a real conflict and is reported as such.
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      return await prisma.$transaction(async (tx) => {
+      return await moneyTx(async (tx) => {
         const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
           SELECT "id", "status" FROM "users" WHERE "id" = ${userId} FOR UPDATE
         `;
@@ -216,7 +220,7 @@ export async function respondInvite(userId: string, inviteId: string, accept: bo
     return prisma.teamInvite.findUniqueOrThrow({ where: { id: inviteId } });
   }
 
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     const userRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
       SELECT "id", "status" FROM "users" WHERE "id" = ${userId} FOR UPDATE
     `;
@@ -239,6 +243,9 @@ export async function respondInvite(userId: string, inviteId: string, accept: bo
     if (members >= CAPACITY[team.type as TeamType]) {
       throw badRequest('VALIDATION_ERROR', 'The team filled up before you accepted.');
     }
+    // PHASE 18 — same freeze as the join-code path: a team with a paid entry in
+    // an unfinished tournament cannot gain members while that entry is live.
+    await assertTeamRosterMutable(tx, team.id);
 
     const updated = await tx.teamInvite.updateMany({
       where: { id: inviteId, status: 'PENDING' },
@@ -273,7 +280,7 @@ async function assertTeamRosterMutable(tx: Prisma.TransactionClient, teamId: str
 }
 
 export async function removeMember(actorId: string, teamId: string, memberId: string) {
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "teams" WHERE "id" = ${teamId} FOR UPDATE`;
     const team = await tx.team.findUnique({ where: { id: teamId } });
     if (!team) throw notFound('Team not found');
@@ -287,7 +294,7 @@ export async function removeMember(actorId: string, teamId: string, memberId: st
 }
 
 export async function leaveTeam(userId: string, teamId: string) {
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "teams" WHERE "id" = ${teamId} FOR UPDATE`;
     const team = await tx.team.findUnique({ where: { id: teamId } });
     if (!team) throw notFound('Team not found');
@@ -302,7 +309,7 @@ export async function leaveTeam(userId: string, teamId: string) {
 }
 
 export async function transferCaptaincy(actorId: string, teamId: string, newCaptainId: string) {
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "teams" WHERE "id" = ${teamId} FOR UPDATE`;
     const team = await tx.team.findUnique({
       where: { id: teamId },

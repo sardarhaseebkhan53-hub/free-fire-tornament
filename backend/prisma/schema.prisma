@@ -633,6 +633,13 @@ model TournamentRegistration {
   slotNote         String?
   registeredAt     DateTime @default(now())
   cancelledAt      DateTime?
+  /// PHASE 18 — immutable roster captured the instant the entry fee was paid
+  /// (team modes only): the sorted list of user ids that this paid seat covers.
+  /// Prize distribution pays THESE ids and never the team's live membership, so
+  /// removing/adding members after registration cannot move prize money.
+  /// Append-only by convention: only the join (re-registration) transaction writes it.
+  rosterUserIds    Json?
+  rosterCapturedAt DateTime?
 
   @@unique([tournamentId, userId]) // race-safe: one entry per user per tournament
   @@index([userId])

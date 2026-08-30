@@ -4,7 +4,7 @@
 // settings and audit trail. Every mutation is audited; every list is paged.
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden } from '../lib/errors';
 import { getSetting, invalidateSetting } from './settings.service';
 import { notifyAllUsers } from './notification.service';
@@ -189,7 +189,7 @@ export async function setUserStatus(adminId: string, userId: string, status: 'AC
   // The status change, the forced session revocation, the player notification
   // and the audit record are ONE transaction: a crash halfway must never leave
   // a banned account with live sessions, or a suspension with no audit trail.
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await moneyTx(async (tx) => {
     const user = await tx.user.update({
       where: { id: userId },
       data: {
@@ -244,7 +244,7 @@ export async function adjustBalance(
   const amount = Math.abs(input.amount);
   const currency = await getSetting('platform.currency', 'PKR');
 
-  const out = await prisma.$transaction(async (tx) => {
+  const out = await moneyTx(async (tx) => {
     const entry = await moveBalance(tx, userId, input.bucket, direction, amount, direction === 'CREDIT' ? 'ADMIN_CREDIT' : 'ADMIN_DEBIT', {
       entityType: 'Wallet',
       reference: `ADJ${Date.now()}`,
@@ -286,10 +286,45 @@ export async function updateTournamentScoring(
   input: { pointsPerKill: number; placementPoints: number[]; bonusPoints: number; penaltyPoints: number },
   ctx: { ip?: string },
 ) {
-  const t = await prisma.tournament.findUnique({ where: { id }, select: { id: true, pointsPerKill: true, placementPoints: true, bonusPoints: true, penaltyPoints: true } });
+  const t = await prisma.tournament.findUnique({
+    where: { id },
+    select: {
+      id: true, status: true, pointsPerKill: true, placementPoints: true, bonusPoints: true, penaltyPoints: true,
+      matches: { select: { id: true, resultsStatus: true, resultsFinalized: true, status: true } },
+    },
+  });
   if (!t) throw badRequest('NOT_FOUND', 'Tournament not found');
 
-  await prisma.$transaction(async (tx) => {
+  // PHASE 18 — scoring freeze. The scoring formula is part of a match's
+  // historical record: changing it after results exist would silently rewrite
+  // standings (and in the worst case the prize money already credited) without
+  // changing the numbers the results were calculated from. Before any result
+  // review starts it is free to tune; afterwards it is frozen.
+  if (t.status === 'COMPLETED' || t.status === 'CANCELLED') {
+    throw conflict('CONFLICT', `Scoring is frozen for a ${t.status.toLowerCase()} tournament.`);
+  }
+  const started = t.matches.find((m) => m.resultsStatus !== 'DRAFT' || m.resultsFinalized);
+  if (started) {
+    throw conflict(
+      'CONFLICT',
+      `Scoring is frozen: match ${started.id.slice(0, 8)} already has results in ${started.resultsStatus.toLowerCase()}. `
+        + 'Revert the results to DRAFT first — standings that were calculated must never drift from the formula used.',
+    );
+  }
+  const played = t.matches.find((m) => m.status !== 'SCHEDULED');
+  if (played) {
+    throw conflict('CONFLICT', `Scoring is frozen: match ${played.id.slice(0, 8)} is ${played.status.toLowerCase()}.`);
+  }
+
+  await moneyTx(async (tx) => {
+    // Conditional guard: re-check inside the transaction so a result reviewer
+    // running at the same moment cannot slip between the check and the write.
+    const raced = await tx.match.findFirst({
+      where: { tournamentId: id, OR: [{ resultsStatus: { not: 'DRAFT' } }, { resultsFinalized: true }, { status: { not: 'SCHEDULED' } }] },
+      select: { id: true },
+    });
+    if (raced) throw conflict('CONFLICT', 'A match started while you were saving. Scoring is now frozen for this tournament.');
+
     await tx.tournament.update({
       where: { id },
       data: {
@@ -392,7 +427,7 @@ export async function createTournament(adminId: string, input: BuilderInput, ctx
     ? input.placementPoints
     : undefined;
 
-  const tournament = await prisma.$transaction(async (tx) => {
+  const tournament = await moneyTx(async (tx) => {
     const row = await tx.tournament.create({
       data: {
         title: input.title,
@@ -499,13 +534,15 @@ export async function setTournamentStatus(adminId: string, id: string, status: s
   if (!transitions[t.status]?.includes(status)) {
     throw conflict('CONFLICT', `Cannot move a ${t.status.toLowerCase()} tournament to ${status.toLowerCase()}.`);
   }
-  if (status === t.status) return { id, status };
+  // No-op transition (already in that state): same response shape as a real
+  // transition, so callers never have to guess whether refund fields exist.
+  if (status === t.status) return { id, status, refundedTotal: 0, registrationsRefunded: 0 };
 
   // Settings are read outside the financial transaction because the embedded
   // database has one writer and settings use the global Prisma client.
   const currency = status === 'CANCELLED' ? await getSetting('platform.currency', 'PKR') : null;
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await moneyTx(async (tx) => {
     // Lock the tournament before inspecting registrations. This serializes
     // cancellation against joins and prevents two admin clicks from refunding
     // the same registration twice.
@@ -664,7 +701,7 @@ export async function setMatchStatus(
     throw conflict('CONFLICT', `Cannot move a ${m.status.toLowerCase()} match to ${status.toLowerCase()}.`);
   }
 
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "matches" WHERE "id" = ${id} FOR UPDATE`;
     const current = await tx.match.findUnique({ where: { id } });
     if (!current) throw badRequest('NOT_FOUND', 'Match not found');
@@ -773,7 +810,7 @@ export async function recalculateLeaderboard(adminId: string, ctx: { ip?: string
     for (const m of members) add(m.userId, p, teamKills);
   }
 
-  await prisma.$transaction(async (tx) => {
+  await moneyTx(async (tx) => {
     for (const [userId, s] of agg) {
       await tx.playerStat.upsert({
         where: { userId },
@@ -1025,7 +1062,7 @@ export async function deleteTournament(adminId: string, id: string, ctx: { ip?: 
 
   // Soft delete: the row, wallet ledger, prize records and winners all stay for
   // reconciliation/audit; it is simply hidden from every admin/public list.
-  await prisma.$transaction(async (tx) => {
+  await moneyTx(async (tx) => {
     await tx.tournament.update({ where: { id }, data: { deletedAt: new Date() } });
     await tx.auditLog.create({
       data: {
@@ -1043,7 +1080,7 @@ export async function deleteMatch(adminId: string, id: string, ctx: { ip?: strin
   const m = await prisma.match.findUnique({ where: { id }, select: { id: true, matchNumber: true, deletedAt: true, tournament: { select: { title: true, deletedAt: true } } } });
   if (!m) throw badRequest('NOT_FOUND', 'Match not found');
   if (m.deletedAt) return { id: m.id, deleted: true };
-  await prisma.$transaction(async (tx) => {
+  await moneyTx(async (tx) => {
     await tx.match.update({ where: { id }, data: { deletedAt: new Date() } });
     await tx.auditLog.create({
       data: {
@@ -1313,7 +1350,7 @@ export async function listAuditLogs(filter: { action?: string; entity?: string; 
 // disputes, blogs, FAQs, ads, expenses and player stats.
 // ---------------------------------------------------------------------------
 export async function resetDemoData(actorId: string, ctx: { ip?: string; userAgent?: string } = {}) {
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     const keepRoles = { in: ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'] as const };
 
     // Content that references users/teams/tournaments — children first.

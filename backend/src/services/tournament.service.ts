@@ -11,12 +11,13 @@
 // trusted.
 // =============================================================================
 import { Prisma } from '../../generated/prisma';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { ApiError, badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { fireCouponAbuse, fireJoinFailure } from './fraud.service';
 import { audit } from '../lib/security';
 import { moveBalance } from './wallet.service';
+import { confirmAbsent, isRetryableTxError, withIdempotentRetry } from '../lib/tx-conflict';
 
 const TEAM_SIZE: Record<'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD', number> = {
   SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4,
@@ -96,12 +97,41 @@ function validateFFIdentity(uidRaw?: string, ignRaw?: string): { uid: string; ig
   return { uid, ign };
 }
 
+/**
+ * PHASE 18 — the entry point is wrapped in a transient-conflict retry, not just
+ * the join transaction. The inner `runJoinWithRetry` only covers the financial
+ * transaction itself, while the preflight reads (account, tournament, profile,
+ * settings) run before it — and on the embedded single-writer database (and on
+ * a real one, on 40001/40P01) a read can also fail with a transport-level
+ * error. Those attempts have written nothing at all, so re-running is safe;
+ * without this a player under load sees a 500 instead of a clean result.
+ */
 export async function joinTournament(userId: string, input: JoinInput, actorIp?: string, actorUa?: string) {
+  return withIdempotentRetry(
+    () => joinTournamentOnce(userId, input, actorIp, actorUa),
+    {
+      attempts: 2,
+      busyMessage: 'The arena is busy right now. Your entry fee was not charged — please try again.',
+    },
+  );
+}
+
+async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: string, actorUa?: string) {
   const actor: ActorCtx = { ip: actorIp, userAgent: actorUa };
-  const t = await prisma.tournament.findFirst({ where: { slug: input.tournamentSlug, deletedAt: null } });
+  // PHASE 18 — a missing tournament or account is confirmed by a second read
+  // before it becomes a refusal. A 100-way join burst produced one "Tournament
+  // not found" for an event that was on the player's screen: a blank read is
+  // indistinguishable from a missing row, and getting it wrong sends a player to
+  // their wallet to re-deposit an entry fee that was never due. A stale *positive*
+  // is still harmless: the seat is taken by a conditional UPDATE that re-asserts
+  // status, deadline and capacity inside the transaction, so nothing here can
+  // book a seat that no longer exists.
+  const t = await confirmAbsent(() =>
+    prisma.tournament.findFirst({ where: { slug: input.tournamentSlug, deletedAt: null } }),
+  );
   if (!t || t.status === 'DRAFT') throw notFound('Tournament not found');
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await confirmAbsent(() => prisma.user.findUnique({ where: { id: userId } }));
   if (!user) throw notFound('Account not found');
   if (user.status !== 'ACTIVE') throw forbidden('Account is not active.');
   if (!user.isVerified) throw forbidden('Verify your email before joining tournaments.');
@@ -142,10 +172,12 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
     // Join-time identity confirmation: values sent by the client win, but the
     // saved profile is the fallback, so a player who already saved their UID/
     // nickname can still join without retyping it (the UI prefills both).
-    const saved = await prisma.userProfile.findUnique({
-      where: { userId },
-      select: { freeFireUID: true, freeFireIGN: true },
-    });
+    // Same rule as every other read that gates a refusal: a blank result is
+    // confirmed before it becomes "complete your profile", because a player who
+    // HAS saved a UID must not be told they haven't.
+    const saved = await confirmAbsent(() =>
+      prisma.userProfile.findUnique({ where: { userId }, select: { freeFireUID: true, freeFireIGN: true } }),
+    );
     const identity = validateFFIdentity(input.freeFireUID ?? saved?.freeFireUID ?? undefined, input.freeFireIGN ?? saved?.freeFireIGN ?? undefined);
     try {
       await prisma.userProfile.upsert({
@@ -226,27 +258,14 @@ export async function joinTournament(userId: string, input: JoinInput, actorIp?:
 }
 
 /**
- * Transient-conflict codes from the database/Prisma layer. These are NOT
- * business rejections — they mean "two joins touched the same rows at once,
- * this attempt lost the race". Retrying is correct and safe: the whole
- * transaction rolled back, so no seat was taken and no money moved.
- *
- *   P2034 — transaction write conflict / deadlock (Prisma's documented code)
- *   P2039 — internal transaction error surfaced by the embedded PGlite driver
- *   40001 — Postgres serialization_failure
- *   40P01 — Postgres deadlock_detected
- *
- * Without this a player racing others for the last seats saw a raw
- * "P2039" leak straight through to the UI instead of a clean result.
+ * Runs the join transaction, retrying only on transient write conflicts
+ * (P2034 / P2039 / 40001 / 40P01 — see `src/lib/tx-conflict.ts`, which is the
+ * single classifier shared by the join, withdrawal and transfer paths). Those
+ * codes are NOT business rejections: they mean "two writers touched the same
+ * rows and this attempt lost", and the whole transaction rolled back, so no
+ * seat was taken and no money moved. Without the retry a player racing others
+ * for the last seats saw a raw database code leak straight into the UI.
  */
-const RETRYABLE_TX_CODES = new Set(['P2034', 'P2039', '40001', '40P01']);
-
-function isRetryableTxError(e: unknown): boolean {
-  const code = (e as { code?: string }).code;
-  return typeof code === 'string' && RETRYABLE_TX_CODES.has(code);
-}
-
-/** Runs the join transaction, retrying only on transient write conflicts. */
 async function runJoinWithRetry(
   ...args: Parameters<typeof runJoin>
 ): Promise<Awaited<ReturnType<typeof runJoin>>> {
@@ -281,7 +300,29 @@ async function runJoin(
   independentTeam = false,
 ) {
   const actorIp = actor.ip;
-  return prisma.$transaction(async (tx) => {
+  // PHASE 18 — the roster this paid seat is locked to. Captured from the
+  // LOCKED re-read below (never from the preflight snapshot), so what the
+  // players paid for and what prize distribution later pays out can never
+  // drift apart. Null for solo/independent entries, which pay by userId.
+  let rosterSnapshot: string[] | null = null;
+  return moneyTx(async (tx) => {
+    // PHASE 18 (certification fix) — the tournament row is locked BEFORE anything is
+    // read or decided, making "is there room?", "am I already registered?" and "which
+    // seat is free?" a single critical section.
+    //
+    // Why this had to move: the seat UPDATE below took this same lock, but only AFTER
+    // the double-join guard had already been evaluated. On a real multi-backend
+    // PostgreSQL a double-click therefore passed the guard twice (neither transaction
+    // could see the other's uncommitted row), both charged the entry fee, `registeredSlots`
+    // counted a phantom seat, and the second upsert silently re-seated the FIRST player's
+    // row. Reproduced 6/6 rounds against real PostgreSQL 17: one registration, TWO
+    // ENTRY_FEE debits, `registeredSlots=2`. On the single-writer dev engine the second
+    // request always saw the committed row, so the bug could never show up there.
+    //
+    // Lock order is tournament → team, which every other path already respects (nothing
+    // locks a team and then a tournament).
+    await tx.$queryRaw`SELECT "id" FROM "tournaments" WHERE "id" = ${t.id} FOR UPDATE`;
+
     // Re-read and lock the roster after the preflight checks. A captain could
     // otherwise remove a member between validation and charging the team.
     if (input.teamId && teamSize > 1) {
@@ -306,6 +347,8 @@ async function runJoin(
       if (currentIds.length !== requestedIds.length || currentIds.some((id, i) => id !== requestedIds[i])) {
         throw conflict('CONFLICT', 'The team roster changed. Refresh and try again.');
       }
+      // Frozen here: the same ids that are about to be charged.
+      rosterSnapshot = currentIds;
     }
 
     // 1. Double-join guard (fast path — unique index is the hard guarantee)
@@ -432,19 +475,55 @@ async function runJoin(
         couponId: isJoiner ? couponId : null,
         walletTxId: ledgerEntry.id,
         seatNumber,
+        // PHASE 18 — immutable paid roster. Every member row of one team entry
+        // carries the identical sorted id list, so any of them can be used to
+        // reconstruct exactly who the prize money belongs to.
+        ...(rosterSnapshot
+          ? {
+              rosterUserIds: rosterSnapshot as unknown as Prisma.InputJsonValue,
+              rosterCapturedAt: new Date(),
+            }
+          : {}),
       };
-      const reg = await tx.tournamentRegistration.upsert({
+      // Created, or — for a player who cancelled and wants back in — REVIVED from their
+      // own non-CONFIRMED row. Never overwritten: this used to be an upsert, so a
+      // second concurrent request could re-seat a row whose first charge was already in
+      // the ledger, leaving two debits against one registration.
+      const existingReg = await tx.tournamentRegistration.findUnique({
         where: { tournamentId_userId: { tournamentId: t.id, userId: pid } },
-        create: { tournamentId: t.id, userId: pid, ...regData },
-        update: {
-          ...regData,
-          status: 'CONFIRMED',
-          cancelledAt: null,
-          refundWalletTxId: null,
-          slotLocked: false,
-          registeredAt: new Date(),
-        },
+        select: { id: true, status: true },
       });
+      let reg: Awaited<ReturnType<typeof tx.tournamentRegistration.create>>;
+      if (existingReg) {
+        if (existingReg.status === 'CONFIRMED') {
+          throw conflict('ALREADY_REGISTERED', 'You are already registered for this tournament.');
+        }
+        const revived = await tx.tournamentRegistration.updateMany({
+          where: { id: existingReg.id, status: { not: 'CONFIRMED' } },
+          data: {
+            ...regData,
+            status: 'CONFIRMED',
+            cancelledAt: null,
+            refundWalletTxId: null,
+            slotLocked: false,
+            registeredAt: new Date(),
+          },
+        });
+        if (revived.count === 0) {
+          throw conflict('ALREADY_REGISTERED', 'This entry was confirmed by another request. Check your registrations.');
+        }
+        reg = await tx.tournamentRegistration.findUniqueOrThrow({ where: { id: existingReg.id } });
+      } else {
+        try {
+          reg = await tx.tournamentRegistration.create({ data: { tournamentId: t.id, userId: pid, ...regData } });
+        } catch (e) {
+          // The unique index is the hard guarantee; the guard above is the explanation.
+          if ((e as { code?: string } | null)?.code === 'P2002') {
+            throw conflict('ALREADY_REGISTERED', 'You are already registered for this tournament.');
+          }
+          throw e;
+        }
+      }
       if (isJoiner && couponId) {
         await tx.couponRedemption.create({
           data: { couponId, userId, registrationId: reg.id, discountAmount: new Prisma.Decimal(discount) },
@@ -503,7 +582,7 @@ export async function cancelRegistration(userId: string, tournamentSlug: string)
   // would deadlock the embedded single-writer database if performed in tx.
   const currency = await getSetting('platform.currency', 'PKR');
 
-  return prisma.$transaction(async (tx) => {
+  return moneyTx(async (tx) => {
     // Serialize cancellation against joins and other cancellations for this
     // tournament. The registration rows and wallet rows are then claimed and
     // changed in one atomic unit; a retry cannot issue a second refund.

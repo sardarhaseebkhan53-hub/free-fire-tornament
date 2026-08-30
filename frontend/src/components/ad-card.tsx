@@ -48,12 +48,25 @@ export function AdCard({ ad }: { ad: AdPayload }) {
 
   if (broken) return null;
 
-  // Admin-provided raw embed (sponsor iframe/script). Only staff can create ads
-  // (RBAC-gated /admin/ads), matching the trust model of other admin surfaces.
+  // Admin-provided sponsor embed. PHASE 18: this markup used to be injected
+  // into OUR document with dangerouslySetInnerHTML, so anything an ad carried
+  // ran on our origin — it could read the visitor's session token out of
+  // localStorage and act as them. Staff-only authoring is not a boundary (one
+  // phished admin account = every visitor's account). The embed now renders in
+  // a sandboxed frame: scripts may run for the ad network, but the frame has an
+  // opaque origin (no allow-same-origin), cannot navigate the top page and
+  // cannot open popups, so it can never read our storage or cookies.
   if (ad.embedHtml) {
     return (
       <div className="relative overflow-hidden rounded-card border border-line" aria-label={`Sponsored: ${ad.name}`}>
-        <div dangerouslySetInnerHTML={{ __html: ad.embedHtml }} />
+        <iframe
+          title={`Sponsored: ${ad.name}`}
+          srcDoc={ad.embedHtml}
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
+          loading="lazy"
+          className="block h-28 w-full border-0 bg-base"
+        />
         <span className="pointer-events-none absolute right-2 top-2 rounded-pill bg-base/85 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-fg-3">
           Sponsored
         </span>

@@ -73,6 +73,16 @@ async function main() {
   const db = new pg.Client({ connectionString: DB });
   await db.connect();
 
+  // Re-runnable: the fixture usernames are fixed, so leftovers from an aborted run
+  // would collide on users_username_key. Clean BEFORE creating anything as well as
+  // after, so this works against a persistent database (e.g. a real PostgreSQL).
+  await db.query(`DELETE FROM support_messages WHERE "ticketId" IN (SELECT id FROM support_tickets WHERE "userId" IN (SELECT id FROM users WHERE username LIKE 'suptest_%'))`);
+  await db.query(`DELETE FROM support_tickets WHERE "userId" IN (SELECT id FROM users WHERE username LIKE 'suptest_%')`);
+  await db.query(`DELETE FROM notifications WHERE "userId" IN (SELECT id FROM users WHERE username LIKE 'suptest_%')`);
+  await db.query(`DELETE FROM user_profiles WHERE "userId" IN (SELECT id FROM users WHERE username LIKE 'suptest_%')`);
+  await db.query(`DELETE FROM wallets WHERE "userId" IN (SELECT id FROM users WHERE username LIKE 'suptest_%')`);
+  await db.query(`DELETE FROM users WHERE username LIKE 'suptest_%'`);
+
   const [u1, u2] = [await createUser(db, 'suptest_alice'), await createUser(db, 'suptest_bob')];
   const t1 = signToken(u1, 'suptest_alice');
   const t2 = signToken(u2, 'suptest_bob');

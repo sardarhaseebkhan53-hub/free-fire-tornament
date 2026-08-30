@@ -10,7 +10,8 @@ import { PrismaClient, Prisma } from '../../generated/prisma';
 
 export const TEST_DATABASE_URL =
   process.env.DATABASE_URL ??
-  'postgresql://postgres:postgres@127.0.0.1:55432/postgres?connection_limit=5';
+  // Sized with the burst, not below it — see the note in vitest.config.ts.
+  'postgresql://postgres:postgres@127.0.0.1:55432/postgres?connection_limit=20';
 
 export const db = new PrismaClient({
   adapter: new PrismaPg({ connectionString: TEST_DATABASE_URL }) as never,

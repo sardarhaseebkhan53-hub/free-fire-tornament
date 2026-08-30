@@ -7,7 +7,7 @@
 // and marked CREDENTIALS_RELEASED exactly once.
 // =============================================================================
 import crypto from 'node:crypto';
-import { prisma } from '../lib/prisma';
+import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
 import { normalizePlacementTable } from '../lib/scoring';
@@ -48,7 +48,7 @@ export async function createMatch(input: CreateMatchInput, adminId?: string, ctx
   const defaultReleaseMin = await getSetting('tournament.roomCredentialsReleaseMinutesBeforeStart', 30);
   const releaseMin = input.releaseMinutesBeforeStart ?? defaultReleaseMin;
 
-  const match = await prisma.$transaction(async (tx) => {
+  const match = await moneyTx(async (tx) => {
     const row = await tx.match.create({
       data: {
         tournamentId: tournament.id,
@@ -265,7 +265,7 @@ export async function updateMatch(
   const match = await prisma.match.findUnique({ where: { id: matchId } });
   if (!match || match.deletedAt) throw notFound('Match not found');
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await moneyTx(async (tx) => {
     const row = await tx.match.update({
       where: { id: matchId },
       data: {
