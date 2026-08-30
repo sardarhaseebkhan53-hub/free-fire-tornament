@@ -22,6 +22,7 @@ import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { png } from './lib/fixtures.js';
+import { ensureAdmin } from './lib/staff';
 
 const API = process.env.API_URL ?? 'http://127.0.0.1:4000/api';
 const DB = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/postgres?connection_limit=5';
@@ -79,10 +80,11 @@ async function main() {
   const db = new pg.Client({ connectionString: DB });
   await db.connect();
 
-  const admin = await db.query(`SELECT id, username FROM users WHERE email='admin@clutchnex.gg'`);
-  if (!admin.rows[0]) throw new Error('Seed the database first (npm run db:seed) — admin user missing.');
-  const adminId = admin.rows[0].id as string;
-  const adminToken = signToken(adminId, 'admin', 'ADMIN');
+  // Resolve a REAL staff row: requireAuth re-reads the account on every
+  // request, so a token minted for a hardcoded/absent e-mail is (correctly) 401.
+  const admin = await ensureAdmin(db);
+  const adminId = admin.id;
+  const adminToken = signToken(adminId, admin.username, admin.role);
 
   // Test actors: one rich player, one poor player, one attacker.
   await db.query(`DELETE FROM users WHERE username LIKE 'wtest_%'`);
@@ -100,7 +102,11 @@ async function main() {
 
   const accounts = await api('/wallet/payment-accounts', { token: richToken });
   const methods = (accounts.json.data.accounts as Array<{ method: string }>).map((a) => a.method).sort();
-  check('payment accounts seeded (JazzCash/EasyPaisa/Bank)', JSON.stringify(methods) === JSON.stringify(['BANK_TRANSFER', 'EASYPAISA', 'JAZZCASH']), methods.join(','));
+  // The catalogue is admin-managed and grows (NayaPay/SadaPay were added
+  // later), so assert the three core rails are PRESENT rather than pinning the
+  // exact list — a stale equality here fails on every legitimate addition.
+  check('payment accounts seeded (JazzCash/EasyPaisa/Bank)',
+    ['BANK_TRANSFER', 'EASYPAISA', 'JAZZCASH'].every((m) => methods.includes(m)), methods.join(','));
 
   // ---- 2. DEPOSIT SUBMISSION -------------------------------------------------
   const form = new FormData();
@@ -192,7 +198,11 @@ async function main() {
   const badAcc = await api('/wallet/withdrawals', { token: richToken, body: { amount: 500, method: 'EASYPAISA', accountName: 'Rich Tester', accountNumber: '12345' } });
   check('invalid wallet number refused', badAcc.status === 400);
 
-  const richWinning = Number((await db.query(`SELECT "winningBalance" FROM wallets WHERE "userId"=$1`, [richId])).rows[0].winningBalance);
+  const balancesOf = async (uid: string) => {
+    const r = (await db.query(`SELECT "cashBalance", "winningBalance" FROM wallets WHERE "userId"=$1`, [uid])).rows[0];
+    return { cash: Number(r.cashBalance), winning: Number(r.winningBalance), total: Number(r.cashBalance) + Number(r.winningBalance) };
+  };
+  const beforeW = await balancesOf(richId);
   const overW = await api('/wallet/withdrawals', { token: poorToken, body: { amount: 100000, method: 'EASYPAISA', accountName: 'Poor Tester', accountNumber: '03457654321' } });
   check('withdrawal over winning balance refused', overW.status === 400 && overW.json.code === 'INSUFFICIENT_BALANCE', String(overW.json.code));
 
@@ -200,8 +210,11 @@ async function main() {
   check('withdrawal request → PENDING', wd1.json.success === true && wd1.json.data.withdrawal.status === 'PENDING', JSON.stringify(wd1.json.message ?? wd1.json.code));
   const wd1Id = wd1.json.data.withdrawal.id as string;
 
-  const winningNow = Number((await db.query(`SELECT "winningBalance" FROM wallets WHERE "userId"=$1`, [richId])).rows[0].winningBalance);
-  check('withdrawal debited immediately (holding)', winningNow === richWinning - 800, `winning=${winningNow}`);
+  // Withdrawable = deposits (CASH) + winnings (WINNING); the holding debit
+  // drains CASH first and spills into WINNING, so assert on the TOTAL.
+  const afterW = await balancesOf(richId);
+  check('withdrawal debited immediately (holding)', afterW.total === beforeW.total - 800,
+    `cash=${afterW.cash} winning=${afterW.winning} (was ${beforeW.cash}/${beforeW.winning})`);
 
   const chainSkip = await api(`/admin/withdrawals/${wd1Id}/review`, { token: adminToken, body: { action: 'PAID', paidReference: 'PAY-1' } });
   check('cannot skip the approval chain', chainSkip.status === 409, String(chainSkip.json.code));
@@ -215,15 +228,17 @@ async function main() {
 
   const paid = await api(`/admin/withdrawals/${wd1Id}/review`, { token: adminToken, body: { action: 'PAID', paidReference: 'EWP-991199' } });
   check('chain completes → PAID', paid.json.success === true && paid.json.data.status === 'PAID');
-  const winningAfterPaid = Number((await db.query(`SELECT "winningBalance" FROM wallets WHERE "userId"=$1`, [richId])).rows[0].winningBalance);
-  check('PAID does not change balances again', winningAfterPaid === winningNow);
+  const afterPaid = await balancesOf(richId);
+  check('PAID does not change balances again', afterPaid.total === afterW.total);
 
   // Reject path — reversal credited back.
-  const wd2 = await api('/wallet/withdrawals', { token: richToken, body: { amount: 200, method: 'BANK_TRANSFER', accountName: 'Rich Tester', accountNumber: 'PK36MEZN0001234567890123' } });
-  const wd2Id = wd2.json.data.withdrawal.id as string;
+  const wd2 = await api('/wallet/withdrawals', { token: richToken, body: { amount: 400, method: 'BANK_TRANSFER', accountName: 'Rich Tester', accountNumber: 'PK36MEZN0001234567890123' } });
+  check('second withdrawal accepted', wd2.status === 201, `${wd2.status} ${JSON.stringify(wd2.json.message ?? wd2.json.code)}`);
+  const wd2Id = (wd2.json.data as { withdrawal: { id: string } }).withdrawal.id;
   const rej = await api(`/admin/withdrawals/${wd2Id}/review`, { token: adminToken, body: { action: 'REJECT', note: 'Name mismatch' } });
-  const winningAfterRej = Number((await db.query(`SELECT "winningBalance" FROM wallets WHERE "userId"=$1`, [richId])).rows[0].winningBalance);
-  check('rejected withdrawal reverses the holding', rej.json.success === true && winningAfterRej === winningAfterPaid, `winning=${winningAfterRej} (net of the 200 debit + reversal)`);
+  const afterRej = await balancesOf(richId);
+  check('rejected withdrawal reverses the holding', rej.json.success === true && afterRej.total === afterPaid.total,
+    `total=${afterRej.total} (net of the 200 debit + reversal)`);
   const reversal = await db.query(
     `SELECT type FROM wallet_transactions WHERE "entityType"='Withdrawal' AND "entityId"=$1 AND type='WITHDRAWAL_REVERSAL'`,
     [wd2Id],
@@ -231,20 +246,23 @@ async function main() {
   check('reversal ledger entry written', reversal.rows.length === 1);
 
   // Player cancel path.
-  const wd3 = await api('/wallet/withdrawals', { token: richToken, body: { amount: 100, method: 'JAZZCASH', accountName: 'Rich Tester', accountNumber: '03001234567' } });
-  const wd3Id = wd3.json.data.withdrawal.id as string;
+  const wd3 = await api('/wallet/withdrawals', { token: richToken, body: { amount: 300, method: 'JAZZCASH', accountName: 'Rich Tester', accountNumber: '03001234567' } });
+  check('third withdrawal accepted', wd3.status === 201, `${wd3.status} ${JSON.stringify(wd3.json.message ?? wd3.json.code)}`);
+  const wd3Id = (wd3.json.data as { withdrawal: { id: string } }).withdrawal.id;
   const cancel = await api(`/wallet/withdrawals/${wd3Id}/cancel`, { token: richToken, method: 'POST' });
-  const winningAfterCancel = Number((await db.query(`SELECT "winningBalance" FROM wallets WHERE "userId"=$1`, [richId])).rows[0].winningBalance);
-  check('player cancel releases pending withdrawal', cancel.json.success === true && winningAfterCancel === winningAfterRej, `winning=${winningAfterCancel} (net of the 100 debit + release)`);
+  const afterCancel = await balancesOf(richId);
+  check('player cancel releases pending withdrawal', cancel.json.success === true && afterCancel.total === afterRej.total,
+    `total=${afterCancel.total} (net of the 300 debit + release)`);
 
   const cancelPaid = await api(`/wallet/withdrawals/${wd1Id}/cancel`, { token: richToken, method: 'POST' });
   check('cannot cancel a PAID withdrawal', cancelPaid.status === 400);
 
   // ---- 5. COIN CONVERSION -------------------------------------------------------
+  const cashBeforeConvert = (await balancesOf(richId)).cash;
   const convert = await api('/wallet/coins/convert', { token: richToken, body: { amount: 100 } });
   check('coin conversion succeeds at seeded rate', convert.json.success === true && Number(convert.json.data.coinsCredited) === 100, JSON.stringify(convert.json.data ?? convert.json.code));
   const wNow = (await db.query(`SELECT "cashBalance", "coinBalance" FROM wallets WHERE "userId"=$1`, [richId])).rows[0];
-  check('conversion moved cash→coins atomically', Number(wNow.cashBalance) === cashAfter - 100 && Number(wNow.coinBalance) === 100, `cash=${wNow.cashBalance} coins=${wNow.coinBalance}`);
+  check('conversion moved cash→coins atomically', Number(wNow.cashBalance) === cashBeforeConvert - 100 && Number(wNow.coinBalance) === 100, `cash=${wNow.cashBalance} coins=${wNow.coinBalance}`);
 
   const overConvert = await api('/wallet/coins/convert', { token: poorToken, body: { amount: 999999 } });
   check('conversion cannot overdraw cash', overConvert.status === 400 && overConvert.json.code === 'INSUFFICIENT_BALANCE');
@@ -253,8 +271,8 @@ async function main() {
   const txAll = await api('/wallet/transactions?pageSize=100', { token: richToken });
   const txData = txAll.json.data;
   check('transactions list returns ledger rows', txData.total >= 6, `total=${txData.total}`);
-  const expectedIn = 750 + 200 + 100 + 100; // deposit + reject reversal + cancel reversal + coins credit
-  const expectedOut = 800 + 200 + 100 + 100; // paid wd + rejected wd + cancelled wd + cash conversion leg
+  const expectedIn = 750 + 400 + 300 + 100; // deposit + reject reversal + cancel reversal + coins credit
+  const expectedOut = 800 + 400 + 300 + 100; // paid wd + rejected wd + cancelled wd + cash conversion leg
   check('totals: in/out/net computed over filter', Math.abs(txData.totalIn - expectedIn) < 0.01 && Math.abs(txData.totalOut - expectedOut) < 0.01 && Math.abs(txData.net - (expectedIn - expectedOut)) < 0.01, `in=${txData.totalIn} out=${txData.totalOut}`);
 
   const txDeposits = await api('/wallet/transactions?type=DEPOSIT', { token: richToken });
@@ -290,15 +308,23 @@ async function main() {
     `SELECT w."cashBalance", w."winningBalance", w."coinBalance" FROM wallets w WHERE w."userId"=$1`,
     [richId],
   )).rows[0];
-  const lastOf = async (bucket: string) => Number((await db.query(
-    `SELECT "balanceAfter" FROM wallet_transactions WHERE "userId"=$1 AND bucket=$2 ORDER BY "createdAt" DESC, id DESC LIMIT 1`,
-    [richId, bucket],
-  )).rows[0]?.balanceAfter ?? 0);
+  // The fixture seeds opening balances straight into `wallets` (no ledger row),
+  // so a bucket that was never touched by an API call has no ledger tail. Fall
+  // back to the opening balance for those buckets instead of asserting 0.
+  const OPENING: Record<string, number> = { CASH: 500, WINNING: 2000, COINS: 0 };
+  const lastOf = async (bucket: string) => {
+    const row = (await db.query(
+      `SELECT "balanceAfter" FROM wallet_transactions WHERE "userId"=$1 AND bucket=$2 ORDER BY "createdAt" DESC, id DESC LIMIT 1`,
+      [richId, bucket],
+    )).rows[0];
+    return row ? Number(row.balanceAfter) : OPENING[bucket]!;
+  };
+  const [lCash, lWin, lCoins] = [await lastOf('CASH'), await lastOf('WINNING'), await lastOf('COINS')];
   check('wallet mirrors match ledger finals (test user)',
-    Number(mirrorRow.cashBalance) === (await lastOf('CASH')) &&
-    Number(mirrorRow.winningBalance) === (await lastOf('WINNING')) &&
-    Number(mirrorRow.coinBalance) === (await lastOf('COINS')),
-    `cash=${mirrorRow.cashBalance}/${await lastOf('CASH')} winning=${mirrorRow.winningBalance}/${await lastOf('WINNING')}`);
+    Number(mirrorRow.cashBalance) === lCash &&
+    Number(mirrorRow.winningBalance) === lWin &&
+    Number(mirrorRow.coinBalance) === lCoins,
+    `cash=${mirrorRow.cashBalance}/${lCash} winning=${mirrorRow.winningBalance}/${lWin} coins=${mirrorRow.coinBalance}/${lCoins}`);
 
   // ---- cleanup ------------------------------------------------------------------
   const depIds = await db.query(`SELECT id FROM deposits WHERE "userId"=ANY($1)`, [[richId, poorId]]);

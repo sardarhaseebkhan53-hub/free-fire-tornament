@@ -414,18 +414,29 @@ async function rotateRefreshChain(
 
 export async function logout(rawRefresh?: string) {
   if (!rawRefresh) return;
-  const row = await findToken(rawRefresh, 'REFRESH');
+  // SECURITY: resolve the presented cookie WITHOUT the `revokedAt: null`
+  // filter that `findToken` applies.
+  //
+  // Refresh tokens are single-use and rotate on every refresh, and a replay
+  // inside the 60s grace window is deliberately chained onto its successor so
+  // parallel refreshes do not destroy the session. That means the cookie a tab
+  // is holding is very often ALREADY revoked-but-chainable. Looking it up with
+  // `findToken` returned null for exactly those cookies, so logout silently
+  // did nothing and the "logged out" cookie could still grace-chain straight
+  // back into a live session. Resolve the row by hash alone and revoke the
+  // whole account's sessions.
+  const row = await prisma.authToken.findFirst({
+    where: { tokenHash: hashToken(rawRefresh), type: 'REFRESH' },
+    select: { id: true, userId: true },
+  });
   if (!row) return;
   // Logout ends the session everywhere: revoke the presented token AND every
   // other live refresh token for the account, so a replay of any sibling
   // cookie (e.g. another tab) can never revive the session via grace-chaining.
-  await prisma.$transaction([
-    prisma.authToken.update({ where: { id: row.id }, data: { revokedAt: new Date() } }),
-    prisma.authToken.updateMany({
-      where: { userId: row.userId, type: 'REFRESH', revokedAt: null },
-      data: { revokedAt: new Date() },
-    }),
-  ]);
+  await prisma.authToken.updateMany({
+    where: { userId: row.userId, type: 'REFRESH', revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
 }
 
 // ---------------------------------------------------------------------------

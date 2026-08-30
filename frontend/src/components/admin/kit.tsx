@@ -2,6 +2,7 @@
 // Admin UI kit — KPI cards, data table shell, status pills, charts (hand-rolled
 // SVG, no chart dependency), modal and small helpers. Design language of 26-40.
 import { useEffect, useMemo, useState } from 'react';
+import { useDialog } from '@/lib/use-dialog';
 import { deferLoad } from '@/lib/session';
 import { api, authedFetchResolved } from '@/lib/client-api';
 
@@ -99,16 +100,21 @@ export function Pill({ status, label }: { status: string; label?: string }) {
 }
 
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+  // Escape-to-close, focus trap and focus restoration (see lib/use-dialog).
+  const panelRef = useDialog<HTMLDivElement>(onClose);
   return (
     <div
       className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
+      role="presentation"
     >
       <div
-        className={`animate-modal-in max-h-[88vh] w-full overflow-y-auto rounded-[20px] border border-line bg-surface p-6 shadow-2xl ${wide ? 'max-w-2xl' : 'max-w-md'}`}
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        className={`animate-modal-in max-h-[88vh] w-full overflow-y-auto rounded-[20px] border border-line bg-surface p-6 shadow-2xl outline-none ${wide ? 'max-w-2xl' : 'max-w-md'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="font-display text-lg font-bold text-fg">{title}</h2>

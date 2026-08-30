@@ -26,6 +26,8 @@ const API = process.env.API_URL ?? 'http://127.0.0.1:4000/api';
 const DB = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/postgres?connection_limit=5';
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET ?? 'dev-only-access-secret-change-me';
 
+import { ensureAdmin } from './lib/staff';
+
 let failures = 0;
 function check(name: string, cond: boolean, extra?: string) {
   console.log(`${cond ? '✅' : '❌'} ${name}${extra ? ` — ${extra}` : ''}`);
@@ -81,9 +83,9 @@ async function main() {
   const db = new pg.Client({ connectionString: DB });
   await db.connect();
 
-  const adminRow = await db.query(`SELECT id FROM users WHERE email='admin@clutchnex.gg'`);
-  const adminId = adminRow.rows[0].id as string;
-  const adminToken = signToken(adminId, 'admin', 'ADMIN');
+  const admin = await ensureAdmin(db);
+  const adminId = admin.id;
+  const adminToken = signToken(adminId, admin.username, admin.role);
 
   await db.query(`DELETE FROM users WHERE username LIKE 'restest_%'`);
   await db.query(`DELETE FROM tournaments WHERE slug LIKE 'restest-%'`);
@@ -217,6 +219,24 @@ async function main() {
   // ---- 3. DISTRIBUTION ----------------------------------------------------------
   const noDistributeForPlayer = await api(`/admin/tournaments/${tid}/distribute-prizes`, { token: tokens.alpha, body: {} });
   check('distribution refused for players', noDistributeForPlayer.status === 403);
+
+  // The scratch SCHEDULED match (used above to prove submissions are refused
+  // on a non-completed match) is a genuine blocker for distribution — an
+  // unfinished match must hold the prizes. Remove the fixture before testing
+  // the happy path.
+  await db.query(`DELETE FROM matches WHERE id=$1`, [futId]);
+
+  // Prize distribution is gated on the results workflow being finished:
+  // DRAFT → UNDER_REVIEW → CONFIRMED → PUBLISHED for every match.
+  const unpublished = await api(`/admin/tournaments/${tid}/distribute-prizes`, { token: adminToken, body: {} });
+  check('distribution blocked while results are unpublished',
+    unpublished.status === 409, `${unpublished.status} ${JSON.stringify(unpublished.json.message ?? unpublished.json.code)}`);
+
+  for (const status of ['UNDER_REVIEW', 'CONFIRMED', 'PUBLISHED']) {
+    const step = await api(`/admin/matches/${mid}/results/status`, { token: adminToken, body: { status } });
+    check(`results workflow → ${status}`, step.json.success === true,
+      `${step.status} ${JSON.stringify(step.json.message ?? step.json.code)}`);
+  }
 
   // alpha: 32 pts (1st, 10 kills), bravo: 27 (2nd, 9), charlie: 13 (3rd, 5), delta DQ.
   const dist = await api(`/admin/tournaments/${tid}/distribute-prizes`, { token: adminToken, body: {} });

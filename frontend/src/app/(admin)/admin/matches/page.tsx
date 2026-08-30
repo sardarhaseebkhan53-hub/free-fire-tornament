@@ -9,7 +9,8 @@
 //   • controlled results workflow: DRAFT → UNDER_REVIEW → CONFIRMED → PUBLISHED
 //   • slot board shortcut + CSV export
 // =============================================================================
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Loader2, Plus, RefreshCcw, Search, Swords, Trash2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Modal, Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
@@ -27,6 +28,7 @@ interface TList { items: Array<{ id: string; title: string }> }
 const STATUS_FILTERS = ['', 'SCHEDULED', 'ROOM_CREATED', 'ROOM_OPEN', 'LIVE', 'COMPLETED', 'CANCELLED'] as const;
 
 export default function AdminMatchesPage() {
+  const router = useRouter();
   const [tourId, setTourId] = useState('');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
@@ -165,7 +167,7 @@ export default function AdminMatchesPage() {
           matchId={manageId}
           onClose={() => setManageId(null)}
           onChanged={refresh}
-          onOpenSlots={(tournamentId: string) => { setManageId(null); window.location.href = `/admin/slots?tournament=${tournamentId}`; }}
+          onOpenSlots={(tournamentId: string) => { setManageId(null); router.push(`/admin/slots?tournament=${tournamentId}`); }}
         />
       )}
     </div>

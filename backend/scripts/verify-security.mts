@@ -266,11 +266,15 @@ async function main() {
   // 3g. withdrawals: churn + shared payout account
   await db.query(`UPDATE wallets SET "winningBalance"=20000 WHERE "userId"=$1`, [u2]);
   await db.query(`UPDATE deposits SET status='APPROVED', "reviewedAt"=now() WHERE "userId"=$1 AND status='PENDING'`, [u2]);
+  const preWdRow = (await db.query(`SELECT "cashBalance" c, "winningBalance" w FROM wallets WHERE "userId"=$1`, [u2])).rows[0];
+  const before2h = Number(preWdRow.c) + Number(preWdRow.w);
   const wd = await api('/wallet/withdrawals', {
     token: t2,
     body: { amount: 400, method: 'JAZZCASH', accountName: 'Bob Tester', accountNumber: '03001234567' },
   });
   check('withdrawal request accepted', wd.status === 201, `HTTP ${wd.status}`);
+  const after2hRow = (await db.query(`SELECT "cashBalance" c, "winningBalance" w FROM wallets WHERE "userId"=$1`, [u2])).rows[0];
+  void after2hRow;
   await settle();
   check('DEPOSIT_WITHDRAW_CHURN alert raised', await waitForAlert(db, 'DEPOSIT_WITHDRAW_CHURN', u2));
 
@@ -283,11 +287,19 @@ async function main() {
   check('SHARED_PAYOUT_ACCOUNT alert raised (same JazzCash number, 2 players)', await waitForAlert(db, 'SHARED_PAYOUT_ACCOUNT'));
 
   // 3h. detection never changes the money outcome
-  const bal = Number((await db.query(`SELECT "winningBalance" b FROM wallets WHERE "userId"=$1`, [u2])).rows[0].b);
+  // The holding debit drains CASH first and only spills into WINNING, so the
+  // invariant is on the TOTAL withdrawable balance, not on one bucket.
+  const balRow = (await db.query(`SELECT "cashBalance" c, "winningBalance" w FROM wallets WHERE "userId"=$1`, [u2])).rows[0];
+  const total = Number(balRow.c) + Number(balRow.w);
+  const debited = Number((await db.query(
+    `SELECT COALESCE(SUM(amount),0) s FROM wallet_transactions WHERE "userId"=$1 AND type='WITHDRAWAL' AND direction='DEBIT'`, [u2],
+  )).rows[0].s);
   const ledger = await db.query(
-    `SELECT count(*) n FROM wallet_transactions WHERE "userId"=$1 AND type='WITHDRAWAL'`, [u2],
+    `SELECT count(DISTINCT "entityId") n FROM wallet_transactions WHERE "userId"=$1 AND type='WITHDRAWAL'`, [u2],
   );
-  check('a flagged withdrawal still debits exactly once (no double charge)', Number(ledger.rows[0].n) === 1 && bal === 19600, `winning=${bal} tx=${ledger.rows[0].n}`);
+  check('a flagged withdrawal still debits exactly once (no double charge)',
+    Number(ledger.rows[0].n) === 1 && debited === 400 && total === before2h - 400,
+    `cash=${balRow.c} winning=${balRow.w} debited=${debited} withdrawals=${ledger.rows[0].n}`);
 
   // 3i. credential stuffing
   const before = await db.query(`SELECT count(*) n FROM audit_logs WHERE action='LOGIN_FAILED'`);
@@ -328,6 +340,22 @@ async function main() {
   const refreshCookie = setCookie.split(';')[0] ?? '';
   const first = await api('/auth/refresh', { method: 'POST', headers: { cookie: refreshCookie, 'x-clutchnex-client': 'test' } });
   check('refresh rotates the session', first.status === 200, `HTTP ${first.status}`);
+  // A replay INSIDE the 60s grace window is a benign race (parallel API calls
+  // at access-token expiry, multiple tabs) and must chain onto the successor —
+  // that is the fix for the random-logout bug, so assert it explicitly.
+  const graceReplay = await api('/auth/refresh', { method: 'POST', headers: { cookie: refreshCookie, 'x-clutchnex-client': 'test' } });
+  check('a within-grace replay chains instead of killing the session', graceReplay.status === 200, `HTTP ${graceReplay.status}`);
+  const stillLive = await db.query(
+    `SELECT count(*) n FROM auth_tokens WHERE "userId"=$1 AND type='REFRESH' AND "revokedAt" IS NULL`, [u2],
+  );
+  check('benign race leaves the session alive', Number(stillLive.rows[0].n) >= 1, `live=${stillLive.rows[0].n}`);
+
+  // Now age the revocation past the grace window: the same cookie is then a
+  // genuine stolen-token replay and MUST be treated as theft.
+  await db.query(
+    `UPDATE auth_tokens SET "revokedAt" = now() - interval '10 minutes'
+     WHERE "userId"=$1 AND type='REFRESH' AND "revokedAt" IS NOT NULL`, [u2],
+  );
   const replay = await api('/auth/refresh', { method: 'POST', headers: { cookie: refreshCookie, 'x-clutchnex-client': 'test' } });
   check('replaying the rotated token is refused', replay.status === 401, `HTTP ${replay.status}`);
   await settle();

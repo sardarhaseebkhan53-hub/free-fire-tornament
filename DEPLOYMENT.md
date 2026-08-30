@@ -151,12 +151,14 @@ it on every boot (see the `api` start command in `railway.yaml`).
 
 | | |
 |---|---|
-| Email | value of `SEED_ADMIN_EMAIL` (default `sardarghaseeb777@gmail.com`) |
-| Username | value of `SEED_ADMIN_USERNAME` (default `sardarghaseeb`) |
-| Password | value of `SEED_ADMIN_PASSWORD` (default `sardar9003202@`) |
+| Email | value of `SEED_ADMIN_EMAIL` |
+| Username | value of `SEED_ADMIN_USERNAME` |
+| Password | value of `SEED_ADMIN_PASSWORD` (set it yourself — `openssl rand -base64 24`) |
 
-Keep these three variables identical across environments (they are the
-permanent credentials and are also the defaults in `backend/.env.example`).
+**No admin credential is stored in the repository.** In production the seed
+requires `SEED_ADMIN_PASSWORD` (min 12 chars) and skips itself when it is
+missing, so a deploy can never fall back to a source-controlled password. Set
+these three variables in your platform's environment UI, never in git.
 
 ---
 
@@ -175,9 +177,9 @@ environment UI — they are read once at boot by `src/lib/env.ts`).
 | `JWT_REFRESH_SECRET` | ✅ | `openssl rand -hex 64` | **Different** from the access secret |
 | `JWT_ACCESS_TTL` | | `15m` | Access-token lifetime |
 | `JWT_REFRESH_TTL_DAYS` | | `7` | Rotating refresh-cookie lifetime |
-| `SEED_ADMIN_EMAIL` | | `sardarghaseeb777@gmail.com` | Permanent super-admin (upserted by `db:seed:admin` on every boot) |
-| `SEED_ADMIN_PASSWORD` | | `sardar9003202@` | Permanent password — the stored hash is re-baked from this on every boot |
-| `SEED_ADMIN_USERNAME` | | `sardarghaseeb` | Permanent username |
+| `SEED_ADMIN_EMAIL` | | `owner@yourdomain.com` | Super-admin identity (upserted by `db:seed:admin` on every boot) |
+| `SEED_ADMIN_PASSWORD` | prod | `openssl rand -base64 24` | Min 12 chars. The stored hash is re-baked from this on every boot; unset ⇒ seed skipped |
+| `SEED_ADMIN_USERNAME` | | `clutchnexadmin` | Super-admin username |
 | `CLIENT_ORIGIN` | ✅ | `https://clutchnex.gg` | CORS is pinned to exactly this origin |
 | `PUBLIC_URL` | ✅ | `https://clutchnex.gg` | Canonical URLs, sitemap, email links |
 | `MAX_UPLOAD_MB` | | `5` | Payment-proof size cap |
@@ -446,7 +448,7 @@ cd ../frontend && npm ci && npm run build
 # Smoke
 curl -sf $API/api/health
 curl -s  $API/api/auth/login -H 'content-type: application/json' \
-  -d '{"identifier":"sardarghaseeb777@gmail.com","password":"sardar9003202@"}' | grep -q accessToken
+  -d "{\"identifier\":\"$SEED_ADMIN_EMAIL\",\"password\":\"$SEED_ADMIN_PASSWORD\"}" | grep -q accessToken
 curl -sf https://your-origin/            | grep -q CLUTCHNEX
 curl -s  https://your-origin/robots.txt  | grep -q Sitemap
 ```

@@ -186,25 +186,44 @@ export async function setUserStatus(adminId: string, userId: string, status: 'AC
   if (target.role === 'SUPER_ADMIN' && status !== 'ACTIVE') {
     throw forbidden('Super admins cannot be suspended or banned.');
   }
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      status,
-      ...(status === 'BANNED' ? { bannedAt: new Date(), banReason: reason || null } : { bannedAt: null, banReason: null }),
-    },
-  });
-  await prisma.notification.create({
-    data: {
-      userId, type: 'ACCOUNT',
-      title: status === 'ACTIVE' ? 'Account restored' : `Account ${status.toLowerCase()}`,
-      body: status === 'ACTIVE' ? 'Your account is active again. Welcome back to the arena.' : `Your account has been ${status.toLowerCase()}.${reason ? ` Reason: ${reason}` : ''}`,
-    },
-  });
-  await prisma.auditLog.create({
-    data: {
-      actorId: adminId, action: `USER_${status}`, entity: 'User', entityId: userId,
-      before: { status: target.status }, after: { status, reason: reason || null }, ip: ctx.ip,
-    },
+  // The status change, the forced session revocation, the player notification
+  // and the audit record are ONE transaction: a crash halfway must never leave
+  // a banned account with live sessions, or a suspension with no audit trail.
+  const updated = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.update({
+      where: { id: userId },
+      data: {
+        status,
+        ...(status === 'BANNED' ? { bannedAt: new Date(), banReason: reason || null } : { bannedAt: null, banReason: null }),
+      },
+    });
+
+    // FORCED LOGOUT. `requireAuth` already refuses a non-ACTIVE account, but
+    // the refresh tokens themselves used to survive a suspension — so lifting
+    // the suspension silently resurrected every session the offender still had
+    // open (including on devices the ban was meant to cut off). Kill them here
+    // so restoring an account always requires a fresh, audited sign-in.
+    if (status !== 'ACTIVE') {
+      await tx.authToken.updateMany({
+        where: { userId, type: 'REFRESH', revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
+
+    await tx.notification.create({
+      data: {
+        userId, type: 'ACCOUNT',
+        title: status === 'ACTIVE' ? 'Account restored' : `Account ${status.toLowerCase()}`,
+        body: status === 'ACTIVE' ? 'Your account is active again. Welcome back to the arena.' : `Your account has been ${status.toLowerCase()}.${reason ? ` Reason: ${reason}` : ''}`,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: `USER_${status}`, entity: 'User', entityId: userId,
+        before: { status: target.status }, after: { status, reason: reason || null }, ip: ctx.ip,
+      },
+    });
+    return user;
   });
   return { id: updated.id, status: updated.status };
 }

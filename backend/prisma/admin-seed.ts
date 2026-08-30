@@ -15,21 +15,28 @@
 //     below / SEED_ADMIN_*, so changing .env can never desync the stored hash
 //     (the classic "login fails after .env update" bcrypt mismatch).
 //
-// PERMANENT credentials (also the defaults in .env.example — do not casually
-// rotate; if you ever must, change them here AND in the environment together):
-//   email     sardarghaseeb777@gmail.com
-//   password  sardar9003202@
-//   username  sardarghaseeb
+// CREDENTIALS COME FROM THE ENVIRONMENT ONLY — never from source. Set:
+//   SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, SEED_ADMIN_USERNAME
+//
+// In production SEED_ADMIN_PASSWORD is REQUIRED: without it this script skips
+// (exit 0, so the deploy still boots) instead of baking a source-controlled
+// password into the owner account. In development a throwaway default is used
+// so a fresh clone is still one command away from an admin login.
 // =============================================================================
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma';
 
-// --- PERMANENT admin identity ------------------------------------------------
-const ADMIN_EMAIL = (process.env.SEED_ADMIN_EMAIL ?? 'sardarghaseeb777@gmail.com').toLowerCase().trim();
-const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'sardar9003202@';
-const ADMIN_USERNAME = (process.env.SEED_ADMIN_USERNAME ?? 'sardarghaseeb').toLowerCase().trim();
+// --- Admin identity (environment-driven) -------------------------------------
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+/** Dev-only fallback. Never used when NODE_ENV=production. */
+const DEV_FALLBACK_PASSWORD = 'ChangeMe@Dev123';
+
+const ADMIN_EMAIL = (process.env.SEED_ADMIN_EMAIL ?? 'admin@clutchnex.local').toLowerCase().trim();
+const ADMIN_USERNAME = (process.env.SEED_ADMIN_USERNAME ?? 'clutchnexadmin').toLowerCase().trim();
+const ADMIN_FULL_NAME = process.env.SEED_ADMIN_NAME ?? 'Platform Owner';
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? (IS_PRODUCTION ? '' : DEV_FALLBACK_PASSWORD);
 
 const BCRYPT_ROUNDS = 12; // matches the auth service's production cost
 
@@ -37,6 +44,22 @@ async function main() {
   const connectionString =
     process.env.DATABASE_URL ??
     'postgresql://postgres:postgres@127.0.0.1:5432/postgres?connection_limit=1';
+
+  if (!ADMIN_PASSWORD) {
+    // Production without an explicit password: do NOT invent one and do NOT
+    // fail the deploy — an already-provisioned admin must keep working.
+    console.warn(
+      '⚠️  SEED_ADMIN_PASSWORD is not set — skipping the super-admin seed. ' +
+        'Set SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD to provision or reset the owner account.',
+    );
+    return;
+  }
+  if (ADMIN_PASSWORD.length < 12) {
+    console.error('❌ SEED_ADMIN_PASSWORD must be at least 12 characters.');
+    process.exitCode = 1;
+    return;
+  }
+
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 
   try {
@@ -64,7 +87,7 @@ async function main() {
           verifiedAt: existing.verifiedAt ?? new Date(),
           bannedAt: null,
           banReason: null,
-          profile: existing.profile ? undefined : { create: { fullName: 'Sardar Ghaseeb' } },
+          profile: existing.profile ? undefined : { create: { fullName: ADMIN_FULL_NAME } },
           wallet: existing.wallet ? undefined : { create: {} },
         },
       });
@@ -94,7 +117,7 @@ async function main() {
           status: 'ACTIVE',
           isVerified: true,
           verifiedAt: new Date(),
-          profile: { create: { fullName: 'Sardar Ghaseeb' } },
+          profile: { create: { fullName: ADMIN_FULL_NAME } },
           wallet: { create: {} },
         },
       });
@@ -102,7 +125,7 @@ async function main() {
       console.log(`   username: ${ADMIN_USERNAME}`);
     }
 
-    console.log('   password: (from SEED_ADMIN_PASSWORD — permanent credentials)');
+    console.log('   password: (from SEED_ADMIN_PASSWORD — never printed)');
     console.log('   Login: POST /api/auth/login { "identifier": "<email|username>", "password": "…" }');
   } finally {
     await prisma.$disconnect();

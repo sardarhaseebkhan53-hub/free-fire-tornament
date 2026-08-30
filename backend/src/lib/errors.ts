@@ -25,6 +25,7 @@ export type ApiErrorCode =
   | 'DUPLICATE_TRANSACTION'
   | 'TICKET_CLOSED'
   | 'RATE_LIMITED'
+  | 'SERVICE_UNAVAILABLE'
   | 'INTERNAL_ERROR';
 
 export class ApiError extends Error {
