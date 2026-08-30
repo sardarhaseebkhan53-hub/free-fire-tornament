@@ -53,7 +53,7 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 | 14 | Security hardening | ✅ Done |
 | 15 | Testing | ✅ Done |
 | 16 | Deployment | ✅ Done |
-| 18 | Production security + financial hardening | ✅ Done — see [PHASE18_SECURITY.md](./PHASE18_SECURITY.md) |
+| 18 | Production security + financial hardening | ✅ Done — [PHASE18_SECURITY.md](./PHASE18_SECURITY.md) · [PR #21](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/21) |
 
 Completed work lives in the merged history (PR #1, PR #2, PR #3, PR #4) plus
 [PR #5](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/5)
