@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
-import { apiServerSafe } from '@/lib/api';
+import { apiServerDetail } from '@/lib/api';
 import { pageMetadata } from '@/lib/seo';
 import { RankBadge } from '@/components/rank-badge';
 import { Reveal } from '@/components/reveal';
@@ -11,7 +11,7 @@ import type { Metadata } from 'next';
 
 export async function generateMetadata({ params }: { params: Promise<{ username: string }> }): Promise<Metadata> {
   const { username } = await params;
-  const p = await apiServerSafe<PublicPlayer>(`/public/players/${encodeURIComponent(username)}`);
+  const p = await apiServerDetail<PublicPlayer>(`/public/players/${encodeURIComponent(username)}`);
   if (!p) return { title: 'Player not found | CLUTCHNEX' };
   return pageMetadata({
     slug: `player-${username}`,
@@ -40,7 +40,7 @@ interface PublicPlayer {
 
 export default async function PlayerProfilePage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
-  const p = await apiServerSafe<PublicPlayer>(`/public/players/${encodeURIComponent(username)}`);
+  const p = await apiServerDetail<PublicPlayer>(`/public/players/${encodeURIComponent(username)}`);
   if (!p) notFound();
 
   return (

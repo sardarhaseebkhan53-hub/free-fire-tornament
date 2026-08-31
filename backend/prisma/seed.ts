@@ -1113,9 +1113,15 @@ async function main() {
   const txs = await prisma.walletTransaction.count();
   const regs = await prisma.tournamentRegistration.count();
   console.log(`✅ Seed complete: ${users} users, ${txs} ledger entries, ${regs} registrations.`);
-  console.log(`   Super-admin (permanent): ${ADMIN_EMAIL} / ${ADMIN_USERNAME}`);
-  console.log('   Demo staff: ops@clutchnex.gg / mod@clutchnex.gg');
-  console.log('   Players: username@example.com — password Player@123 (DEV ONLY)');
+  // IMPORTANT: print EMAIL and PASSWORD (not the username) — the previous line
+  // printed `${ADMIN_EMAIL} / ${ADMIN_USERNAME}`, which looked like
+  // "admin@clutchnex.local / clutchnexadmin" and sent developers to log in with
+  // the USERNAME as the password, producing a guaranteed 401 INVALID_CREDENTIALS.
+  console.log(`   Super-admin login: ${ADMIN_EMAIL}`);
+  console.log(`                    password: ${ADMIN_PASSWORD}`);
+  console.log(`                    username: ${ADMIN_USERNAME} (login accepts email OR username)`);
+  console.log('   Demo staff: ops@clutchnex.gg / OpsAdmin@123  ·  mod@clutchnex.gg / ModPass@123');
+  console.log('   Players: any <username>@example.com (e.g. areeb.khan@example.com) — password Player@123 (DEV ONLY)');
 }
 
 main()

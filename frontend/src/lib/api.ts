@@ -25,3 +25,22 @@ export async function apiServerSafe<T>(path: string): Promise<T | null> {
     return null;
   }
 }
+
+/**
+ * For detail pages (tournament, player profile, blog article, legal page).
+ *
+ * Returns the resource when it exists, `null` when the backend answers a real
+ * 404 (so the page can render notFound()), and RE-THROWS on any other status
+ * (5xx/503/network) so it hits Next's error boundary instead of being shown as
+ * a misleading 404. Previously these pages used apiServerSafe (which collapses
+ * EVERY failure to null → notFound), so a transient/schema 500 rendered as the
+ * "This zone is off the map" 404 — the wrong problem, pointing nowhere.
+ */
+export async function apiServerDetail<T>(path: string): Promise<T | null> {
+  try {
+    return await apiServer<T>(path);
+  } catch (e) {
+    if (e instanceof ApiFetchError && e.status === 404) return null;
+    throw e;
+  }
+}
