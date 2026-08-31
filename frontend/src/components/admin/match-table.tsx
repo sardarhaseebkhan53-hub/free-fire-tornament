@@ -464,7 +464,7 @@ function ResultRowSheet({ p, busy, preview, onSave, onClose }: {
   }
 
   return (
-    <div className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm" onClick={onClose} role="presentation">
+    <div className="scrim fixed inset-0 z-50 flex items-end justify-center" onClick={onClose} role="presentation">
       <div
         ref={dialogRef}
         role="dialog"

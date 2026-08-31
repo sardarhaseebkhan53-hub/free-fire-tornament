@@ -145,6 +145,32 @@ function msUntilAccessExpiry(): number {
   }
 }
 
+/**
+ * Last line of defence against the 400 that has bitten this app twice:
+ * `fetch()` stringifies an unknown body with String(value), so a plain object
+ * handed to authedFetch goes on the wire as the literal text `[object Object]`
+ * and the API answers "Malformed JSON body" — pointing at the server, not at
+ * the call site. Anything fetch can send natively (string, FormData, Blob,
+ * ArrayBuffer, URLSearchParams, ReadableStream) is passed through untouched;
+ * a plain object is serialised once, exactly like `api()` does.
+ */
+function serialisableBody(body: BodyInit | null | undefined, headers: Headers): BodyInit | null | undefined {
+  if (body === null || body === undefined) return body;
+  if (typeof body === 'string') return body;
+  if (
+    typeof FormData !== 'undefined' && body instanceof FormData ||
+    typeof Blob !== 'undefined' && body instanceof Blob ||
+    typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams ||
+    typeof ReadableStream !== 'undefined' && body instanceof ReadableStream ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body as ArrayBufferView)
+  ) {
+    return body;
+  }
+  if (!headers.has('content-type')) headers.set('content-type', 'application/json');
+  return JSON.stringify(body);
+}
+
 /** Authed fetch against a fully-resolved URL (e.g. an uploaded-image path that
  * has already been normalized to /api/backend/...). Shares the single
  * refresh-once-on-401 implementation with authedFetch so no call site keeps its
@@ -154,7 +180,7 @@ export async function authedFetchResolved(url: string, init: RequestInit = {}): 
   const headers = new Headers(init.headers);
   headers.set(CLIENT_HEADER, 'web');
   if (token) headers.set('authorization', `Bearer ${token}`);
-  const opts = { ...init, headers, credentials: 'include' as const };
+  const opts = { ...init, headers, body: serialisableBody(init.body, headers), credentials: 'include' as const };
 
   // Proactive refresh: if the token is about to expire (or already has),
   // refresh FIRST so a page never fires a burst of doomed requests that all

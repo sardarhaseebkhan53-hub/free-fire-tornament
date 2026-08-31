@@ -29,6 +29,67 @@ import { nexaRouter } from './routes/nexa.routes';
 import { notificationRouter } from './routes/notification.routes';
 import { pushRouter } from './routes/push.routes';
 
+/**
+ * One shape for `req.body`, whatever the client did to it.
+ *
+ * Every route parses `req.body` with zod, and zod expects an OBJECT. Two client
+ * mistakes used to defeat that before a single handler ran:
+ *
+ *   1. a double-serialised payload — the body is a JSON *string* that itself
+ *      contains JSON (`"{\"roomId\":\"123\"}"`). Valid JSON, wrong nesting.
+ *   2. an object handed straight to `fetch()` without `JSON.stringify`, which
+ *      the browser sends as the literal text `[object Object]`.
+ *
+ * (1) is recoverable, so we unwrap it once and let the route validate normally —
+ * the admin room panel, and later the Flutter app, cannot lose a save to it.
+ * (2) is not recoverable, but it deserves an answer that names the problem
+ * rather than the generic "Malformed JSON body" that sent us hunting.
+ */
+export function normalizeJsonBody(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+): void {
+  const body: unknown = req.body;
+  if (body === undefined || body === null) return next();
+
+  if (typeof body === 'string') {
+    const raw = body.trim();
+    // A JSON body of `""` means the client sent nothing meaningful.
+    if (raw === '') {
+      req.body = {};
+      return next();
+    }
+    try {
+      const unwrapped: unknown = JSON.parse(raw);
+      if (unwrapped !== null && typeof unwrapped === 'object') {
+        req.body = unwrapped;
+        return next();
+      }
+    } catch {
+      /* not JSON-in-a-string — fall through to the honest error below */
+    }
+    res.status(400).json({
+      success: false,
+      code: 'MALFORMED_JSON',
+      message:
+        'The request body arrived as text, not as a JSON object. Send the payload once — `JSON.stringify(payload)`, not a stringified string.',
+    });
+    return;
+  }
+
+  if (typeof body !== 'object') {
+    res.status(400).json({
+      success: false,
+      code: 'MALFORMED_JSON',
+      message: 'The request body must be a JSON object.',
+    });
+    return;
+  }
+
+  return next();
+}
+
 export function createApp() {
   const app = express();
 
@@ -73,8 +134,32 @@ export function createApp() {
   );
 
   // Money payloads are tiny; anything bigger is an attack or a misfiled upload.
-  app.use(express.json({ limit: '256kb' }));
+  //
+  // `strict: false` is deliberate, and it is NOT a loosening of validation.
+  // body-parser's strict mode rejects any top-level JSON value that is not an
+  // object/array with `entity.parse.failed` — the SAME error class as genuinely
+  // broken bytes — so a client that double-serialised its payload
+  //   JSON.stringify(JSON.stringify({ roomId: '123' }))  →  "\"{\\\"roomId\\\"...}\""
+  // got the useless answer "Malformed JSON body" even though the JSON was
+  // perfectly valid. That is exactly what the admin room panel hit. We now
+  // accept the value, unwrap it in `normalizeJsonBody` below, and every route's
+  // zod schema still has the final say on the shape.
+  //
+  // `verify` keeps a short prefix of the raw bytes so the error handler can say
+  // WHAT arrived (dev only) instead of leaving an admin staring at a 400.
+  app.use(
+    express.json({
+      limit: '256kb',
+      strict: false,
+      verify: (req, _res, buf) => {
+        (req as express.Request & { rawBodyPreview?: string }).rawBodyPreview = buf
+          .subarray(0, 120)
+          .toString('utf8');
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: false, limit: '64kb' }));
+  app.use(normalizeJsonBody);
   app.use(cookieParser());
   // HEALTH CHECK — mounted BEFORE the rate limiter on purpose. Load balancers,
   // uptime monitors and container orchestrators probe this endpoint from a
@@ -162,10 +247,19 @@ export function createApp() {
       });
     }
     if (e?.type === 'entity.parse.failed') {
+      // Dev gets to SEE what arrived — a 400 with no evidence is what turned a
+      // one-line client bug into an afternoon of guessing. Never in production:
+      // the preview could echo a credential back into a log.
+      const preview = (req as express.Request & { rawBodyPreview?: string }).rawBodyPreview;
+      const hint =
+        preview && preview.trimStart().startsWith('[object')
+          ? ' The client sent an object to fetch() without JSON.stringify().'
+          : '';
       return res.status(400).json({
         success: false,
         code: 'MALFORMED_JSON',
-        message: 'Malformed JSON body — the request payload was not valid JSON.',
+        message: `Malformed JSON body — the request payload was not valid JSON.${hint}`,
+        ...(isProd || !preview ? {} : { received: preview }),
       });
     }
     // express.static({ fallthrough: false }) forwards ENOENT as a raw error —

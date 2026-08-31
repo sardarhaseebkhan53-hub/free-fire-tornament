@@ -23,7 +23,7 @@ export function Navbar() {
   // fixed chrome (bottom nav, WhatsApp/NEXA FABs, install banner — all z-40)
   // painted over the open menu.
   return (
-    <header className="sticky top-0 z-50 border-b border-line bg-base/80 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 border-b border-line bg-base/80 chrome-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
         <Link href="/" aria-label="CLUTCHNEX home" className="flex min-w-0 items-center gap-2">
           <Image

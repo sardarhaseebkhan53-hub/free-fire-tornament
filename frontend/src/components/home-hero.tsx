@@ -119,9 +119,9 @@ export function HomeHero({
           stacking order the blurred blobs painted over the hero paragraph and
           washed the text out. */}
       <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
-        <div className="animate-aurora-1 absolute -left-[18vw] -top-[22vw] h-[55vw] w-[55vw] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.5),transparent_65%)] blur-[90px]" />
-        <div className="animate-aurora-2 absolute -right-[16vw] top-[4vh] h-[46vw] w-[46vw] rounded-full bg-[radial-gradient(circle,rgba(124,58,237,0.4),transparent_65%)] blur-[90px]" />
-        <div className="animate-aurora-3 absolute bottom-[-24vw] left-[22vw] h-[40vw] w-[40vw] rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.14),transparent_65%)] blur-[90px]" />
+        <div className="animate-aurora-1 absolute -left-[18vw] -top-[22vw] h-[55vw] w-[55vw] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.5),transparent_65%)] blur-[68px] will-change-transform" />
+        <div className="animate-aurora-2 absolute -right-[16vw] top-[4vh] h-[46vw] w-[46vw] rounded-full bg-[radial-gradient(circle,rgba(124,58,237,0.4),transparent_65%)] blur-[68px] will-change-transform" />
+        <div className="animate-aurora-3 absolute bottom-[-24vw] left-[22vw] h-[40vw] w-[40vw] rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.14),transparent_65%)] blur-[68px] will-change-transform" />
       </div>
 
       <div className="relative z-10 mx-auto max-w-7xl px-4 pb-10 pt-8 sm:px-6 lg:pb-16 lg:pt-14">
@@ -178,7 +178,7 @@ export function HomeHero({
           {hero ? (
             <div className="animate-float-y relative mx-auto w-full max-w-md lg:mx-0">
               <div
-                className="relative rounded-card border border-line bg-surface/70 p-5 backdrop-blur-xl"
+                className="relative rounded-card border border-line bg-surface/70 p-5 chrome-blur"
                 style={{ boxShadow: '0 24px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)' }}
               >
                 <div className="pointer-events-none absolute -inset-px z-0 rounded-card bg-[linear-gradient(140deg,rgba(139,92,246,0.5),transparent_40%,transparent_60%,rgba(245,185,66,0.3))] p-px [mask:linear-gradient(#000_0_0)_content-box,linear-gradient(#000_0_0)] [mask-composite:exclude]" aria-hidden />

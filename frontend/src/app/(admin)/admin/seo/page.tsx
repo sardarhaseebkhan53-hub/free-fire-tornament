@@ -66,7 +66,7 @@ function EditModal({ row, pages, onClose, onDone }: { row: Partial<Row>; pages: 
   const dialogRef = useDialog<HTMLDivElement>(onClose);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose} role="presentation">
+    <div className="scrim fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose} role="presentation">
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`SEO settings for /${row.pageSlug}`} tabIndex={-1}
         className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-[20px] border border-line bg-surface p-6 outline-none" onClick={(e) => e.stopPropagation()}>
         <h2 className="font-display text-lg font-bold text-fg">SEO — /{row.pageSlug}</h2>
