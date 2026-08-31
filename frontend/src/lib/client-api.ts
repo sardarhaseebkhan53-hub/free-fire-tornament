@@ -203,7 +203,14 @@ async function rawFetch<T>(path: string, init: ApiInit): Promise<ApiEnvelope<T>>
   if (init.form) body = init.form;
   else if (init.body !== undefined) {
     headers['content-type'] = 'application/json';
-    body = JSON.stringify(init.body);
+    // Accept both call styles: callers can pass an object (this helper serialises it)
+    // OR a pre-serialised JSON string. Double serialising a string turns
+    //   {"roomId":"123"}
+    // into the JSON string
+    //   "{\"roomId\":\"123\"}"
+    // which Express parses as a *string*, not an object — the backend then rejects the
+    // request with a 400 ("expected object, received string").
+    body = typeof init.body === 'string' ? init.body : JSON.stringify(init.body);
   }
   const res = await authedFetch(path, { ...init, headers, body });
   const json = (await res.json().catch(() => ({ success: false, code: 'NETWORK', message: 'Bad response' }))) as ApiEnvelope<T>;
@@ -235,11 +242,23 @@ export async function api<T>(
 
   if (!json.success) {
     const fieldErrors: Record<string, string> = {};
-    for (const e of json.errors ?? []) fieldErrors[e.path] = e.message;
+    const fieldMessages: string[] = [];
+    // `errors` is an array only for Zod validation failures (and other details-shaped
+    // ApiError payloads). Some ApiError responses carry an object under `errors`
+    // (e.g. economic-safety details), so only iterate when it is really a list.
+    if (Array.isArray(json.errors)) {
+      for (const e of json.errors) {
+        fieldErrors[e.path] = e.message;
+        // Zod responses from the backend use a generic `message: "Validation failed"`
+        // and put the real problem in `errors[]`. Surface that field detail instead of
+        // the generic string so an admin can see which value the API actually rejected.
+        fieldMessages.push(e.path ? `${e.path}: ${e.message}` : e.message);
+      }
+    }
     throw new ApiClientError(
       json.code === 'UNAUTHORIZED' ? 401 : 400,
       json.code ?? 'ERROR',
-      json.message ?? 'Request failed',
+      fieldMessages.length ? fieldMessages.join('; ') : (json.message ?? 'Request failed'),
       Object.keys(fieldErrors).length ? fieldErrors : undefined,
     );
   }
