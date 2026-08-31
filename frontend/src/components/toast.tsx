@@ -79,7 +79,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <div
               key={t.id}
               role="status"
-              className={`toast-in pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-card border ${s.ring} bg-elevated/95 px-4 py-3 shadow-[0_16px_44px_-12px_rgba(0,0,0,0.7),0_0_20px_-6px_rgba(139,92,246,0.25)] backdrop-blur-xl`}
+              className={`toast-in pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-card border ${s.ring} bg-elevated/95 px-4 py-3 shadow-[0_16px_44px_-12px_rgba(0,0,0,0.7),0_0_20px_-6px_rgba(139,92,246,0.25)] chrome-blur`}
               onMouseEnter={() => {
                 const tmr = timers.current.get(t.id);
                 if (tmr) clearTimeout(tmr);

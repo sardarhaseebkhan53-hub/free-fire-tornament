@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiClientError } from './client-api';
+import { api, ApiClientError, authedFetch } from './client-api';
 
 type FetchInput = { body?: unknown; headers?: Headers };
 
@@ -61,5 +61,37 @@ describe('api body serialisation (admin room PUT)', () => {
     expect((err as ApiClientError).fieldErrors).toEqual({
       roomId: 'Room ID must be numbers only — 3 to 20 digits.',
     });
+  });
+});
+
+describe('authedFetch body safety (the [object Object] 400)', () => {
+  it('serialises a plain object handed straight to authedFetch', async () => {
+    let seen: FetchInput = {};
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      seen = { body: init.body, headers: init.headers as Headers };
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+
+    // A caller that forgets JSON.stringify used to send the literal text
+    // "[object Object]", which the API could only answer with a 400.
+    await authedFetch('/teams/t1/invite', { method: 'POST', body: { username: 'areeb' } as unknown as BodyInit });
+
+    expect(String(seen.body)).toBe('{"username":"areeb"}');
+    expect(seen.headers?.get('content-type')).toBe('application/json');
+  });
+
+  it('never touches a FormData body (uploads keep their multipart boundary)', async () => {
+    let seen: FetchInput = {};
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      seen = { body: init.body, headers: init.headers as Headers };
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+
+    const form = new FormData();
+    form.append('file', 'x');
+    await authedFetch('/wallet/deposits', { method: 'POST', body: form });
+
+    expect(seen.body).toBe(form);
+    expect(seen.headers?.get('content-type')).toBeNull();
   });
 });

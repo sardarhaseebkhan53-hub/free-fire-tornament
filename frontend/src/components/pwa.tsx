@@ -241,7 +241,7 @@ export function InstallButton({
           role="dialog"
           aria-modal="true"
           aria-label="Add CLUTCHNEX to your home screen"
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          className="scrim fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center"
           onClick={() => setHowTo(false)}
         >
           <div

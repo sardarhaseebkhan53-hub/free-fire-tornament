@@ -476,7 +476,7 @@ function SubmitResultModal({ data, onClose, onDone }: { data: { item: Item; matc
   const dialogRef = useDialog<HTMLDivElement>(onClose);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose} role="presentation">
+    <div className="scrim fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose} role="presentation">
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Submit match result" tabIndex={-1}
         className="w-full max-w-md rounded-[20px] border border-line bg-surface p-6 shadow-2xl outline-none" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
@@ -578,7 +578,7 @@ function StandingsModal({ item, onClose }: { item: Item; onClose: () => void }) 
   const dialogRef = useDialog<HTMLDivElement>(onClose);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose} role="presentation">
+    <div className="scrim fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose} role="presentation">
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Final standings" tabIndex={-1}
         className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-[20px] border border-line bg-surface p-6 shadow-2xl outline-none" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">

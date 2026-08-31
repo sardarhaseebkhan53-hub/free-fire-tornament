@@ -168,7 +168,7 @@ export function UserShell({ children }: { children: React.ReactNode }) {
 
       <div className="lg:pl-64">
         {/* Mobile header — design 42: hamburger + wordmark + bell */}
-        <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-base/90 px-4 backdrop-blur-xl lg:hidden">
+        <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-base/90 px-4 chrome-blur lg:hidden">
           <button
             onClick={() => setDrawerRoute(pathname)}
             aria-label="Open menu"
@@ -290,7 +290,7 @@ function MobileDrawer({ onClose, children }: { onClose: () => void; children: Re
   const panelRef = useDialog<HTMLDivElement>(onClose);
   return (
     <div className="fixed inset-0 z-50 lg:hidden" role="presentation">
-      <div className="animate-fade-in absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="scrim absolute inset-0" onClick={onClose} />
       <div
         ref={panelRef}
         role="dialog"

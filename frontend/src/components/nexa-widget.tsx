@@ -96,7 +96,7 @@ export function NexaWidget() {
         <div
           role="dialog"
           aria-label="NEXA assistant"
-          className="animate-modal-in fixed inset-x-3 bottom-36 top-20 z-40 flex flex-col overflow-hidden rounded-[20px] border border-line bg-surface/95 shadow-2xl backdrop-blur-xl sm:inset-x-auto sm:right-6 sm:top-auto sm:bottom-24 sm:h-[520px] sm:w-[380px]"
+          className="animate-modal-in fixed inset-x-3 bottom-36 top-20 z-40 flex flex-col overflow-hidden rounded-[20px] border border-line bg-surface/95 shadow-2xl chrome-blur sm:inset-x-auto sm:right-6 sm:top-auto sm:bottom-24 sm:h-[520px] sm:w-[380px]"
         >
           <div className="flex items-center gap-3 border-b border-line bg-gradient-to-r from-accent/20 to-transparent px-4 py-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-strong text-white shadow-[0_0_16px_rgba(139,92,246,0.5)]">

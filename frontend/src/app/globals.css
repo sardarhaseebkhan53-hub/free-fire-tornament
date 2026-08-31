@@ -33,12 +33,12 @@
   --radius-pill: 999px;
 
   /* Motion */
-  --animate-fade-up: fade-up 0.5s ease both;
+  --animate-fade-up: fade-up 0.36s cubic-bezier(0.22, 0.61, 0.36, 1) both;
   --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
-  --animate-rise: rise 0.28s ease both;
-  --animate-modal-in: modal-in 0.22s ease both;
-  --animate-fade-in: fade-in 0.25s ease both;
-  --animate-drawer-in: drawer-in 0.24s ease both;
+  --animate-rise: rise 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  --animate-modal-in: modal-in 0.18s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  --animate-fade-in: fade-in 0.16s ease-out both;
+  --animate-drawer-in: drawer-in 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 
   /* Hero atmosphere — slow ambient drift, shimmering gradients, marquee. */
   --animate-aurora-1: aurora-drift-1 26s ease-in-out infinite alternate;
@@ -148,7 +148,7 @@ body {
 /* Premium interactive card — subtle lift + faint violet glow on hover.
    Used by tournament cards, stat cards, KPI tiles. Keyboard focus matches. */
 .card-hover {
-  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  transition: transform 0.16s ease-out, border-color 0.16s ease-out, box-shadow 0.16s ease-out;
 }
 .card-hover:hover,
 .card-hover:focus-visible {
@@ -257,8 +257,8 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
    is allowed; the .reveal.in state is driven by the Reveal component. */
 .js .reveal {
   opacity: 0;
-  transform: translateY(18px);
-  transition: opacity 0.55s cubic-bezier(0.22, 0.61, 0.36, 1), transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+  transform: translateY(12px);
+  transition: opacity 0.34s cubic-bezier(0.22, 0.61, 0.36, 1), transform 0.34s cubic-bezier(0.22, 0.61, 0.36, 1);
   will-change: opacity, transform;
 }
 .js .reveal.in {
@@ -322,20 +322,20 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.page-in { animation: page-in 0.3s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.page-in { animation: page-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
 
 /* Toast slide-in (top, mobile-friendly) */
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(-14px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
-.toast-in { animation: toast-in 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.toast-in { animation: toast-in 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
 
 /* Modal content entrance (scale + fade) */
-.modal-pop { animation: modal-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.modal-pop { animation: modal-in 0.18s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
 
 /* Mobile menu panel */
-.menu-panel { animation: drawer-in 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.menu-panel { animation: drawer-in 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
 
 /* Horizontal snap row for mobile card carousels */
 .snap-row { scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
@@ -352,6 +352,57 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
 input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid rgba(139, 92, 246, 0.7);
   outline-offset: 1px;
+}
+
+/* =============================================================================
+   GPU BUDGET — why the app can look identical and still animate at 60fps.
+
+   `backdrop-filter` is the most expensive property in this design system: the
+   compositor has to re-sample and re-blur everything behind the element on
+   EVERY frame the element (or the content behind it) moves. The app had it on
+   a full-width sticky topbar, the bottom nav, the toasts and every dialog
+   scrim at once, so scrolling a long admin table or opening the room dialog
+   re-blurred most of the viewport 60 times a second — the stutter reads as
+   "the animations are slow".
+
+   The fix is a budget, not a redesign:
+     • chrome bars keep the blur only where there is headroom (pointer devices
+       with a decent screen). They sit at 90–95% opacity, so on a phone the
+       blur is invisible anyway — dropping it changes nothing but the frame
+       time.
+     • dialog scrims never blur while they fade in.
+     • ambient decoration (aurora blobs, shimmer, drift) stops on phones and
+       whenever the tab is not the user's problem to look at.
+   ============================================================================= */
+
+/* Sticky/fixed chrome: topbar, bottom nav, toasts, navbar. */
+.chrome-blur {
+  backdrop-filter: blur(10px);
+}
+
+/* Dialog scrim. A short colour fade, no blur, no compositing surprise. */
+@keyframes scrim-in {
+  from { background-color: rgba(0, 0, 0, 0); }
+  to { background-color: rgba(0, 0, 0, 0.72); }
+}
+.scrim {
+  background-color: rgba(0, 0, 0, 0.72);
+  animation: scrim-in 0.16s ease-out both;
+}
+
+@media (min-width: 1024px) and (hover: hover) {
+  .scrim { backdrop-filter: blur(3px); }
+}
+
+/* Phones, tablets and any touch device: spend the GPU on scrolling instead. */
+@media (max-width: 1023px), (hover: none) {
+  .chrome-blur { backdrop-filter: none; }
+  /* The glass fill is nudged up so the panel stays as opaque as it looked
+     with the blur behind it — same surface, a fraction of the cost. */
+  .glass { backdrop-filter: none; background: rgba(19, 26, 46, 0.72); }
+  .animate-aurora-1, .animate-aurora-2, .animate-aurora-3 { animation: none; }
+  .animate-float-y { animation: none; }
+  .gold-text, .animate-gold-shimmer, .animate-gradient-shift { animation: none; }
 }
 
 /* Reduced motion — respect user preference everywhere */

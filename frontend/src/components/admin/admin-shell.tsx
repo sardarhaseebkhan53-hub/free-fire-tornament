@@ -139,7 +139,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
       <div className="lg:pl-60">
         {/* Topbar — design 26 */}
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-line bg-base/90 px-4 backdrop-blur-xl sm:px-6">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-line bg-base/90 px-4 chrome-blur sm:px-6">
           <button className="rounded-input p-2.5 text-fg-2 transition active:scale-95 lg:hidden" onClick={() => setDrawerRoute(pathname)} aria-label="Open menu" aria-expanded={drawer}>
             <UserRound size={18} />
           </button>
@@ -208,7 +208,7 @@ function MobileDrawer({ onClose, label, children }: { onClose: () => void; label
   const { close: closeFromBackdrop } = useDialogCloseGuard(onClose);
   return (
     <div className="fixed inset-0 z-50 lg:hidden" role="presentation">
-      <div className="animate-fade-in absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={closeFromBackdrop} />
+      <div className="scrim absolute inset-0" onClick={closeFromBackdrop} />
       <div
         ref={panelRef}
         role="dialog"

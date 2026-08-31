@@ -111,7 +111,7 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
     // Full-viewport overlay. `overflow-hidden` + the panel's own scroller mean
     // the page behind never moves and the dialog never spills off-screen.
     <div
-      className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center overflow-hidden bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      className="scrim fixed inset-0 z-50 flex items-end justify-center overflow-hidden p-0 sm:items-center sm:p-4"
       onClick={closeFromBackdrop}
       role="presentation"
     >
