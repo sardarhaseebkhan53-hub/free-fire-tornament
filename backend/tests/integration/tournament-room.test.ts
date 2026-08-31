@@ -172,13 +172,13 @@ describe('admin adds and updates the Room ID / password', () => {
     const t = await event();
     const adm = await admin();
     const res = await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', {
-      roomId: '7412580', roomPassword: 'CNX4821', note: 'lock after 1st zone',
+      roomId: '7412580', roomPassword: '482145', note: 'lock after 1st zone',
     });
     expect(res.status).toBe(200);
     expect(res.text).toContain('Room saved');
 
     const row = await roomRow(t.id);
-    expect(row).toMatchObject({ roomId: '7412580', roomPassword: 'CNX4821', status: 'SCHEDULED' });
+    expect(row).toMatchObject({ roomId: '7412580', roomPassword: '482145', status: 'SCHEDULED' });
     expect(row?.note).toBe('lock after 1st zone');
 
     const log = await lastAudit('ROOM_UPDATED', t.id);
@@ -187,39 +187,65 @@ describe('admin adds and updates the Room ID / password', () => {
     expect(log?.actorId).toBe(adm.id);
     // The audit trail is read by every admin account and kept forever, so the password
     // must never be in it — only the fact that one was set.
-    expect(JSON.stringify(log)).not.toContain('CNX4821');
+    expect(JSON.stringify(log)).not.toContain('482145');
     expect((log?.after as { passwordChanged?: boolean }).passwordChanged).toBe(true);
   });
 
   it('updates ONE half without disturbing the other', async () => {
     const t = await event();
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '1112223', roomPassword: 'OLDPW1' });
-    const res = await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomPassword: 'NEWPW2' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '1112223', roomPassword: '991144' });
+    const res = await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomPassword: '882255' });
     expect(res.status).toBe(200);
-    expect(await roomRow(t.id)).toMatchObject({ roomId: '1112223', roomPassword: 'NEWPW2' });
+    expect(await roomRow(t.id)).toMatchObject({ roomId: '1112223', roomPassword: '882255' });
   });
 
-  it('refuses values that would break a hand-typed credential, and writes nothing', async () => {
+  it('refuses non-numeric credentials with the numeric-only message, and writes nothing', async () => {
     const t = await event();
     const adm = await admin();
     for (const bad of [
-      { roomId: '12' },                       // too short to be a room
-      { roomId: 'has space' },                // typed into Free Fire, would silently fail
-      { roomId: '<img src=x onerror=1>' },    // never enters audit JSON / CSV / templates
-      { roomId: '7412580', roomPassword: 'a b' },
-      { roomId: '7412580', releaseMinutesBeforeStart: 99999 },
+      { roomId: 'abc123' },                  // letters never belong in a Free Fire room ID
+      { roomId: '123-456' },                 // separators, either
+      { roomId: '123 456' },                 // spaces are rejected, not silently stripped
+      { roomId: '123_456' },
+      { roomId: '12' },                      // too short to be a room
+      { roomId: '<img src=x onerror=1>' },   // never enters audit JSON / CSV / templates
+      { roomId: '7412580', roomPassword: 'abc123' },
+      { roomId: '7412580', roomPassword: '123-456' },
+      { roomId: '7412580', roomPassword: '12 34' },
     ]) {
       const res = await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', bad);
       expect(res.status, JSON.stringify(bad)).toBe(400);
+      expect((res.json as { message?: string }).message ?? '').toMatch(/numbers only/);
     }
+    // The lead field is a separate rule layer (zod) — it must still refuse.
+    const lead = await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', {
+      roomId: '7412580', releaseMinutesBeforeStart: 99999,
+    });
+    expect(lead.status).toBe(400);
+    expect(JSON.stringify(lead.json)).toMatch(/1440/);
     expect(await roomRow(t.id)).toBeNull();
+  });
+
+  it('stores long numeric credentials exactly as typed — as strings, never rounded', async () => {
+    const t = await event();
+    const adm = await admin();
+    const longId = '11111111111111111111'; // 20 digits — beyond safe integer precision
+    const longPw = '12345678901234567890';
+    const res = await call(
+      `/api/admin/tournaments/${t.id}/room`,
+      tokenFor(adm, 'ADMIN'),
+      'PUT',
+      { roomId: longId, roomPassword: longPw },
+    );
+    expect(res.status).toBe(200);
+    expect(await roomRow(t.id)).toMatchObject({ roomId: longId, roomPassword: longPw });
   });
 
   it('refuses to empty a room through the save endpoint — that is what Hide/Cancel are for', async () => {
     const t = await event();
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
     const res = await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '', roomPassword: '' });
     expect(res.status).toBe(400);
     expect(await roomRow(t.id)).toMatchObject({ roomId: '7412580' });
@@ -235,7 +261,7 @@ describe('automatic release of the room to players', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
 
     const view = await playerRoomView(p.id, t.slug);
     expect(view.status).toBe('SCHEDULED');
@@ -250,7 +276,7 @@ describe('automatic release of the room to players', () => {
     const res = await call(`/api/tournaments/${t.slug}/room`, tokenFor(p));
     expect(res.status).toBe(200);
     expect(res.text).not.toContain('7412580');
-    expect(res.text).not.toContain('CNX4821');
+    expect(res.text).not.toContain('482145');
   });
 
   it('opens the room EXACTLY at the release instant, to the second', async () => {
@@ -263,13 +289,13 @@ describe('automatic release of the room to players', () => {
     // instant is what the player's countdown actually does.
     const instant = Date.now() + 1_200;
     await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', {
-      roomId: '7412580', roomPassword: 'CNX4821', releaseAt: new Date(instant).toISOString(),
+      roomId: '7412580', roomPassword: '482145', releaseAt: new Date(instant).toISOString(),
     });
 
     const before = await call(`/api/tournaments/${t.slug}/room`, tokenFor(p));
     expect((before.json.data as { status: string; roomId: string | null }).status).toBe('SCHEDULED');
     expect(before.text).not.toContain('7412580');
-    expect(before.text).not.toContain('CNX4821');
+    expect(before.text).not.toContain('482145');
 
     await new Promise((r) => setTimeout(r, instant - Date.now() + 250));
 
@@ -278,21 +304,21 @@ describe('automatic release of the room to players', () => {
     expect(data.status).toBe('AVAILABLE');
     expect(data.label).toBe('Room Available');
     expect(data.roomId).toBe('7412580');
-    expect(data.roomPassword).toBe('CNX4821');
+    expect(data.roomPassword).toBe('482145');
     expect((await roomRow(t.id))?.status).toBe('AVAILABLE');
   });
 
   it('derives the window from the event start time by default: 5 minutes before', async () => {
     const adm = await admin();
     const soon = await event(4); // starts inside the window
-    await call(`/api/admin/tournaments/${soon.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '5554443', roomPassword: 'CNX9911' });
+    await call(`/api/admin/tournaments/${soon.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '5554443', roomPassword: '991100' });
     const p = await player();
     await seat(soon, p);
     const open = await playerRoomView(p.id, soon.slug);
     expect(open.status).toBe('AVAILABLE');
 
     const later = await event(40);
-    await call(`/api/admin/tournaments/${later.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '5554443', roomPassword: 'CNX9911' });
+    await call(`/api/admin/tournaments/${later.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '5554443', roomPassword: '991100' });
     const p2 = await player();
     await seat(later, p2);
     const held = await playerRoomView(p2.id, later.slug);
@@ -305,7 +331,7 @@ describe('automatic release of the room to players', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '6001122', roomPassword: 'CNX3377' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '6001122', roomPassword: '337799' });
 
     // A LEAD is measured backwards from the start, so a LONGER lead unlocks EARLIER:
     // two hours out, the default 5 minutes has not unlocked anything, and 150 minutes
@@ -352,13 +378,13 @@ describe('only eligible, registered players can reach the room', () => {
   it('refuses an authenticated player with no seat, and says nothing else', async () => {
     const t = await event(4);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
     const bystander = await player();
 
     const res = await call(`/api/tournaments/${t.slug}/room`, tokenFor(bystander));
     expect(res.status).toBe(403);
     expect(res.text).not.toContain('7412580');
-    expect(res.text).not.toContain('CNX4821');
+    expect(res.text).not.toContain('482145');
     // No status/label either: a non-seat must not be able to watch the room's lifecycle.
     expect(JSON.stringify(res.json)).not.toContain('SCHEDULED');
   });
@@ -373,7 +399,7 @@ describe('only eligible, registered players can reach the room', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
 
     expect((await playerRoomView(p.id, t.slug)).roomId).toBe('7412580');
 
@@ -387,7 +413,7 @@ describe('only eligible, registered players can reach the room', () => {
   it('honours a seat held by the player’s team, and loses it when they leave the team', async () => {
     const t = await event(4);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
 
     // Captain holds the seat; the member has no registration row of their own.
     const captain = await player();
@@ -414,7 +440,7 @@ describe('only eligible, registered players can reach the room', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
     expect((await playerRoomView(p.id, t.slug)).status).toBe('AVAILABLE');
 
     await db.tournament.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
@@ -432,7 +458,7 @@ describe('cancelling a room', () => {
   it('refuses to cancel without a reason', async () => {
     const t = await event(4);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
     const res = await call(`/api/admin/tournaments/${t.id}/room/status`, tokenFor(adm, 'ADMIN'), 'POST', { action: 'CANCEL' });
     expect(res.status).toBe(400);
     expect(res.text).toMatch(/reason/i);
@@ -443,7 +469,7 @@ describe('cancelling a room', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
 
     // Visible before the cancellation.
     expect((await playerRoomView(p.id, t.slug)).roomId).toBe('7412580');
@@ -460,7 +486,7 @@ describe('cancelling a room', () => {
     expect(after.status).toBe(200);
     expect((after.json.data as { status: string }).status).toBe('CANCELLED');
     expect(after.text).not.toContain('7412580');
-    expect(after.text).not.toContain('CNX4821');
+    expect(after.text).not.toContain('482145');
 
     // 2. The tournament reads as cancelled to everyone, including the public page.
     const pub = await call(`/api/public/tournaments/${t.slug}`);
@@ -474,7 +500,7 @@ describe('cancelling a room', () => {
     const log = await lastAudit('ROOM_CANCELLED', t.id);
     expect(log?.actorId).toBe(adm.id);
     expect(JSON.stringify(log?.after)).toContain('Lobby was compromised');
-    expect(JSON.stringify(log)).not.toContain('CNX4821');
+    expect(JSON.stringify(log)).not.toContain('482145');
 
     // 5. The values stay in the row (a mis-click must be recoverable) but the status
     //    column caches the truth for lists.
@@ -484,7 +510,7 @@ describe('cancelling a room', () => {
   it('cannot be edited around: a save to a cancelled room is refused until re-activation', async () => {
     const t = await event(4);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
     await call(`/api/admin/tournaments/${t.id}/room/status`, tokenFor(adm, 'ADMIN'), 'POST', { action: 'CANCEL', reason: 'test' });
 
     const sneaky = await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '9998887' });
@@ -502,7 +528,7 @@ describe('cancelling a room', () => {
   it('re-cancelling a cancelled room is a no-op, not a second audit row', async () => {
     const t = await event(4);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
     await call(`/api/admin/tournaments/${t.id}/room/status`, tokenFor(adm, 'ADMIN'), 'POST', { action: 'CANCEL', reason: 'first' });
     const before = await db.auditLog.count({ where: { action: 'ROOM_CANCELLED', entityId: t.id } });
     const again = await call(`/api/admin/tournaments/${t.id}/room/status`, tokenFor(adm, 'ADMIN'), 'POST', { action: 'CANCEL', reason: 'second' });
@@ -521,7 +547,7 @@ describe('hiding, showing and rotating a room', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
     expect((await playerRoomView(p.id, t.slug)).status).toBe('AVAILABLE');
 
     const hidden = await call(`/api/admin/tournaments/${t.id}/room/status`, tokenFor(adm, 'ADMIN'), 'POST', { action: 'HIDE' });
@@ -543,15 +569,15 @@ describe('hiding, showing and rotating a room', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '1111111', roomPassword: 'OLDPW99' });
-    expect((await playerRoomView(p.id, t.slug)).roomPassword).toBe('OLDPW99');
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '1111111', roomPassword: '773399' });
+    expect((await playerRoomView(p.id, t.slug)).roomPassword).toBe('773399');
 
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '2222222', roomPassword: 'NEWPW00' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '2222222', roomPassword: '664400' });
     const res = await call(`/api/tournaments/${t.slug}/room`, tokenFor(p));
     const data = res.json.data as { roomId: string; roomPassword: string };
     expect(data.roomId).toBe('2222222');
-    expect(data.roomPassword).toBe('NEWPW00');
-    expect(res.text).not.toContain('OLDPW99');
+    expect(data.roomPassword).toBe('664400');
+    expect(res.text).not.toContain('773399');
     expect(res.text).not.toContain('1111111');
   });
 
@@ -560,7 +586,7 @@ describe('hiding, showing and rotating a room', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
     await db.notification.deleteMany({ where: { userId: p.id } });
 
     // Five tabs open the room at once; the claim is one atomic UPDATE, so one alert.
@@ -573,7 +599,7 @@ describe('hiding, showing and rotating a room', () => {
     expect(await db.notification.count({ where: { userId: p.id, type: 'ROOM_CREDENTIALS' } })).toBe(1);
 
     // …until the admin rotates them, which re-arms it on purpose.
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomPassword: 'CNX4822' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomPassword: '482255' });
     await playerRoomView(p.id, t.slug);
     expect(await db.notification.count({ where: { userId: p.id, type: 'ROOM_CREDENTIALS' } })).toBe(2);
   });
@@ -588,13 +614,13 @@ describe('nothing else on the API can carry a credential', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
 
     const assertClean = async (phase: string) => {
       const pub = await call(`/api/public/tournaments/${t.slug}`);
       expect(pub.status, phase).toBe(200);
       expect(pub.text, phase).not.toContain('7412580');
-      expect(pub.text, phase).not.toContain('CNX4821');
+      expect(pub.text, phase).not.toContain('482145');
       // The public page still explains the room, without exposing it.
       const room = (pub.json.data as { room: { status: string; label: string } }).room;
       expect(['SCHEDULED', 'AVAILABLE']).toContain(room.status);
@@ -602,10 +628,10 @@ describe('nothing else on the API can carry a credential', () => {
 
       const mine = await myRegistrations(p.id);
       expect(JSON.stringify(mine), phase).not.toContain('7412580');
-      expect(JSON.stringify(mine), phase).not.toContain('CNX4821');
+      expect(JSON.stringify(mine), phase).not.toContain('482145');
 
       const list = await call('/api/admin/tournaments?pageSize=100', tokenFor(adm, 'ADMIN'));
-      expect(list.text, phase).not.toContain('CNX4821');
+      expect(list.text, phase).not.toContain('482145');
     };
 
     await assertClean('before release');
@@ -619,17 +645,17 @@ describe('nothing else on the API can carry a credential', () => {
     const p = await player();
     await seat(mine, p);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${theirs.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '8887776', roomPassword: 'OTHER11' });
+    await call(`/api/admin/tournaments/${theirs.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '8887776', roomPassword: '118844' });
 
     await expect(playerRoomView(p.id, theirs.slug)).rejects.toThrow(/confirmed seat/);
 
     const draft = await makeTournament({ status: 'DRAFT' });
     createdTournaments.push(draft.id);
-    await call(`/api/admin/tournaments/${draft.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '1357911', roomPassword: 'DRAFT01' });
+    await call(`/api/admin/tournaments/${draft.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '1357911', roomPassword: '771199' });
     // A draft is not published, but the room endpoint answers 404 for the slug only when
     // the event is gone — so the seat check is what protects it here. Either way: nothing.
     const res = await call(`/api/tournaments/${draft.slug}/room`, tokenFor(p));
-    expect(res.text).not.toContain('DRAFT01');
+    expect(res.text).not.toContain('771199');
     expect([403, 404]).toContain(res.status);
   });
 
@@ -639,10 +665,10 @@ describe('nothing else on the API can carry a credential', () => {
     // panel. A table full of live passwords is how a credential leaves a screen.
     const t = await event(4);
     const adm = await admin();
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
     const list = await call('/api/admin/tournaments?pageSize=100', tokenFor(adm, 'ADMIN'));
     expect(list.status).toBe(200);
-    expect(list.text).not.toContain('CNX4821');
+    expect(list.text).not.toContain('482145');
     expect(list.text).not.toContain('7412580');
     const row = (list.json.data as { items: Array<{ id: string; room: { status: string; label: string } | null }> })
       .items.find((i) => i.id === t.id);
@@ -668,7 +694,7 @@ describe('the scheduler opens rooms on its own', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await setTournamentRoom(adm.id, t.id, { roomId: '7412580', roomPassword: 'CNX4821' }, ctx);
+    await setTournamentRoom(adm.id, t.id, { roomId: '7412580', roomPassword: '482145' }, ctx);
     expect(await roomRow(t.id)).toMatchObject({ status: 'SCHEDULED' });
     expect((await roomRow(t.id))?.releasedAt).toBeNull();
 
@@ -692,7 +718,7 @@ describe('the scheduler opens rooms on its own', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await setTournamentRoom(adm.id, t.id, { roomId: '7412580', roomPassword: 'CNX4821' }, ctx);
+    await setTournamentRoom(adm.id, t.id, { roomId: '7412580', roomPassword: '482145' }, ctx);
     await setRoomStatus(adm.id, t.id, 'HIDE', null, ctx);
     await makeOverdue(t);
 
@@ -709,10 +735,10 @@ describe('the scheduler opens rooms on its own', () => {
     const p = await player();
     await seat(t, p);
     const adm = await admin();
-    await setTournamentRoom(adm.id, t.id, { roomId: '7412580', roomPassword: 'CNX4821' }, ctx);
+    await setTournamentRoom(adm.id, t.id, { roomId: '7412580', roomPassword: '482145' }, ctx);
     expect((await roomRow(t.id))?.status).toBe('AVAILABLE');
 
-    await setTournamentRoom(adm.id, t.id, { roomPassword: 'CNX4822' }, ctx);
+    await setTournamentRoom(adm.id, t.id, { roomPassword: '482255' }, ctx);
     await releaseTournamentRooms();
     expect(await db.notification.count({ where: { userId: p.id, type: 'ROOM_CREDENTIALS' } })).toBe(1);
   });
@@ -730,7 +756,7 @@ describe('error contract', () => {
     expect((await call('/api/admin/tournaments/does-not-exist/room', tokenFor(adm, 'ADMIN'))).json.code).toBe('NOT_FOUND');
     expect((await call(`/api/tournaments/not-a-real-slug/room`, tokenFor(p))).json.code).toBe('NOT_FOUND');
 
-    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: 'CNX4821' });
+    await call(`/api/admin/tournaments/${t.id}/room`, tokenFor(adm, 'ADMIN'), 'PUT', { roomId: '7412580', roomPassword: '482145' });
     const denied = await call(`/api/tournaments/${t.slug}/room`, tokenFor(p));
     expect(denied.json.code).toBe('FORBIDDEN');
 

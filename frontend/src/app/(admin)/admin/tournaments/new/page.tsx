@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { api, ApiClientError } from '@/lib/client-api';
+import { cleanRoomCredential } from '@/lib/room-form';
 
 const STEPS = ['Basics', 'Schedule', 'Pricing', 'Prizes', 'Review'];
 
@@ -190,11 +191,11 @@ export default function TournamentBuilderPage() {
                 <strong>a few minutes before the start time</strong> (5 by default; the number below overrides it for this event only).
               </p>
               <div className="mt-3 grid gap-4 sm:grid-cols-3">
-                <Field label="Room ID">
-                  <input value={roomInput.roomId} onChange={(e) => setRoomInput({ ...roomInput, roomId: e.target.value })} autoComplete="off" className={inputCls} placeholder="123456789" />
+                <Field label="Room ID (numbers only)">
+                  <input value={roomInput.roomId} onChange={(e) => setRoomInput({ ...roomInput, roomId: cleanRoomCredential(e.target.value, 20) })} inputMode="numeric" autoComplete="off" className={inputCls} placeholder="123456789" />
                 </Field>
-                <Field label="Room password">
-                  <input value={roomInput.roomPassword} onChange={(e) => setRoomInput({ ...roomInput, roomPassword: e.target.value })} autoComplete="off" className={inputCls} placeholder="abcd12" />
+                <Field label="Room password (numbers only)">
+                  <input value={roomInput.roomPassword} onChange={(e) => setRoomInput({ ...roomInput, roomPassword: cleanRoomCredential(e.target.value, 30) })} inputMode="numeric" autoComplete="off" className={inputCls} placeholder="123456" />
                 </Field>
                 <Field label="Minutes before start">
                   <input value={roomInput.lead} onChange={(e) => setRoomInput({ ...roomInput, lead: e.target.value.replace(/[^\d]/g, '') })} inputMode="numeric" className={inputCls} placeholder="5" />

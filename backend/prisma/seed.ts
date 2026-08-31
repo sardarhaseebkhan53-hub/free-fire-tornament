@@ -554,7 +554,7 @@ async function main() {
     data: {
       tournamentId: tournaments.squadOpen.id,
       roomId: '7412580',
-      roomPassword: 'CNX4821',
+      roomPassword: '482145',
       status: 'SCHEDULED',
       note: 'Custom room, lock after 1st zone. Observed spectator slots stay open.',
     },
@@ -566,7 +566,7 @@ async function main() {
     data: {
       tournamentId: tournaments.csOpen.id,
       roomId: '9638520',
-      roomPassword: 'CLSNX220',
+      roomPassword: '220484',
       status: 'AVAILABLE',
       releaseAt: roomState(tournaments.csOpen),
       releasedAt: new Date(),
@@ -580,7 +580,7 @@ async function main() {
     data: {
       tournamentId: tournaments.duoOpen.id,
       roomId: '1597534',
-      roomPassword: 'DUO7744',
+      roomPassword: '774422',
       status: 'SCHEDULED',
       hiddenAt: hoursAgo(1),
       releaseAt: roomState(tournaments.duoOpen),
@@ -594,7 +594,7 @@ async function main() {
     data: {
       tournamentId: tournaments.cancelled.id,
       roomId: '8529631',
-      roomPassword: 'PGR7712',
+      roomPassword: '771245',
       status: 'CANCELLED',
       releaseAt: roomState(tournaments.cancelled),
       cancelledAt: daysAgo(1),

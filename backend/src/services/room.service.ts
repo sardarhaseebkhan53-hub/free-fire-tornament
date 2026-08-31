@@ -60,19 +60,21 @@ export const ROOM_LABEL: Record<RoomStatus, string> = {
 };
 
 /**
- * A Room ID is typed by hand, in a game client, under time pressure — so it is
- * alphanumeric by construction and short. The pattern is a whitelist, not a blocklist: it
- * excludes quotes, angle brackets, newlines and control characters for free, which keeps
- * the value safe in audit JSON, in CSV exports and in any templated message without
- * needing per-sink escaping.
+ * Free Fire custom-room credentials are NUMERIC ONLY — the in-game room ID
+ * and password are digits, full stop. The pattern is a whitelist of exactly
+ * that, which also excludes quotes, angle brackets, newlines and control
+ * characters for free, keeping the value safe in audit JSON, CSV exports and
+ * templated messages without needing per-sink escaping. Values stay STRINGS
+ * end to end (never Number()) so 20-digit room IDs cannot lose precision.
  */
-const ROOM_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{2,19}$/;
-/** Free Fire room passwords are digits by default; operators append a tag. 30 is generous. */
-const ROOM_PW_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{2,29}$/;
+const ROOM_ID_RE = /^\d{3,20}$/;
+/** Free Fire room passwords are digits too; 30 is generous for a hand-typed code. */
+const ROOM_PW_RE = /^\d{3,30}$/;
 
-/** One message per field, shared by the builder and the room panel so they can never diverge. */
-const ERR_ID = 'Room ID must be 3-20 letters, digits, "-" or "_" (no spaces or symbols).';
-const ERR_PW = 'Room password must be 3-30 letters, digits, "_", "." or "-" (no spaces or symbols).';
+/** One message per field, shared by the builder and the room panel so they can never diverge.
+ *  Keep textually identical to ROOM_ID_RULE / ROOM_PW_RULE in frontend/lib/room-form.ts. */
+const ERR_ID = 'Room ID must be numbers only — 3 to 20 digits.';
+const ERR_PW = 'Room password must be numbers only — 3 to 30 digits.';
 const ERR_LEAD = 'Release lead must be a whole number of minutes between 0 and 1440.';
 
 /** The room columns the resolver reads. Credentials included: presence IS part of the state. */

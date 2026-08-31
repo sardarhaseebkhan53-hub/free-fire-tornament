@@ -149,20 +149,23 @@ export function createApp() {
   // Central error handler — never leaks stack traces, never echoes user input
   // back as HTML (responses are JSON, and helmet already forbids rendering).
   app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    // Body-parser rejections arrive as raw HTTP errors.
+    // Body-parser rejections arrive as raw HTTP errors. These get their OWN
+    // codes (not VALIDATION_ERROR) so a client can tell "the request itself was
+    // broken" apart from "the values failed a rule" — the room panel surfaces a
+    // meaningful message instead of hiding every 400 behind "Malformed JSON body".
     const e = err as { type?: string; status?: number; code?: string; message?: string };
     if (e?.type === 'entity.too.large' || e?.status === 413) {
       return res.status(413).json({
         success: false,
-        code: 'VALIDATION_ERROR',
+        code: 'PAYLOAD_TOO_LARGE',
         message: 'That request is too large.',
       });
     }
     if (e?.type === 'entity.parse.failed') {
       return res.status(400).json({
         success: false,
-        code: 'VALIDATION_ERROR',
-        message: 'Malformed JSON body.',
+        code: 'MALFORMED_JSON',
+        message: 'Malformed JSON body — the request payload was not valid JSON.',
       });
     }
     // express.static({ fallthrough: false }) forwards ENOENT as a raw error —

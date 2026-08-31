@@ -13,6 +13,14 @@
 //
 // `useDialog` fixes all three in one place, and additionally locks background
 // scrolling so mobile Safari does not scroll the page under the sheet.
+//
+// `useDialogCloseGuard` exists for the one click this file does NOT own: the
+// BACKDROP. On touch devices the tap that OPENS a dialog synthesizes a `click`
+// a few frames later at the same coordinates — which now hit the freshly
+// mounted backdrop. Without a guard that click closes the dialog immediately
+// (the classic "overlay flashes open and instantly disappears" bug on mobile).
+// The guard ignores calls inside the first 300ms of the dialog's life; the
+// ✕ button and Escape bypass it and close immediately.
 // =============================================================================
 import { useEffect, useRef } from 'react';
 
@@ -21,7 +29,12 @@ const FOCUSABLE = [
   'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-export function useDialog<T extends HTMLElement = HTMLDivElement>(onClose: () => void) {
+/** How long after mount a backdrop click is assumed to be the opening tap. */
+const OPEN_TAP_GUARD_MS = 300;
+
+export function useDialog<T extends HTMLElement = HTMLDivElement>(
+  onClose: () => void,
+): React.RefObject<T | null> {
   const ref = useRef<T>(null);
   // Keep the latest onClose without re-registering the key listeners on every
   // render. Written in an effect (never during render) so React can bail out
@@ -78,4 +91,26 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(onClose: () =>
   }, []);
 
   return ref;
+}
+
+/**
+ * A close handler for the dialog's BACKDROP. `close` swallows the opening
+ * tap's synthesized click (see header comment); `closeNow` never waits.
+ */
+export function useDialogCloseGuard(onClose: () => void): { close: () => void; closeNow: () => void } {
+  const mountedAt = useRef(0);
+  useEffect(() => {
+    mountedAt.current = Date.now();
+  }, []);
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+  return {
+    close: () => {
+      if (Date.now() - mountedAt.current < OPEN_TAP_GUARD_MS) return;
+      closeRef.current();
+    },
+    closeNow: () => closeRef.current(),
+  };
 }
