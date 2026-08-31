@@ -11,7 +11,19 @@
 // from the platform default and `releaseMinutes: 5` pinned on the event are different rows,
 // and blanking a box must clear the event's own override while leaving the platform value
 // alone — not write a literal 5 onto the event.
+//
+// Free Fire credentials are NUMERIC ONLY (Room ID and password are digits, full stop).
+// The same patterns live in the backend (room.service) — the two files carry the rule in
+// parallel because the packages can't import each other; keep them textually identical.
 import type { AdminRoom } from '@/lib/types';
+
+/** Room ID: digits only, 3–20 of them. Free Fire IDs stay STRINGS — never Number(). */
+export const ROOM_ID_RE = /^\d{3,20}$/;
+/** Room password: digits only, 3–30 of them. */
+export const ROOM_PW_RE = /^\d{3,30}$/;
+
+export const ROOM_ID_RULE = 'Room ID must be numbers only — 3 to 20 digits.';
+export const ROOM_PW_RULE = 'Room password must be numbers only — 3 to 30 digits.';
 
 /** Raw input values, as strings — exactly what the boxes hold, including `''`. */
 export interface RoomFormValues {
@@ -36,11 +48,24 @@ export function toLocalInput(d: Date | string | null): string {
 }
 
 /**
+ * Filter a typed/pasted credential to the digits-only shape the backend will
+ * accept. Kept on a TEXT input (not `type="number"`) so leading zeros survive
+ * and 20-digit room IDs never round through a floating-point Number. The
+ * backend re-validates whatever actually arrives — this is UX, not security.
+ */
+export function cleanRoomCredential(v: string, max: number): string {
+  return v.replace(/\D/g, '').slice(0, max);
+}
+
+/**
  * `PUT /api/admin/tournaments/:id/room` body — only what the admin actually changed.
  *
  * Keys are added only on a real difference, so an untouched box never writes. Values are
  * trimmed before comparing (an editor that appends a space is not an edit) but a box the admin
  * EMPTIED sends `''`, which is the server's instruction to clear the column.
+ *
+ * Credentials are sent EXACTLY as entered (the inputs only hold digits) — the backend's
+ * pattern check is the authority, and its message is what the admin sees.
  */
 export function roomPatch(baseline: RoomFormBaseline | null, next: RoomFormValues): Record<string, string | number | null> {
   if (!baseline) return {};
@@ -78,16 +103,16 @@ export function roomPatch(baseline: RoomFormBaseline | null, next: RoomFormValue
 /**
  * Two halves, but only ever one credential: a password nobody can join with is a trap.
  *
- * These mirror the service's own `ROOM_ID_RE` / `ROOM_PW_RE` as a WARNING only — the server
- * stays the authority (it rejects the same shapes), and a red hint under a box beats a form
+ * These mirror the backend's own rules as a WARNING only — the server stays the authority
+ * (it rejects the same shapes with the same words), and a red hint under a box beats a form
  * that quietly accepts what players then cannot type into Free Fire.
  */
 export function roomFormWarning(values: RoomFormValues): string | null {
   const id = values.roomId.trim();
   const pw = values.roomPassword.trim();
   if (pw !== '' && id === '') return 'A password with no Room ID cannot be saved — players need both to get in.';
-  if (id !== '' && !/^[A-Za-z0-9][A-Za-z0-9_-]{2,19}$/.test(id)) return '3–20 characters: letters, numbers, - and _. Players type this in Free Fire.';
-  if (pw !== '' && !/^[A-Za-z0-9][A-Za-z0-9_.-]{2,29}$/.test(pw)) return '3–30 characters: letters, numbers, . _ and -.';
+  if (id !== '' && !ROOM_ID_RE.test(id)) return ROOM_ID_RULE;
+  if (pw !== '' && !ROOM_PW_RE.test(pw)) return ROOM_PW_RULE;
   const lead = values.lead.trim();
   if (lead !== '' && (!/^\d+$/.test(lead) || Number(lead) > 1440)) return 'A whole number of minutes between 0 and 1440, or blank for the platform default.';
   return null;

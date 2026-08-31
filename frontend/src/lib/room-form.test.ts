@@ -3,18 +3,18 @@
 // inverted conditional away from wiping a live password, and no type can tell those two
 // semantics apart.
 import { describe, expect, it } from 'vitest';
-import { roomFormWarning, roomPatch, toLocalInput, type RoomFormBaseline } from './room-form';
+import { cleanRoomCredential, roomFormWarning, roomPatch, toLocalInput, type RoomFormBaseline } from './room-form';
 
 const BASE: RoomFormBaseline = {
   roomId: '4112233',
-  roomPassword: 'cnx9911',
+  roomPassword: '991122',
   note: null,
   releaseSource: 'GLOBAL',
   releaseAt: '2026-09-01T14:00:00.000Z',
   releaseMinutes: 5,
 };
 
-const FORM = { roomId: '4112233', roomPassword: 'cnx9911', note: '', lead: '', pin: '' };
+const FORM = { roomId: '4112233', roomPassword: '991122', note: '', lead: '', pin: '' };
 
 describe('roomPatch', () => {
   it('sends nothing when nothing changed', () => {
@@ -36,8 +36,8 @@ describe('roomPatch', () => {
   });
 
   it('writes only the fields the admin touched', () => {
-    expect(roomPatch(BASE, { ...FORM, roomPassword: 'newpw22', lead: '20' })).toEqual({
-      roomPassword: 'newpw22',
+    expect(roomPatch(BASE, { ...FORM, roomPassword: '882233', lead: '20' })).toEqual({
+      roomPassword: '882233',
       releaseMinutesBeforeStart: 20,
     });
   });
@@ -84,22 +84,43 @@ describe('roomPatch', () => {
   });
 });
 
-describe('roomFormWarning', () => {
+describe('roomFormWarning — Free Fire credentials are numbers only', () => {
   it('refuses a password nobody can join with', () => {
-    expect(roomFormWarning({ ...FORM, roomId: '', roomPassword: 'abc12' })).toMatch(/no Room ID/);
+    expect(roomFormWarning({ ...FORM, roomId: '', roomPassword: '12345' })).toMatch(/no Room ID/);
   });
 
-  it('flags the shapes players cannot type into Free Fire', () => {
-    expect(roomFormWarning({ ...FORM, roomId: 'ab' })).toMatch(/3–20 characters/);
-    expect(roomFormWarning({ ...FORM, roomId: 'room 42!' })).toMatch(/3–20 characters/);
-    expect(roomFormWarning({ ...FORM, roomPassword: 'a'.repeat(40) })).toMatch(/3–30 characters/);
+  it('accepts plain digit credentials, including leading zeros', () => {
+    expect(roomFormWarning(FORM)).toBeNull();
+    expect(roomFormWarning({ ...FORM, roomId: '123456789', roomPassword: '123456' })).toBeNull();
+    expect(roomFormWarning({ ...FORM, roomId: '00123', roomPassword: '0001' })).toBeNull();
+    expect(roomFormWarning({ ...FORM, roomId: '11111111111111111111', roomPassword: '12345678901234567890' })).toBeNull();
+  });
+
+  it('flags every non-numeric shape the game would not accept', () => {
+    expect(roomFormWarning({ ...FORM, roomId: 'abc123' })).toMatch(/numbers only/);
+    expect(roomFormWarning({ ...FORM, roomId: '123-456' })).toMatch(/numbers only/);
+    expect(roomFormWarning({ ...FORM, roomId: '123_456' })).toMatch(/numbers only/);
+    expect(roomFormWarning({ ...FORM, roomId: '123 456' })).toMatch(/numbers only/);
+    expect(roomFormWarning({ ...FORM, roomId: '12' })).toMatch(/numbers only/); // too short
+    expect(roomFormWarning({ ...FORM, roomPassword: 'abc123' })).toMatch(/numbers only/);
+    expect(roomFormWarning({ ...FORM, roomPassword: '123-456' })).toMatch(/numbers only/);
+    expect(roomFormWarning({ ...FORM, roomPassword: '12 34' })).toMatch(/numbers only/);
+    expect(roomFormWarning({ ...FORM, roomPassword: '1'.repeat(40) })).toMatch(/numbers only/); // too long
   });
 
   it('flags a lead the server would refuse, and stays quiet on a valid form', () => {
     expect(roomFormWarning({ ...FORM, lead: '9999' })).toMatch(/0 and 1440/);
     expect(roomFormWarning({ ...FORM, lead: 'abc' })).toMatch(/0 and 1440/);
-    expect(roomFormWarning(FORM)).toBeNull();
-    expect(roomFormWarning({ roomId: '4112233', roomPassword: 'cnx9911', note: 'x', lead: '0', pin: '' })).toBeNull();
+    expect(roomFormWarning({ roomId: '4112233', roomPassword: '991122', note: 'x', lead: '0', pin: '' })).toBeNull();
+  });
+});
+
+describe('cleanRoomCredential', () => {
+  it('keeps digits only, preserving leading zeros and capping the length', () => {
+    expect(cleanRoomCredential('abc123-456 789', 20)).toBe('123456789');
+    expect(cleanRoomCredential('00123', 20)).toBe('00123');
+    expect(cleanRoomCredential('9'.repeat(30), 20)).toHaveLength(20);
+    expect(cleanRoomCredential('', 20)).toBe('');
   });
 });
 

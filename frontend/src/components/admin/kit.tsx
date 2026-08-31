@@ -2,7 +2,8 @@
 // Admin UI kit — KPI cards, data table shell, status pills, charts (hand-rolled
 // SVG, no chart dependency), modal and small helpers. Design language of 26-40.
 import { useEffect, useMemo, useState } from 'react';
-import { useDialog } from '@/lib/use-dialog';
+import { X } from 'lucide-react';
+import { useDialog, useDialogCloseGuard } from '@/lib/use-dialog';
 import { deferLoad } from '@/lib/session';
 import { api, authedFetchResolved } from '@/lib/client-api';
 
@@ -101,24 +102,43 @@ export function Pill({ status, label }: { status: string; label?: string }) {
 
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   // Escape-to-close, focus trap and focus restoration (see lib/use-dialog).
+  // The backdrop uses the guarded close: on touch devices the tap that opened
+  // the dialog synthesizes a click on the freshly mounted backdrop, which must
+  // not instantly close it again.
   const panelRef = useDialog<HTMLDivElement>(onClose);
+  const { close: closeFromBackdrop, closeNow } = useDialogCloseGuard(onClose);
   return (
+    // Full-viewport overlay. `overflow-hidden` + the panel's own scroller mean
+    // the page behind never moves and the dialog never spills off-screen.
     <div
-      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      onClick={onClose}
+      className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center overflow-hidden bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      onClick={closeFromBackdrop}
       role="presentation"
     >
+      {/* Bottom sheet on phones (thumb reach, stays above the keyboard); centred
+          card on larger screens. The header row is pinned; only the content
+          scrolls, so the title and the ✕ close stay reachable at any size. */}
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className={`animate-modal-in max-h-[88vh] w-full overflow-y-auto rounded-[20px] border border-line bg-surface p-6 shadow-2xl outline-none ${wide ? 'max-w-2xl' : 'max-w-md'}`}
+        className={`animate-modal-in flex max-h-[100vh] w-full flex-col overflow-hidden rounded-t-[20px] border border-line bg-surface shadow-2xl outline-none supports-[height:1dvh]:max-h-[100dvh] sm:max-h-[calc(100vh-2rem)] sm:rounded-[20px] sm:supports-[height:1dvh]:max-h-[calc(100dvh-2rem)] ${wide ? 'sm:max-w-2xl' : 'sm:max-w-md'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="font-display text-lg font-bold text-fg">{title}</h2>
-        <div className="mt-4">{children}</div>
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-line px-5 pb-4 pt-5 sm:px-6">
+          <h2 className="font-display text-lg font-bold leading-snug text-fg">{title}</h2>
+          <button
+            type="button"
+            onClick={closeNow}
+            aria-label="Close dialog"
+            className="touch-target -mr-2 -mt-1.5 shrink-0 rounded-full p-2 text-fg-3 transition hover:bg-white/10 hover:text-fg"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6">{children}</div>
       </div>
     </div>
   );

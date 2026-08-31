@@ -23,7 +23,7 @@ import { deferLoad } from '@/lib/session';
 import { useNow } from '@/lib/client-time';
 import { dateTime, msToCountdown } from '@/lib/format';
 import type { AdminRoom, AdminRoomDetail } from '@/lib/types';
-import { roomFormWarning, roomPatch, toLocalInput } from '@/lib/room-form';
+import { roomFormWarning, roomPatch, toLocalInput, cleanRoomCredential } from '@/lib/room-form';
 
 const inputCls =
   'w-full rounded-input border border-line bg-white/[4%] px-3.5 py-2.5 text-sm font-semibold text-fg outline-none transition-colors placeholder:text-fg-3 focus:border-accent disabled:opacity-50';
@@ -223,17 +223,27 @@ export function TournamentRoomPanel({ tournamentId, onClose, onChanged }: Props)
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-1 block text-[11px] font-bold uppercase tracking-[0.12em] text-fg-3">Room ID</span>
-                <input value={form.roomId} onChange={(e) => setField({ roomId: e.target.value })} placeholder="123456789" autoComplete="off" className={inputCls} />
+                <span className="mb-1 block text-[11px] font-bold uppercase tracking-[0.12em] text-fg-3">Room ID — numbers only</span>
+                <input
+                  value={form.roomId}
+                  onChange={(e) => setField({ roomId: cleanRoomCredential(e.target.value, 20) })}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="123456789"
+                  autoComplete="off"
+                  className={inputCls}
+                />
               </label>
               <label className="block">
-                <span className="mb-1 block text-[11px] font-bold uppercase tracking-[0.12em] text-fg-3">Room password</span>
+                <span className="mb-1 block text-[11px] font-bold uppercase tracking-[0.12em] text-fg-3">Room password — numbers only</span>
                 <div className="relative">
                   <input
                     type={showPw ? 'text' : 'password'}
                     value={form.roomPassword}
-                    onChange={(e) => setField({ roomPassword: e.target.value })}
-                    placeholder="abcd12"
+                    onChange={(e) => setField({ roomPassword: cleanRoomCredential(e.target.value, 30) })}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="123456"
                     autoComplete="off"
                     className={`${inputCls} pr-16`}
                   />

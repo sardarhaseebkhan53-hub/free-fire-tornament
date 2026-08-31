@@ -48,7 +48,7 @@ describe('api body serialisation (admin room PUT)', () => {
         success: false,
         code: 'VALIDATION_ERROR',
         message: 'Validation failed',
-        errors: [{ path: 'roomId', message: 'Room ID must be 3-20 letters, digits, "-" or "_".' }],
+        errors: [{ path: 'roomId', message: 'Room ID must be numbers only — 3 to 20 digits.' }],
       }),
       { status: 400, headers: { 'content-type': 'application/json' } },
     )));
@@ -57,9 +57,9 @@ describe('api body serialisation (admin room PUT)', () => {
     expect(err).toBeInstanceOf(ApiClientError);
     expect((err as ApiClientError).code).toBe('VALIDATION_ERROR');
     expect((err as ApiClientError).message).toContain('roomId');
-    expect((err as ApiClientError).message).toContain('Room ID must be 3-20 letters');
+    expect((err as ApiClientError).message).toContain('Room ID must be numbers only');
     expect((err as ApiClientError).fieldErrors).toEqual({
-      roomId: 'Room ID must be 3-20 letters, digits, "-" or "_".',
+      roomId: 'Room ID must be numbers only — 3 to 20 digits.',
     });
   });
 });

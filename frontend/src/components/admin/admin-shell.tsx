@@ -3,7 +3,7 @@
 // topbar with global search, bell and profile. RBAC-gated (ADMIN+).
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
-import { useDialog } from '@/lib/use-dialog';
+import { useDialog, useDialogCloseGuard } from '@/lib/use-dialog';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -205,9 +205,10 @@ export function AdminHomeLink() {
  */
 function MobileDrawer({ onClose, label, children }: { onClose: () => void; label: string; children: React.ReactNode }) {
   const panelRef = useDialog<HTMLDivElement>(onClose);
+  const { close: closeFromBackdrop } = useDialogCloseGuard(onClose);
   return (
     <div className="fixed inset-0 z-50 lg:hidden" role="presentation">
-      <div className="animate-fade-in absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="animate-fade-in absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={closeFromBackdrop} />
       <div
         ref={panelRef}
         role="dialog"

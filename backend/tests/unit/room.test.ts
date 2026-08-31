@@ -20,7 +20,7 @@ const NOW = new Date('2026-09-01T19:55:00.000Z'); // exactly 5 minutes before st
 const room = (over: Record<string, unknown> = {}) => ({
   status: 'NOT_ADDED',
   roomId: '7412580',
-  roomPassword: 'CNX4821',
+  roomPassword: '482145',
   releaseAt: null,
   releaseMinutes: null,
   releasedAt: null,
@@ -72,12 +72,12 @@ describe('resolveRoomState — the release window', () => {
     // A room with ONLY a password is a room: the value would be useless without the ID,
     // but hiding it is the job of the clock, not of a validation rule that could be
     // bypassed by writing the row directly.
-    const before = at({ roomId: null, roomPassword: 'CNX4821' }, new Date(NOW.getTime() - 1));
+    const before = at({ roomId: null, roomPassword: '482145' }, new Date(NOW.getTime() - 1));
     expect(before.hasRoomId).toBe(false);
     expect(before.hasRoomPassword).toBe(true);
     expect(before.status).toBe('SCHEDULED');
     expect(before.unlocked).toBe(false);
-    expect(at({ roomId: null, roomPassword: 'CNX4821' }, NOW).unlocked).toBe(true);
+    expect(at({ roomId: null, roomPassword: '482145' }, NOW).unlocked).toBe(true);
   });
 });
 
@@ -204,17 +204,27 @@ describe('roomCreateColumns — the builder shares the panel’s rules', () => {
   });
 
   it('accepts a normal Free Fire room and stores it on the release schedule', () => {
-    const out = roomCreateColumns({ roomId: '7412580', roomPassword: 'CNX4821' });
-    expect(out).toMatchObject({ roomId: '7412580', roomPassword: 'CNX4821', status: 'SCHEDULED' });
+    const out = roomCreateColumns({ roomId: '7412580', roomPassword: '482145' });
+    expect(out).toMatchObject({ roomId: '7412580', roomPassword: '482145', status: 'SCHEDULED' });
   });
 
-  it('rejects the values that break the pipeline rather than the display', () => {
-    expect(() => roomCreateColumns({ roomId: '12' })).toThrow(/Room ID/);
-    expect(() => roomCreateColumns({ roomId: 'has space' })).toThrow(/Room ID/);
+  it('rejects non-numeric credentials the game would not accept', () => {
+    expect(() => roomCreateColumns({ roomId: '12' })).toThrow(/Room ID/); // too short
+    expect(() => roomCreateColumns({ roomId: 'abc123' })).toThrow(/Room ID/);
+    expect(() => roomCreateColumns({ roomId: '123-456' })).toThrow(/Room ID/);
+    expect(() => roomCreateColumns({ roomId: '123_456' })).toThrow(/Room ID/);
+    expect(() => roomCreateColumns({ roomId: '123 456' })).toThrow(/Room ID/); // spaces rejected, not stripped
     expect(() => roomCreateColumns({ roomId: '<script>' })).toThrow(/Room ID/);
     expect(() => roomCreateColumns({ roomId: '7412580', roomPassword: 'p@ss' })).toThrow(/password/);
-    expect(() => roomCreateColumns({ roomPassword: 'CNX4821' })).toThrow(/not a room/);
+    expect(() => roomCreateColumns({ roomId: '7412580', roomPassword: '12 34' })).toThrow(/password/);
+    expect(() => roomCreateColumns({ roomPassword: '482145' })).toThrow(/not a room/);
     expect(() => roomCreateColumns({ roomId: '7412580', releaseMinutesBeforeStart: 2000 })).toThrow(/1440/);
+  });
+
+  it('keeps long numeric credentials as exact strings — never rounded, leading zeros preserved', () => {
+    const long = roomCreateColumns({ roomId: '11111111111111111111', roomPassword: '12345678901234567890' });
+    expect(long).toMatchObject({ roomId: '11111111111111111111', roomPassword: '12345678901234567890' });
+    expect(roomCreateColumns({ roomId: '00123' })?.roomId).toBe('00123');
   });
 
   it('trims, and treats an empty password as "no password" rather than an empty string', () => {
