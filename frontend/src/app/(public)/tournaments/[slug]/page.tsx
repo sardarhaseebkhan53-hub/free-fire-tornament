@@ -3,7 +3,7 @@
 // until release — public responses never contain them).
 import { notFound } from 'next/navigation';
 import { Clock, MapPin, ShieldCheck, Skull, Star, Users } from 'lucide-react';
-import { apiServerSafe } from '@/lib/api';
+import { apiServerDetail } from '@/lib/api';
 import type { TournamentDetails } from '@/lib/types';
 import { money, MODE_LABEL, STATUS_LABEL, dateTime, displayStatus } from '@/lib/format';
 import { Badge, Avatar } from '@/components/ui';
@@ -18,7 +18,7 @@ import type { Metadata } from 'next';
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const t = await apiServerSafe<TournamentDetails>(`/public/tournaments/${slug}`);
+  const t = await apiServerDetail<TournamentDetails>(`/public/tournaments/${slug}`);
   if (!t) return { title: 'Tournament not found | CLUTCHNEX' };
   return pageMetadata({
     slug: `tournament-${slug}`,
@@ -33,7 +33,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default async function TournamentDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const t = await apiServerSafe<TournamentDetails>(`/public/tournaments/${slug}`);
+  const t = await apiServerDetail<TournamentDetails>(`/public/tournaments/${slug}`);
   if (!t) notFound();
 
   const killPrize = t.prizes.find((p) => p.kind === 'KILL_POOL');

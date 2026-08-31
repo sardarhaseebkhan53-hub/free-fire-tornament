@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
-import { apiServerSafe } from '@/lib/api';
+import { apiServerDetail } from '@/lib/api';
 import { renderMarkdownSafe } from '@/lib/markdown';
 import { dateOnly } from '@/lib/format';
 import { Badge } from '@/components/ui';
@@ -26,7 +26,7 @@ interface Post {
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const post = await apiServerSafe<Post>(`/public/blog/${slug}`);
+  const post = await apiServerDetail<Post>(`/public/blog/${slug}`);
   if (!post) return { title: 'Article not found | CLUTCHNEX' };
   return pageMetadata({
     slug: `blog-${slug}`,
@@ -40,7 +40,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default async function BlogArticlePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const post = await apiServerSafe<Post>(`/public/blog/${slug}`);
+  const post = await apiServerDetail<Post>(`/public/blog/${slug}`);
   if (!post) notFound();
 
   const html = await renderMarkdownSafe(post.content);

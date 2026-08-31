@@ -245,6 +245,12 @@ export async function login(identifierRaw: string, password: string, ctx: Reques
   const user = await prisma.user.findUnique({
     where: identifier.includes('@') ? { email: identifier } : { username: identifier },
   });
+  // A soft-deleted (archived) account must not authenticate: its row is kept for
+  // ledger integrity but the credentials no longer grant access. We treat it as
+  // an unknown account so the response does not reveal that the account exists.
+  if (user?.deletedAt) {
+    throw unauthorized('INVALID_CREDENTIALS', 'Incorrect email/username or password.');
+  }
   if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
     const { count, locked } = recordFailure(identifier, max, lockMin);
     // Security events are audited even when they fail: this is the trail that

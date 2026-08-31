@@ -2,20 +2,20 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
-import { apiServerSafe } from '@/lib/api';
+import { apiServerDetail } from '@/lib/api';
 import { renderMarkdownSafe } from '@/lib/markdown';
 
 interface Page { slug: string; title: string; content: string; }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const page = await apiServerSafe<Page>(`/public/pages/${slug}`);
+  const page = await apiServerDetail<Page>(`/public/pages/${slug}`);
   return { title: page ? `${page.title}` : 'Page' };
 }
 
 export default async function LegalPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const page = await apiServerSafe<Page>(`/public/pages/${slug}`);
+  const page = await apiServerDetail<Page>(`/public/pages/${slug}`);
   if (!page) notFound();
   const html = await renderMarkdownSafe(page.content);
 
