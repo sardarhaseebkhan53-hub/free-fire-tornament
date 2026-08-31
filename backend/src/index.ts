@@ -2,14 +2,24 @@
 import { createApp } from './app';
 import { env } from './lib/env';
 import { prisma } from './lib/prisma';
+import { syncDevDatabase } from './lib/auto-migrate';
 import { notifyUpcomingMatches } from './services/scheduler.service';
 import { markNoShows } from './services/checkin.service';
 import { releaseTournamentRooms } from './services/room.service';
 
 const app = createApp();
 
-app.listen(env.PORT, '0.0.0.0', () => {
-  console.log(`⚡ CLUTCHNEX API listening on :${env.PORT} (${env.NODE_ENV})`);
+// Dev self-heal: the embedded PGlite data directory persists across pulls, so
+// after a branch that adds migrations the local database would answer with
+// "table does not exist" 500s until the developer remembers to migrate. Apply
+// pending migrations before accepting traffic (development/test only; the
+// production release phase runs `npm run db:migrate`). Listening only AFTER the
+// sync settles means a freshly-pulled dev database can't answer its first
+// request with a schema-drift 500.
+syncDevDatabase().finally(() => {
+  app.listen(env.PORT, '0.0.0.0', () => {
+    console.log(`⚡ CLUTCHNEX API listening on :${env.PORT} (${env.NODE_ENV})`);
+  });
 });
 
 // ---------------------------------------------------------------------------
