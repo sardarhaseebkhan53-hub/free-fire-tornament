@@ -14,7 +14,7 @@
 //   • it does not "delete" a room. Clearing both halves is refused server-side, because a
 //     room that a seat holder can no longer reach is worse than a room with a wrong password,
 //     and the admin who wants it gone means Cancel — which is a different, audited verb.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Copy, Eye, EyeOff, KeyRound, Loader2, Lock, Save, ShieldOff, Unlock } from 'lucide-react';
 import { Modal } from '@/components/admin/kit';
 import { RoomPill } from '@/components/room-status';
@@ -43,6 +43,11 @@ export function TournamentRoomPanel({ tournamentId, onClose, onChanged }: Props)
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [showPw, setShowPw] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  // Guard against duplicate submissions before React re-renders the disabled button.
+  // A double click (or a click that lands while `saving` is still false) must never
+  // put two identical PUT/POST requests on the wire.
+  const saveInFlight = useRef(false);
+  const actionInFlight = useRef(false);
 
   const [form, setForm] = useState({ roomId: '', roomPassword: '', note: '', lead: '', pin: '' });
   const setField = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
@@ -82,13 +87,18 @@ export function TournamentRoomPanel({ tournamentId, onClose, onChanged }: Props)
   const warning = roomFormWarning(form);
 
   async function save() {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
     setSaving(true);
     setError(null);
     setSavedNote(null);
     try {
       const res = await api<{ releasedImmediately: boolean; releaseAt: string; room: AdminRoom }>(
         `/admin/tournaments/${tournamentId}/room`,
-        { method: 'PUT', body: JSON.stringify(patch) },
+        // Pass the object, not JSON.stringify(): the api helper already serialises it.
+        // Double-serialising was producing `req.body` as a JSON string, which the
+        // backend rejects with 400 before this service ever runs.
+        { method: 'PUT', body: patch },
       );
       await load();
       onChanged?.();
@@ -102,18 +112,21 @@ export function TournamentRoomPanel({ tournamentId, onClose, onChanged }: Props)
     } catch (e) {
       setError(e instanceof ApiClientError ? e.message : 'The room could not be saved.');
     } finally {
+      saveInFlight.current = false;
       setSaving(false);
     }
   }
 
   async function act(action: 'HIDE' | 'SHOW' | 'CANCEL' | 'REACTIVATE') {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
     setSaving(true);
     setError(null);
     setSavedNote(null);
     try {
       const res = await api<{ message: string }>(`/admin/tournaments/${tournamentId}/room/status`, {
         method: 'POST',
-        body: JSON.stringify({ action, ...(action === 'CANCEL' ? { reason: cancelReason.trim() } : {}) }),
+        body: { action, ...(action === 'CANCEL' ? { reason: cancelReason.trim() } : {}) },
       });
       setSavedNote(res.message);
       if (action === 'CANCEL') setCancelReason('');
@@ -122,6 +135,7 @@ export function TournamentRoomPanel({ tournamentId, onClose, onChanged }: Props)
     } catch (e) {
       setError(e instanceof ApiClientError ? e.message : 'That action did not go through.');
     } finally {
+      actionInFlight.current = false;
       setSaving(false);
     }
   }
