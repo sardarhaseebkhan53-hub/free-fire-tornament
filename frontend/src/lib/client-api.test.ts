@@ -62,6 +62,23 @@ describe('api body serialisation (admin room PUT)', () => {
       roomId: 'Room ID must be numbers only — 3 to 20 digits.',
     });
   });
+
+  it('keeps the real HTTP status and server message on FORBIDDEN (join 403)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'Account is not active.',
+      }),
+      { status: 403, headers: { 'content-type': 'application/json' } },
+    )));
+
+    const err = await api('/tournaments/join', { method: 'POST', body: { tournamentSlug: 'x' } }).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiClientError);
+    expect((err as ApiClientError).status).toBe(403);
+    expect((err as ApiClientError).code).toBe('FORBIDDEN');
+    expect((err as ApiClientError).message).toBe('Account is not active.');
+  });
 });
 
 describe('authedFetch body safety (the [object Object] 400)', () => {

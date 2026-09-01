@@ -223,7 +223,7 @@ export async function downloadProtectedFile(path: string, filename: string): Pro
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-async function rawFetch<T>(path: string, init: ApiInit): Promise<ApiEnvelope<T>> {
+async function rawFetch<T>(path: string, init: ApiInit): Promise<{ json: ApiEnvelope<T>; status: number }> {
   let body: BodyInit | undefined;
   const headers: Record<string, string> = {};
   if (init.form) body = init.form;
@@ -240,7 +240,7 @@ async function rawFetch<T>(path: string, init: ApiInit): Promise<ApiEnvelope<T>>
   }
   const res = await authedFetch(path, { ...init, headers, body });
   const json = (await res.json().catch(() => ({ success: false, code: 'NETWORK', message: 'Bad response' }))) as ApiEnvelope<T>;
-  return json;
+  return { json, status: res.status };
 }
 
 /** Fire-and-forget silent refresh for app boot / navigation. Returns the new
@@ -264,7 +264,7 @@ export async function api<T>(
   init: ApiInit = {},
 ): Promise<T> {
   // rawFetch already performs the refresh-once retry on a 401 (see authedFetch).
-  const json = await rawFetch<T>(path, init);
+  const { json, status } = await rawFetch<T>(path, init);
 
   if (!json.success) {
     const fieldErrors: Record<string, string> = {};
@@ -282,7 +282,7 @@ export async function api<T>(
       }
     }
     throw new ApiClientError(
-      json.code === 'UNAUTHORIZED' ? 401 : 400,
+      status || (json.code === 'UNAUTHORIZED' ? 401 : 400),
       json.code ?? 'ERROR',
       fieldMessages.length ? fieldMessages.join('; ') : (json.message ?? 'Request failed'),
       Object.keys(fieldErrors).length ? fieldErrors : undefined,
