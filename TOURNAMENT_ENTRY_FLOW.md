@@ -1,217 +1,336 @@
-# CLUTCHNEX — Tournament Entry Structure (Free Fire)
+# CLUTCHNEX — Full Tournament Structure & Entry Flow
 
-This document describes exactly how a player takes entry in every Free Fire mode on
-the platform, what the system enforces server-side, and what is needed to support
-modes that are not modelled yet (Lone Wolf, Clash Squad 1v1).
+This is the complete, authoritative structure for how a tournament works and how a
+player takes entry. It covers the whole lifecycle from creation to payout, every
+playable Free Fire mode, the team/free-agent paths, seat allocation, rooms,
+check-in, results and refunds.
 
-> Status summary
-> - **Works today:** Solo, Duo, Squad, Clash Squad (4v4), **Lone Wolf**, **Clash Squad 1v1**.
-> - **Supported as free-agent/admin-paired:** Duo, Squad, Clash Squad.
-> - **Lone Wolf / Clash Squad 1v1 are solo-entry modes** (1 player per seat,
->   no team/captain) and are fully implemented in backend, admin builder,
->   public mode landing pages and SEO routes.
-> - **Planned / needs more work:** Big Head, Ranked/points rooms.
-
----
-
-## 1. Common prerequisites (every mode)
-
-A user can only take an entry when ALL of these are true. The backend re-checks every
-one inside the join transaction, so the UI can never let someone pay for a seat the
-server then refuses.
-
-| Requirement | Where it is checked | Error the user sees |
-| --- | --- | --- |
-| Signed in with an ACTIVE account | `joinTournament()` → user.status | `Account is not active.` |
-| Email verified | `joinTournament()` → user.isVerified | `Verify your email before joining tournaments.` |
-| Tournament not DRAFT / deleted | `joinTournament()` | `Tournament not found` |
-| Tournament in `REGISTRATION_OPEN` | `joinTournament()` | `Registration is not open for this tournament.` |
-| Now before `registrationDeadline` | `joinTournament()` | `Registration deadline has passed.` |
-| Now before `startTime` | `joinTournament()` | `This tournament has already started.` |
-| Seat available | atomic `UPDATE ... registeredSlots < maxSlots` | `This tournament is full.` |
-| Free Fire UID (5–15 digits) | `validateFFIdentity()` | `A valid Free Fire UID (5-15 digits) is required to join.` |
-| Free Fire IGN (2–24 chars) | `validateFFIdentity()` | `Your Free Fire nickname (2-24 characters) is required to join.` |
-| Enough PKR cash balance | wallet ledger | `Not enough PKR balance…` |
+> Supported modes (all fully working):
+> - Solo
+> - Duo
+> - Squad
+> - Clash Squad (4v4)
+> - **Lone Wolf** (1 player per seat, direct solo entry)
+> - **Clash Squad 1v1** (1 player per seat, direct solo entry)
 
 ---
 
-## 2. Mode-by-mode entry flow
-
-### 2.1 SOLO (works today)
-
-- **Team size:** `1`
-- **Who joins:** any verified player.
-- **How:** the user clicks **Join Tournament** → confirms UID + IGN (prefilled from
-  profile) → pays `entryFeePerPlayer` from cash balance → receives seat #N.
-- **No team, no captain, no invite required.**
-- Seat/slot = 1 player.
+## 1. High-level lifecycle
 
 ```
-Player → /tournaments/join { sportSlug, UID, IGN } → wallet debit → registration row → seat #N
+Admin creates tournament
+        │
+        ▼
+[DRAFT]  ──publish──▶ [REGISTRATION_OPEN] ──▶ [LIVE] ──▶ [COMPLETED]
+        │                     │                   │
+        │                     └──▶ [CANCELLED]    └──▶ [CANCELLED]
+        │
+        ▼
+Players join → seats assigned → wallet debited
+        │
+        ▼
+Matches scheduled → rooms created → credentials released
+        │
+        ▼
+Check-in → game played → results entered → publish results
+        │
+        ▼
+Prizes credited to Winning balance → users withdraw
 ```
 
-### 2.2 DUO (works today)
+---
 
-- **Team size:** `2`
-- **Two entry options:**
+## 2. Tournament creation (admin)
 
-#### Option A — Full team (captain)
-1. Captain creates a `DUO` team in **Teams** and invites one partner.
-2. Partner accepts the invite.
-3. Captain opens the tournament and selects **Register my duo**.
-4. The server requires: captain is logged in, team type = `DUO`, team has exactly 2
-   members, every member is ACTIVE + verified, every member has saved UID + IGN.
-5. Server locks the roster, debits both players’ wallets (each pays their own share),
-   and creates one seat (#N) shared by both registrations.
+Only an admin/super-admin can create a tournament. The form collects:
+
+| Field | Purpose |
+|---|---|
+| Title + slug | Public name and URL |
+| **Type** | `SOLO`, `DUO`, `SQUAD`, `CLASH_SQUAD`, `LONE_WOLF`, `CLASH_SQUAD_1V1` |
+| Description, map, banner, rules | Public display |
+| Entry fee per player | Cost per player (always server-authoritative) |
+| Max slots | Total seats (players in 1p modes; teams in team modes) |
+| Min slots to start | Minimum to be able to run |
+| Prize pool + placement/kill/MVP prizes | Published payout plan |
+| Points per kill, placement points, bonus/penalty | Scoring rules |
+| Start time, registration deadline, end time | Timing |
+| Room ID / password / release window | Match-room or event-room credentials |
+| Publish | Yes → `REGISTRATION_OPEN`, No → `DRAFT` |
+
+The backend **computes economics server-side** (`computeEconomics`). If the setup is
+loss-making, the admin must explicitly confirm before publishing.
+
+---
+
+## 3. Tournament statuses
+
+| Status | Meaning | Can players join? |
+|---|---|---|
+| `DRAFT` | Saved, not public | No |
+| `REGISTRATION_OPEN` | Open until deadline / full | Yes |
+| `LIVE` | Started | No (only cancellations handled by support) |
+| `COMPLETED` | Finished, results published | No |
+| `CANCELLED` | Cancelled | No, refunds issued |
+
+A tournament is also considered **closed** once:
+- `registrationDeadline` passes, OR
+- `startTime` is reached, OR
+- all `maxSlots` are filled, OR
+- status is not `REGISTRATION_OPEN`.
+
+---
+
+## 4. Entry prerequisites (checked on EVERY join)
+
+The backend re-validates all of these inside the join transaction. The UI can never
+show a paid successful entry that the server later refuses.
+
+| Requirement | Failure |
+|---|---|
+| Signed in | `Account is not active.` |
+| Email verified | `Verify your email before joining tournaments.` |
+| Tournament exists, not draft | `Tournament not found` |
+| Status = `REGISTRATION_OPEN` | `Registration is not open for this tournament.` |
+| Before registration deadline | `Registration deadline has passed.` |
+| Before start time | `This tournament has already started.` |
+| Seat available | `This tournament is full.` |
+| Valid Free Fire UID (5–15 digits) | `A valid Free Fire UID (5-15 digits) is required to join.` |
+| Valid IGN (2–24 chars) | `Your Free Fire nickname (2-24 characters) is required to join.` |
+| Wallet cash balance ≥ entry share | `Not enough PKR balance…` |
+
+---
+
+## 5. Mode-by-mode entry structure
+
+### 5.1 Solo
+- **Seat = 1 player**
+- Direct solo entry, no team/captain.
+- Player confirms UID + IGN, pays `entryFeePerPlayer`, gets one seat.
 
 ```
-captain → POST /tournaments/join { teamId } → validate team(2) → debit 2 wallets → seat #N
+Player → POST /tournaments/join {slug, UID, IGN}
+       → wallet DEBIT(entry)
+       → TournamentRegistration(status=CONFIRMED, seat=#N, teamId=NULL)
 ```
 
-#### Option B — Free agent / solo registration (admin-paired)
-Used when `tournament.allowIndependentDuo` is enabled (default ON in seed, and the
-code fallback is now ON too).
-1. A player with no full DUO team clicks **Register solo · paired by admin**.
-2. They confirm UID + IGN and pay `entryFeePerPlayer`.
-3. They get their own seat and a `teamId = NULL` registration.
-4. An admin later runs **Slots → Pair** (or POST `/admin/tournaments/:id/pair`) with two
-   independent registrations. The service creates a real `DUO` team, sets the first
-   player as captain, updates both registrations, and notifies them.
+### 5.2 Lone Wolf
+- **Seat = 1 player** (same as Solo, separate mode + SEO page).
+- Direct solo entry, no team/captain.
+- No pairing, no invite.
 
-### 2.3 SQUAD / CLASH SQUAD (4v4) (works today)
+```
+Player → confirm UID + IGN → pay entry → seat #N
+```
 
-- **Team size:** `4`
-- Exactly the same two paths as DUO, but with 4 members and `allowIndependentSquad`
-  (which also covers `CLASH_SQUAD`).
+### 5.3 Clash Squad 1v1
+- **Seat = 1 player**.
+- Direct solo entry, no team/captain.
+- Head-to-head format is set up by the admin in the match/bracket plan.
 
-### 2.4 LONE WOLF (works today)
+```
+Player → confirm UID + IGN → pay entry → seat #N
+```
 
-- **Team size:** `1`
-- **Who joins:** any verified player.
-- **How:** direct solo entry like SOLO, but listed as its own mode with its own
-  SEO landing page (`/tournaments/lone-wolf`). Confirm UID + IGN and pay the
-  per-player entry fee; one seat per player.
-- **No team, no captain, no admin pairing.**
+### 5.4 Duo
+- **Team size = 2**, seats counted per team.
 
-### 2.5 CLASH SQUAD 1V1 (works today)
+**Option A — full duo (captain registers)**
+1. Captain creates a `DUO` team in Teams and invites one partner.
+2. Partner accepts invite.
+3. Captain picks the duo, server verifies:
+   - captain logged in
+   - team type = `DUO`
+   - team has exactly 2 members
+   - all members ACTIVE + verified
+   - all members have saved UID + IGN
+4. Server locks the roster, debits **both** players, assigns one shared seat.
 
-- **Team size:** `1`
-- **Who joins:** any verified player.
-- **How:** direct solo entry like SOLO/LONE WOLF with its own landing page
-  (`/tournaments/clash-squad-1v1`). Confirm UID + IGN and pay the per-player
-  entry fee; one seat per player.
-- **No team, no captain, no admin pairing.** Head-to-head format is determined
-  by the admin’s match/bracket setup.
+**Option B — free agent (register solo, admin pairs)**
+- Enabled by `tournament.allowIndependentDuo` (default ON).
+- A player with no full duo registers alone, pays only their share, gets `teamId=NULL`.
+- Later an admin runs **Slots → Pair** to combine 2 independent registrations into a
+  real `DUO` team; the first registration becomes captain; all players are notified.
 
-| Path | Who is allowed | What the engine does |
-| --- | --- | --- |
-| Full squad | Captain of a complete 4-player `SQUAD` team | verify team, freeze roster, debit 4 wallets, shared seat |
-| Free agent | Any verified player | validate UID/IGN, debit that player only, `teamId = NULL`, admin pairs 4 later |
+### 5.5 Squad
+- **Team size = 4**, seats counted per team.
 
----
+**Option A — full squad (captain registers)**
+- Same as Duo but with 4 members.
 
-## 3. Important entry rules (why “only captain can register”)
+**Option B — free agent**
+- Enabled by `tournament.allowIndependentSquad` (also covers Clash Squad).
+- Register alone, get paired into a `SQUAD` team by admin (4 independent regs).
 
-- **Team modes are always captain-led** when a team is used. That is intentional:
-  the captain is the single person who can confirm the roster, and the charge is
-  distributed across every member server-side.
-- A **non-captain member** of a full team cannot register the team. If they want to
-  enter a DUO/SQUAD event they must either (a) become captain of a full team, or
-  (b) register alone as a free agent when the independent setting is enabled.
-- The join form now **defaults to free-agent/solo automatically** when a player opens
-  a DUO/SQUAD/Clash Squad tournament and has no eligible captain team, so they are not
-  blocked behind a captain-only wall.
-
-### Settings that control team entry
-
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `tournament.allowIndependentDuo` | `true` (seed) / `true` (code fallback) | Enable solo/free-agent entry for DUO + admin pairing |
-| `tournament.allowIndependentSquad` | `true` (seed) / `true` (code fallback) | Enable solo/free-agent entry for SQUAD/Clash Squad + admin pairing |
-
-Where to change: **Admin → System Settings** (the row stores `true`/`false`).
-When disabled, a non-captain WITHOUT a full team gets `A DUO/SQUAD team is required`.
+### 5.6 Clash Squad (4v4)
+- **Team size = 4**, handled exactly like Squad.
+- Supports both full-team captain registration and independent/free-agent entry +
+  admin pairing.
 
 ---
 
-## 4. Seats, payments and pairing
+## 6. What happens inside a join (single DB transaction)
 
-1. **Seat allocation** happens inside one DB transaction with a row lock on the
-   tournament. A conditional `UPDATE ... WHERE registeredSlots < maxSlots` is the
-   real capacity guard; the smallest free seat 1..maxSlots is assigned.
-2. **Ledger** is immutable. Each registration stores its own `entryAmount`,
-   `walletTxId`, coupon, and (for team entries) an immutable `rosterUserIds` snapshot
-   at the moment of payment. Prize distribution pays the snapshot, never the team’s
-   live membership.
-3. **Admin pairing** (`pairIndependentTeam`) only accepts 2–4 independent
-   registrations and only for DUO / SQUAD / CLASH_SQUAD. It creates a team, marks the
-   first registration as captain, attaches all regs to the new team, sends
-   notifications, and writes an audit log.
-4. **Cancellation:** solo = player cancels; team = only captain cancels the whole
-   team; all refunds honour `tournament.refundPercent`.
+```
+1. Lock tournament row                    → prevents double seat/double charge
+2. Re-read + lock team (if team mode)     → roster cannot change mid-join
+3. Double-join guard (unique constraint)  → one entry per user per tournament
+4. Atomic slot guard:
+     UPDATE tournaments SET registeredSlots = registeredSlots + 1
+     WHERE id = ? AND status='REGISTRATION_OPEN'
+       AND registrationDeadline > now()
+       AND registeredSlots < maxSlots
+   → assigns the next free seat
+5. Coupon validation (if used)
+6. Wallet ledger debit for every paying member
+     ENTRY_FEE  CASH → DEBIT
+7. Create / revive TournamentRegistration rows
+   - entryAmount, coupon, walletTxId, seatNumber
+   - teamId (team modes) or NULL (solo-style / free agent)
+   - rosterUserIds snapshot (team modes only) — frozen for prize payout
+8. Notification + audit log
+9. Commit
+```
 
----
-
-## 5. Fixes included in this pass
-
-| Problem | Fix |
-| --- | --- |
-| Removing/hiding a payment method in Admin did not remove it from Add Money | Add Money now loads the live active accounts from `GET /wallet/payment-accounts`; removed/hidden methods disappear immediately. |
-| Admin modals / result sheets / payment-account dialogs overlay or clip | Page-transition and modal animations no longer leave a persistent `transform` on ancestors. A retained `transform` (even `translateY(0)`) makes an ancestor the containing block for `position: fixed` children, which is what caused the overlay. |
-| User could not register a DUO/SQUAD/Clash Squad event unless they were a captain | Backend defaults `allowIndependentDuo`/`allowIndependentSquad` to ON, and the join form auto-switches a player with no eligible captain team to the free-agent/solo path. |
-
----
-
-## 6. “Lone Wolf” and “Clash Squad 1v1” — IMPLEMENTED
-
-These two modes are now real playable modes (1 player per seat). The migration and
-all code touchpoints below are already in place; keep this list as the checklist when
-adding any further mode (Big Head, Ranked rooms, etc.).
-
-### 6.1 Backend / Prisma
-
-1. `backend/prisma/schema.prisma` — enum has `LONE_WOLF` + `CLASH_SQUAD_1V1`.
-2. Migration `20260901090000_lone_wolf_and_clash_1v1` adds the two enum values.
-3. `backend/src/services/tournament.service.ts` — `TEAM_SIZE` includes both as `1`;
-   the join engine automatically treats them as solo-style (no team/captain).
-4. `backend/src/services/tournament-economics.service.ts` — `TEAM_SIZE` + union.
-5. `backend/src/services/admin.service.ts` — builder type union.
-6. `backend/src/validation/admin.schema.ts` — admin create enum.
-7. `backend/src/routes/public.routes.ts` — public type-filter whitelist.
-8. `backend/src/services/public.service.ts` — shared `MODE_TEAM_SIZE` used for
-   `teamSize`, `entryFeePerTeam` and economics on both list and detail.
-9. `backend/src/services/nexa.service.ts` — mode answers updated to six modes.
-
-### 6.2 Frontend
-
-1. `frontend/src/lib/format.ts` — `MODE_LABEL` includes the two modes.
-2. `frontend/src/lib/types.ts` — mode union includes the two modes.
-3. `frontend/src/components/mode-landing.tsx` — two new mode configs + FAQ.
-4. Public pages: `/tournaments/lone-wolf`, `/tournaments/clash-squad-1v1`,
-   filters on `/tournaments`, cards on `/`, `/free-fire-tournaments`, `/sitemap.xml`.
-5. `frontend/src/app/(admin)/admin/tournaments/new/page.tsx` — dropdown options.
-6. `frontend/src/components/join-tournament.tsx` — mode labels for the new modes.
-7. `frontend/src/lib/seo.tsx` — event structured-data names for the new modes.
-
-### 6.3 Entry design for the new modes
-
-| Mode | Recommended model | Entry |
-| --- | --- | --- |
-| **Lone Wolf** | 1 player per seat, like SOLO | Solitary entry, no team, UID + IGN required. Add `LONE_WOLF: 1` to `TEAM_SIZE`. |
-| **Clash Squad 1v1** | 1 player per seat, head-to-head brackets | Treat as 1v1 bracket; simplest is the SOLO/free-agent path with a single player per “slot”. |
-| **Big Head / other casual BR** | Reuse `SOLO` semantics | Same as SOLO; only the public label and SEO copy differ. |
+If ANY step fails, the transaction rolls back — no seat taken, no money charged.
 
 ---
 
-## 7. Quick troubleshooting for “I cannot register”
+## 7. Seat / slot rules
 
-1. Is the tournament `REGISTRATION_OPEN` and before `registrationDeadline`/`startTime`?
-2. Are you signed in, ACTIVE and email-verified?
-3. Is your Free Fire UID (5–15 digits) and IGN saved in your profile, or filled into
-   the join form?
-4. Do you have cash balance for your share? Team registrations charge **every member**.
-5. For DUO/SQUAD:
-   - Full team: are you the **captain** and is the team exactly 2/4 members?
-   - Free agent: is `tournament.allowIndependentDuo/Squad` enabled in System Settings?
-6. Check the actual server response — `VALIDATION_ERROR` carries the precise reason
-   (e.g. “A duo team is required…”, “Every team member must set their Free Fire UID…”).
+- Seats start at 1 and go to `maxSlots`.
+- Solo-style modes (`SOLO`, `LONE_WOLF`, `CLASH_SQUAD_1V1`) = 1 player per seat.
+- Team modes (`DUO`, `SQUAD`, `CLASH_SQUAD`) = 1 seat per team; all members share it.
+- Seat numbers are server-assigned and never reused while the tournament is full.
+- Admin can move/lock seats from the Slot Board. A locked seat is not auto-assigned.
+- Independent/free agents get their own seats with `teamId=NULL` until an admin pairs them.
+
+---
+
+## 8. Wallet & payments
+
+- Deposits are manual: player submits TID + screenshot, **admin approves**.
+- On approval, funds credit the **CASH** bucket.
+- Every join debits **CASH** with a `ENTRY_FEE` ledger entry (immutable ledger).
+- Team modes debit **each member** their own share; all-or-nothing rollback.
+- Refunds credit CASH via `ENTRY_REFUND`.
+- Winnings credit **WINNING** bucket via `WINNING` ledger entry.
+- Payout guard: each prize/wallet credit is one-time-guarded.
+
+---
+
+## 9. Match scheduling & rooms
+
+1. Admin schedules matches for the tournament (match number, round, map, time).
+2. Match participants are synced from confirmed registrations.
+3. Room ID/password can be set per match or on the tournament (event room).
+4. **Credentials are never public** — served only to confirmed seat holders.
+5. Release timing:
+   - default: 30 min before start (per-match rooms)
+   - event room: `tournament.roomReleaseMinutes` (default 5 min)
+   - admin can pin an exact release time or override per event
+6. Room state is derived from timestamps on every read, so a missed scheduler tick is harmless.
+
+---
+
+## 10. Check-in
+
+- The room/event can have a check-in window:
+  - default opens at `registrationDeadline`, closes at `startTime`
+  - or admin pins `checkInOpensAt` / `checkInClosesAt`
+- Player checks in (or staff checks in at the desk) inside the window.
+- If a seat holder does not check in before close, scheduler marks `noShowAt`.
+- Only checked-in/confirmed seats play.
+
+---
+
+## 11. Results & payouts
+
+1. Admin enters per-participant results:
+   - placement, kills, bonus, penalty, prize, status (`REGISTERED/PLAYED/DISQUALIFIED`),
+     ready, absent, evidence URL.
+2. Workflow: `DRAFT → UNDER_REVIEW → CONFIRMED → PUBLISHED`.
+3. Public results/winners are shown only after `PUBLISHED`.
+4. Prize credit:
+   - placement prizes, per-kill pool (capped), MVP, bonus
+   - credited to **WINNING** balance
+   - team-mode prizes are split per the frozen `rosterUserIds` snapshot
+   - each credit is one-time-guarded
+
+---
+
+## 12. Cancellation & refunds
+
+| Who | When | What happens |
+|---|---|---|
+| Player (solo-style) | Before deadline (or per policy) | Player refunded per `refundPercent` |
+| Captain (team mode) | Before deadline (or per policy) | Whole team refunded, each member credited |
+| Admin | Any time before/during | `CANCELLED`, everyone refunded per `refundPercent`, arena closed |
+
+- `refundPercent` is per-tournament (default 100).
+- If already started / results published, cancellation is handled by support.
+
+---
+
+## 13. Admin pairing (free agents)
+
+```
+POST /admin/tournaments/:id/pair { registrationIds: [...] }
+```
+
+- Only for `DUO`, `SQUAD`, `CLASH_SQUAD`.
+- Requires exactly 2 (duo) or 4 (squad/clash) independent confirmed registrations.
+- Creates a real team, first player becomes captain, attaches all regs,
+  notifies every player, audits the change.
+- Validates: same tournament, all confirmed, all ACTIVE, nobody already in a team.
+
+---
+
+## 14. Where each mode is defined
+
+### Backend
+| File | What it controls |
+|---|---|
+| `backend/prisma/schema.prisma` | `TournamentType` enum |
+| `backend/prisma/migrations/20260901090000_lone_wolf_and_clash_1v1` | adds `LONE_WOLF`, `CLASH_SQUAD_1V1` |
+| `backend/src/services/tournament.service.ts` | join engine, `TEAM_SIZE` |
+| `backend/src/services/tournament-economics.service.ts` | pricing math, `TEAM_SIZE` |
+| `backend/src/services/admin.service.ts` | tournament creation |
+| `backend/src/services/public.service.ts` | public lists/detail, `teamSize` |
+| `backend/src/services/slot.service.ts` | admin pairing, slot board |
+| `backend/src/validation/admin.schema.ts` | admin create validation |
+| `backend/src/routes/public.routes.ts` | mode filter whitelist |
+| `backend/src/services/nexa.service.ts` | chatbot mode answers |
+
+### Frontend
+| File | What it controls |
+|---|---|
+| `frontend/src/lib/format.ts` | mode labels |
+| `frontend/src/lib/types.ts` | mode type union |
+| `frontend/src/components/join-tournament.tsx` | entry form + team/free-agent mode |
+| `frontend/src/components/mode-landing.tsx` | mode landing configs |
+| `frontend/src/app/(admin)/admin/tournaments/new/page.tsx` | mode dropdown |
+| `frontend/src/app/(public)/tournaments/lone-wolf` | Lone Wolf landing |
+| `frontend/src/app/(public)/tournaments/clash-squad-1v1` | CS 1v1 landing |
+| `frontend/src/app/sitemap.ts` | SEO routes |
+
+---
+
+## 15. Common troubleshooting
+
+**“I can’t register”**
+1. Is status `REGISTRATION_OPEN`, before deadline, before start, seats left?
+2. Are you ACTIVE and email-verified?
+3. Is your UID (5–15 digits) and IGN (2–24) present?
+4. Do you have enough CASH balance (team modes charge every member)?
+5. Duo/Squad/Clash: full team requires you to be **captain**; otherwise use the
+   free-agent “register solo” path (if independent entry is enabled).
+6. Read the actual server `VALIDATION_ERROR` — it names the exact problem.
+
+**“Payment method disappeared / won’t appear”**
+- Add Money reads only ACTIVE payment accounts.
+- Manage them in **Admin → Payment Accounts**; editing/removing reflects immediately.
+
+**“Admin dialogs / result editor overlap”**
+- Entrance animations no longer keep a transform on ancestors after they finish,
+  so `position: fixed` popups/modal sheets are no longer clipped or stacked.
