@@ -26,7 +26,7 @@ export interface PrizeInput {
 }
 
 export interface EconomicsInput {
-  type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD';
+  type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1';
   entryFeePerPlayer: number;
   /** Slots in TEAMS (players for SOLO). */
   slots: number;
@@ -64,6 +64,8 @@ export const TEAM_SIZE: Record<EconomicsInput['type'], number> = {
   DUO: 2,
   SQUAD: 4,
   CLASH_SQUAD: 4,
+  LONE_WOLF: 1,
+  CLASH_SQUAD_1V1: 1,
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;

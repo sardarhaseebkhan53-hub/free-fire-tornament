@@ -57,7 +57,11 @@ export function JoinTournament({
   const independentDuo = type === 'DUO' && teamSize === 2 && allowIndependentDuo === true;
   const independentSquad = (type === 'SQUAD' || type === 'CLASH_SQUAD') && teamSize === 4 && allowIndependentSquad === true;
   const independentTeam = independentDuo || independentSquad;
-  const modeLabel = type === 'DUO' ? 'duo' : type === 'SQUAD' || type === 'CLASH_SQUAD' ? 'squad' : 'team';
+  const modeLabel = type === 'DUO' ? 'duo'
+    : type === 'SQUAD' || type === 'CLASH_SQUAD' ? 'squad'
+    : type === 'LONE_WOLF' ? 'lone wolf'
+    : type === 'CLASH_SQUAD_1V1' ? '1v1'
+    : 'team';
   const [joinMode, setJoinMode] = useState<'team' | 'solo'>('team');
   const [uid, setUid] = useState('');
   const [ign, setIgn] = useState('');

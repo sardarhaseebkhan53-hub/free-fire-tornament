@@ -114,6 +114,8 @@ enum TournamentType {
   DUO
   SQUAD
   CLASH_SQUAD
+  LONE_WOLF
+  CLASH_SQUAD_1V1
 }
 
 enum TournamentStatus {

@@ -33,6 +33,8 @@ const MODES = [
   { type: 'DUO', label: 'Duo', desc: 'Two players. Coordinate, cover, clutch together.', icon: Users },
   { type: 'SQUAD', label: 'Squad', desc: 'Four players. Full-team battle royale warfare.', icon: ShieldCheck },
   { type: 'CLASH_SQUAD', label: 'Clash Squad', desc: '4v4 rounds. Fast, tactical, explosive.', icon: Sparkles },
+  { type: 'LONE_WOLF', label: 'Lone Wolf', desc: 'Solo rounds, no team — every seat is one player.', icon: Gamepad2 },
+  { type: 'CLASH_SQUAD_1V1', label: 'Clash Squad 1v1', desc: 'Head-to-head Clash Squad brackets, direct entry.', icon: Sparkles },
 ];
 
 const STEPS = [

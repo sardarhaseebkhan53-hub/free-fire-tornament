@@ -24,8 +24,8 @@ import { confirmAbsent, isRetryableTxError, withIdempotentRetry } from '../lib/t
 import { syncTournamentParticipants } from './match.service';
 import { ROOM_FLAG_SELECT, globalRoomReleaseMinutes, roomStateFor } from './room.service';
 
-const TEAM_SIZE: Record<'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD', number> = {
-  SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4,
+const TEAM_SIZE: Record<'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1', number> = {
+  SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4, LONE_WOLF: 1, CLASH_SQUAD_1V1: 1,
 };
 
 // Financial transactions get a generous budget: under load they queue on the
@@ -316,7 +316,7 @@ async function runJoinWithRetry(
 async function runJoin(
   userId: string,
   input: JoinInput,
-  t: { id: string; title: string; slug: string; type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD'; status: string; registrationDeadline: Date; startTime: Date; maxSlots: number; refundPercent: unknown },
+  t: { id: string; title: string; slug: string; type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1'; status: string; registrationDeadline: Date; startTime: Date; maxSlots: number; refundPercent: unknown },
   feePerPlayer: number,
   currency: string,
   payerIds: string[],

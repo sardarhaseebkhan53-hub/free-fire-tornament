@@ -11,8 +11,8 @@ import { FaqList } from '@/components/faq-list';
 import { JsonLd, breadcrumbJsonLd, faqJsonLd } from '@/lib/seo';
 
 export interface ModeConfig {
-  slug: 'solo' | 'duo' | 'squad' | 'clash-squad';
-  apiType: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD';
+  slug: 'solo' | 'duo' | 'squad' | 'clash-squad' | 'lone-wolf' | 'clash-squad-1v1';
+  apiType: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1';
   label: string;
   kicker: string;
   headline: string;
@@ -85,6 +85,38 @@ export const MODES: ModeConfig[] = [
       { question: 'What is Clash Squad mode?', answer: 'A round-based 4v4 mode with economy rounds and weapon purchases — matches are much shorter than battle royale, so tournaments resolve quickly.' },
       { question: 'Are Clash Squad prizes different?', answer: 'The payout rules are identical to other modes — placement prizes, per-kill points and MVP awards credited after verified results.' },
       { question: 'How long is a Clash Squad tournament?', answer: 'Most finish the same evening; room credentials unlock before each round exactly like every CLUTCHNEX match.' },
+    ],
+  },
+  {
+    slug: 'lone-wolf',
+    apiType: 'LONE_WOLF',
+    label: 'Lone Wolf',
+    kicker: 'Mode · Lone Wolf',
+    headline: 'Lone Wolf Free Fire Tournaments',
+    intro:
+      'Solo survival in fast, small-arena rounds. Lone Wolf is a one-player-per-seat mode — no team, no captain, no waiting. Register alone, lock your slot, and win PKR prizes one clutch at a time.',
+    bullets: ['1 player per seat', 'No team needed — direct solo entry', 'Fast rounds with placement + per-kill points'],
+    prizeNote: 'Lone Wolf uses the same verified prize pipeline: placement prizes, per-kill points and MVP awards, all shown on the tournament page before you join.',
+    faqs: [
+      { question: 'How do I join a Lone Wolf tournament?', answer: 'Pick an open Lone Wolf tournament, confirm your Free Fire UID and in-game name, and pay the entry fee from your wallet — a seat is locked instantly.' },
+      { question: 'Do I need a team for Lone Wolf?', answer: 'No. Lone Wolf is a solo-entry mode: every seat is one player, so there is no captain and no invite required.' },
+      { question: 'How are Lone Wolf prizes paid?', answer: 'After results are verified, placement prizes and per-kill points are credited to your winning balance automatically.' },
+    ],
+  },
+  {
+    slug: 'clash-squad-1v1',
+    apiType: 'CLASH_SQUAD_1V1',
+    label: 'Clash Squad 1v1',
+    kicker: 'Mode · Clash Squad 1v1',
+    headline: 'Clash Squad 1v1 Free Fire Tournaments',
+    intro:
+      'One vs one, first to the finish. Clash Squad 1v1 tournaments put a single player in every seat with head-to-head brackets — no team needed, direct entry, fast payouts.',
+    bullets: ['1 player per seat — direct solo entry', 'Head-to-head Clash Squad brackets', 'Placement prizes + per-kill points'],
+    prizeNote: 'Clash Squad 1v1 uses the same verified prize pipeline as every other mode — placement, per-kill points and MVP are published before you enter.',
+    faqs: [
+      { question: 'What is Clash Squad 1v1?', answer: 'A single-player Clash Squad format: you and one opponent face off in rounds, with one player per tournament seat.' },
+      { question: 'Do I need a team for 1v1?', answer: 'No. Clash Squad 1v1 is direct solo entry — confirm your UID and in-game name, pay, and you are seated.' },
+      { question: 'How fast are 1v1 payouts?', answer: 'Prizes are credited after staff verify results, exactly like the other modes — placement and per-kill points go to your winning balance automatically.' },
     ],
   },
 ];

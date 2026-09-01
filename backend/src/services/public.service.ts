@@ -22,6 +22,17 @@ export interface TournamentListQuery {
   limit?: number;
 }
 
+/** Players-per-team for every playable Free Fire mode (1 for solo-style modes). */
+const MODE_TEAM_SIZE: Record<string, number> = {
+  SOLO: 1,
+  DUO: 2,
+  SQUAD: 4,
+  CLASH_SQUAD: 4,
+  LONE_WOLF: 1,
+  CLASH_SQUAD_1V1: 1,
+};
+const teamSizeFor = (type: string) => MODE_TEAM_SIZE[type] ?? 1;
+
 export async function listTournaments(q: TournamentListQuery) {
   const page = Math.max(1, q.page ?? 1);
   const limit = Math.min(50, Math.max(1, q.limit ?? 12));
@@ -62,8 +73,8 @@ export async function listTournaments(q: TournamentListQuery) {
   return {
     items: items.map((t) => ({
       ...t,
-      teamSize: t.type === 'SOLO' ? 1 : t.type === 'DUO' ? 2 : 4,
-      entryFeePerTeam: Number(t.entryFeePerPlayer) * (t.type === 'SOLO' ? 1 : t.type === 'DUO' ? 2 : 4),
+      teamSize: teamSizeFor(t.type),
+      entryFeePerTeam: Number(t.entryFeePerPlayer) * teamSizeFor(t.type),
       slotsLeft: Math.max(0, t.maxSlots - t.registeredSlots),
       registrationOpen: t.status === 'REGISTRATION_OPEN' && t.registrationDeadline > now,
       startsInMs: t.startTime.getTime() - now.getTime(),
@@ -130,15 +141,16 @@ export async function getTournamentBySlug(slug: string) {
   // of the graph here and re-enters only as the derived, credential-free `room` view at the
   // bottom of this object.
   const { registrations, matches, prizes, room: roomRow, ...core } = t;
+  const teamSize = teamSizeFor(t.type);
   return {
     ...core,
-    teamSize: t.type === 'SOLO' ? 1 : t.type === 'DUO' ? 2 : 4,
-    entryFeePerTeam: Number(t.entryFeePerPlayer) * (t.type === 'SOLO' ? 1 : t.type === 'DUO' ? 2 : 4),
+    teamSize,
+    entryFeePerTeam: Number(t.entryFeePerPlayer) * teamSize,
     slotsLeft: Math.max(0, t.maxSlots - t.registeredSlots),
     registrationOpen: t.status === 'REGISTRATION_OPEN' && t.registrationDeadline > now,
     startsInMs: t.startTime.getTime() - now.getTime(),
     prizeBreakdown: {
-      entryFeesCollected: Number(t.entryFeePerPlayer) * t.registeredSlots * (t.type === 'SOLO' ? 1 : t.type === 'DUO' ? 2 : 4),
+      entryFeesCollected: Number(t.entryFeePerPlayer) * t.registeredSlots * teamSize,
       prizePool: Number(t.prizePool),
       platformFee: Number(t.platformFee),
     },

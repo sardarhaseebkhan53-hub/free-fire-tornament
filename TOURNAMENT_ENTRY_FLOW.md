@@ -5,10 +5,12 @@ the platform, what the system enforces server-side, and what is needed to suppor
 modes that are not modelled yet (Lone Wolf, Clash Squad 1v1).
 
 > Status summary
-> - **Works today:** Solo, Duo, Squad, Clash Squad (4v4).
+> - **Works today:** Solo, Duo, Squad, Clash Squad (4v4), **Lone Wolf**, **Clash Squad 1v1**.
 > - **Supported as free-agent/admin-paired:** Duo, Squad, Clash Squad.
-> - **Planned / needs code + schema work:** Lone Wolf, Clash Squad 1v1,
->   Big Head, Ranked/points rooms — see “Adding a new mode”.
+> - **Lone Wolf / Clash Squad 1v1 are solo-entry modes** (1 player per seat,
+>   no team/captain) and are fully implemented in backend, admin builder,
+>   public mode landing pages and SEO routes.
+> - **Planned / needs more work:** Big Head, Ranked/points rooms.
 
 ---
 
@@ -82,6 +84,25 @@ code fallback is now ON too).
 - Exactly the same two paths as DUO, but with 4 members and `allowIndependentSquad`
   (which also covers `CLASH_SQUAD`).
 
+### 2.4 LONE WOLF (works today)
+
+- **Team size:** `1`
+- **Who joins:** any verified player.
+- **How:** direct solo entry like SOLO, but listed as its own mode with its own
+  SEO landing page (`/tournaments/lone-wolf`). Confirm UID + IGN and pay the
+  per-player entry fee; one seat per player.
+- **No team, no captain, no admin pairing.**
+
+### 2.5 CLASH SQUAD 1V1 (works today)
+
+- **Team size:** `1`
+- **Who joins:** any verified player.
+- **How:** direct solo entry like SOLO/LONE WOLF with its own landing page
+  (`/tournaments/clash-squad-1v1`). Confirm UID + IGN and pay the per-player
+  entry fee; one seat per player.
+- **No team, no captain, no admin pairing.** Head-to-head format is determined
+  by the admin’s match/bracket setup.
+
 | Path | Who is allowed | What the engine does |
 | --- | --- | --- |
 | Full squad | Captain of a complete 4-player `SQUAD` team | verify team, freeze roster, debit 4 wallets, shared seat |
@@ -141,54 +162,38 @@ When disabled, a non-captain WITHOUT a full team gets `A DUO/SQUAD team is requi
 
 ---
 
-## 6. Adding “Lone Wolf” and “Clash Squad 1v1”
+## 6. “Lone Wolf” and “Clash Squad 1v1” — IMPLEMENTED
 
-The current schema only models `SOLO`, `DUO`, `SQUAD`, `CLASH_SQUAD`. To add new
-Free Fire modes you must add them in **all** of these places (an incomplete change is
-the usual cause of “the option is missing” or “registration blocked”).
+These two modes are now real playable modes (1 player per seat). The migration and
+all code touchpoints below are already in place; keep this list as the checklist when
+adding any further mode (Big Head, Ranked rooms, etc.).
 
 ### 6.1 Backend / Prisma
 
-1. `backend/prisma/schema.prisma`
-   - Add `LONE_WOLF`, `ONE_V_ONE` (or `CLASH_SQUAD_1V1`) to `enum TournamentType`.
-   - If a new mode needs its own team model (1v1 has no team), decide whether to reuse
-     the independent/free-agent path or add a `Roster`-style model.
-   - Create a migration, e.g. `20260901000000_lone_wolf_and_1v1/migration.sql` with:
-     ```sql
-     ALTER TYPE "TournamentType" ADD VALUE IF NOT EXISTS 'LONE_WOLF';
-     ALTER TYPE "TournamentType" ADD VALUE IF NOT EXISTS 'CLASH_SQUAD_1V1';
-     ```
-2. `backend/src/services/tournament.service.ts`
-   - Extend `const TEAM_SIZE` (`LONE_WOLF: 1`, `CLASH_SQUAD_1V1: 1`).
-   - Extend the `isIndependent…` guards if the mode allows no-team entry.
-3. `backend/src/services/tournament-economics.service.ts`
-   - Extend the same `TEAM_SIZE` and `type` union used for prize/economics math.
-4. `backend/src/services/public.service.ts`
-   - Extend `teamSize` and `entryFeePerTeam` calculations.
-5. `backend/src/validation/admin.schema.ts`
-   - Extend `createTournamentSchema.type` (`z.enum([...])`).
-   - If pairing applies, extend `teamPairSchema` constraints.
-6. `backend/src/validation/public.schema.ts` / `routes/public.routes.ts`
-   - Extend the mode filter whitelist (`['SOLO','DUO','SQUAD','CLASH_SQUAD',…]`).
-7. `backend/src/services/slot.service.ts`
-   - Extend `pairIndependentTeam` allowed modes if 1v1/free-agent pairing is needed.
-8. `backend/src/services/nexa.service.ts` — update the “four modes” answers if mode
-   names change.
+1. `backend/prisma/schema.prisma` — enum has `LONE_WOLF` + `CLASH_SQUAD_1V1`.
+2. Migration `20260901090000_lone_wolf_and_clash_1v1` adds the two enum values.
+3. `backend/src/services/tournament.service.ts` — `TEAM_SIZE` includes both as `1`;
+   the join engine automatically treats them as solo-style (no team/captain).
+4. `backend/src/services/tournament-economics.service.ts` — `TEAM_SIZE` + union.
+5. `backend/src/services/admin.service.ts` — builder type union.
+6. `backend/src/validation/admin.schema.ts` — admin create enum.
+7. `backend/src/routes/public.routes.ts` — public type-filter whitelist.
+8. `backend/src/services/public.service.ts` — shared `MODE_TEAM_SIZE` used for
+   `teamSize`, `entryFeePerTeam` and economics on both list and detail.
+9. `backend/src/services/nexa.service.ts` — mode answers updated to six modes.
 
 ### 6.2 Frontend
 
-1. `frontend/src/lib/format.ts` — extend `MODE_LABEL`.
-2. `frontend/src/lib/types.ts` — extend the mode union if it is typed.
-3. `frontend/src/app/(public)/free-fire-tournaments/page.tsx`,
-   `frontend/src/app/(public)/tournaments/page.tsx`, `frontend/src/app/(public)/page.tsx`
-   — add mode card/filter entries.
-4. `frontend/src/app/(admin)/admin/tournaments/new/page.tsx` — add the mode option.
-5. `frontend/src/components/join-tournament.tsx` — set the mode label / team size /
-   independent flags for the new modes.
-6. SEO pages: `/tournaments/lone-wolf/page.tsx`, `/tournaments/clash-squad-1v1/page.tsx`
-   (mirror `solo/page.tsx`).
+1. `frontend/src/lib/format.ts` — `MODE_LABEL` includes the two modes.
+2. `frontend/src/lib/types.ts` — mode union includes the two modes.
+3. `frontend/src/components/mode-landing.tsx` — two new mode configs + FAQ.
+4. Public pages: `/tournaments/lone-wolf`, `/tournaments/clash-squad-1v1`,
+   filters on `/tournaments`, cards on `/`, `/free-fire-tournaments`, `/sitemap.xml`.
+5. `frontend/src/app/(admin)/admin/tournaments/new/page.tsx` — dropdown options.
+6. `frontend/src/components/join-tournament.tsx` — mode labels for the new modes.
+7. `frontend/src/lib/seo.tsx` — event structured-data names for the new modes.
 
-### 6.3 Recommended entry design for the new modes
+### 6.3 Entry design for the new modes
 
 | Mode | Recommended model | Entry |
 | --- | --- | --- |

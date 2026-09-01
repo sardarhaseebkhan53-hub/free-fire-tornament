@@ -392,7 +392,7 @@ export async function listTournamentsAdmin(filter: { page: number; pageSize: num
 
 export interface BuilderInput {
   title: string;
-  type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD';
+  type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1';
   description?: string;
   map?: string;
   startTime: Date | string;

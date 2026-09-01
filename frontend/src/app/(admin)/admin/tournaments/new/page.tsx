@@ -150,6 +150,7 @@ export default function TournamentBuilderPage() {
                 <select value={type} onChange={(e) => setType(e.target.value)} className={inputCls}>
                   <option value="SOLO">Solo</option><option value="DUO">Duo</option>
                   <option value="SQUAD">Squad</option><option value="CLASH_SQUAD">Clash Squad</option>
+                  <option value="LONE_WOLF">Lone Wolf</option><option value="CLASH_SQUAD_1V1">Clash Squad 1v1</option>
                 </select>
               </Field>
               <Field label="Map">

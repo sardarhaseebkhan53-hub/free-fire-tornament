@@ -86,7 +86,7 @@ export async function walletOf(userId: string) {
 }
 
 export async function makeTournament(opts: {
-  type?: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD';
+  type?: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1';
   entryFee?: number;
   maxSlots?: number;
   status?: 'DRAFT' | 'REGISTRATION_OPEN' | 'LIVE' | 'COMPLETED' | 'CANCELLED';
