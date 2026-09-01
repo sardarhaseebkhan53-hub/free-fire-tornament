@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, Clock, Loader2, Lock, ShieldCheck } from 'lucide-react';
 import { api, getToken } from '@/lib/client-api';
-import { MethodBrand, type Method } from '@/components/wallet/bits';
+import { MethodBrand, METHOD_LABEL, type Method } from '@/components/wallet/bits';
 import { fmt } from '@/lib/format';
 
 interface Overview {
@@ -15,20 +15,18 @@ interface Overview {
 }
 interface PubSettings { 'platform.whatsappNumber'?: string }
 
-const QUICK = [100, 250, 500, 1000, 2500];
+interface Account {
+  id: string; method: Method; label: string; accountName: string;
+  accountNumber: string; instructions: string | null;
+}
 
-const METHODS: Array<{ id: Method; title: string; sub: string; recommended?: boolean }> = [
-  { id: 'JAZZCASH', title: 'JazzCash', sub: 'Pay securely using JazzCash wallet', recommended: true },
-  { id: 'EASYPAISA', title: 'EasyPaisa', sub: 'Pay securely using EasyPaisa wallet' },
-  { id: 'NAYAPAY', title: 'NayaPay', sub: 'Pay instantly using your NayaPay account' },
-  { id: 'SADAPAY', title: 'SadaPay', sub: 'Pay instantly using your SadaPay account' },
-  { id: 'BANK_TRANSFER', title: 'Bank Transfer', sub: 'Direct bank transfer to our account' },
-];
+const QUICK = [100, 250, 500, 1000, 2500];
 
 export default function AddMoneyPage() {
   const router = useRouter();
   const [data, setData] = useState<Overview | null>(null);
   const [pub, setPub] = useState<PubSettings | null>(null);
+  const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [amount, setAmount] = useState('500');
   const [method, setMethod] = useState<Method>('JAZZCASH');
   const [error, setError] = useState<string | null>(null);
@@ -36,8 +34,27 @@ export default function AddMoneyPage() {
   useEffect(() => {
     if (!getToken()) { router.replace('/login?next=/wallet/add-money'); return; }
     api<Overview>('/wallet').then(setData).catch(() => {});
+    // Payment destinations are admin-managed and must be the single source of
+    // truth: removing/hiding an account in admin immediately removes it here.
+    // Never hard-code the method list on this page (that is what caused an
+    // admin-deleted method to keep appearing on Add Money).
+    api<{ accounts: Account[] }>('/wallet/payment-accounts')
+      .then((d) => {
+        setAccounts(d.accounts);
+        setMethod((current) => {
+          if (d.accounts.some((a) => a.method === current)) return current;
+          return d.accounts[0]?.method ?? 'JAZZCASH';
+        });
+      })
+      .catch(() => setAccounts([]));
     fetch('/api/backend/public/settings/public').then((r) => r.json()).then((j) => setPub(j.data)).catch(() => {});
   }, [router]);
+
+  const methods = (accounts ?? []).map((a) => ({
+    id: a.method,
+    title: METHOD_LABEL[a.method] ?? a.label,
+    sub: a.label || 'Pay securely using your account',
+  }));
 
   const amt = Number(amount || 0);
   // Deposits credit the single PKR wallet directly — no artificial coins.
@@ -52,6 +69,9 @@ export default function AddMoneyPage() {
     }
     if (amt > data.settings.maxDeposit) {
       return setError(`Maximum deposit is ${fmt(data.settings.maxDeposit)}.`);
+    }
+    if (accounts && accounts.length === 0) {
+      return setError('No payment methods are configured right now. Please contact support to add funds.');
     }
     router.push(`/wallet/payment?amount=${amt}&method=${method}`);
   }
@@ -134,36 +154,46 @@ export default function AddMoneyPage() {
 
           {/* Method */}
           <h2 className="mt-7 font-display text-base font-bold text-fg">Select Payment Method</h2>
-          <div className="mt-4 flex flex-col gap-3">
-            {METHODS.map((m) => {
-              const active = method === m.id;
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => setMethod(m.id)}
-                  className={`flex items-center gap-4 rounded-card border px-4 py-3.5 text-left transition ${
-                    active
-                      ? 'border-accent bg-accent/[7%] shadow-[0_0_0_3px_rgba(139,92,246,0.12)]'
-                      : 'border-line bg-white/[2%] hover:border-fg-3/40'
-                  }`}
-                >
-                  <span className={`flex h-4.5 w-4.5 items-center justify-center rounded-full border-2 ${active ? 'border-accent' : 'border-fg-3/50'}`} style={{ width: 18, height: 18 }}>
-                    {active && <span className="h-2 w-2 rounded-full bg-accent" />}
-                  </span>
-                  <MethodBrand method={m.id} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-bold text-fg">{m.title}</span>
-                    <span className="block truncate text-xs text-fg-3">{m.sub}</span>
-                  </span>
-                  {m.recommended && (
-                    <span className="hidden rounded-pill bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent sm:block">
-                      Recommended
+          {accounts === null ? (
+            <div className="mt-4 flex items-center justify-center rounded-card border border-line py-6 text-sm text-fg-3">
+              <Loader2 className="mr-2 animate-spin text-accent" /> Loading payment methods…
+            </div>
+          ) : methods.length === 0 ? (
+            <div className="mt-4 rounded-input border border-warning/30 bg-warning/10 px-4 py-3 text-xs text-warning">
+              No payment methods are active. Please contact support to add funds.
+            </div>
+          ) : (
+            <div className="mt-4 flex flex-col gap-3">
+              {methods.map((m, index) => {
+                const active = method === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setMethod(m.id)}
+                    className={`flex items-center gap-4 rounded-card border px-4 py-3.5 text-left transition ${
+                      active
+                        ? 'border-accent bg-accent/[7%] shadow-[0_0_0_3px_rgba(139,92,246,0.12)]'
+                        : 'border-line bg-white/[2%] hover:border-fg-3/40'
+                    }`}
+                  >
+                    <span className={`flex h-4.5 w-4.5 items-center justify-center rounded-full border-2 ${active ? 'border-accent' : 'border-fg-3/50'}`} style={{ width: 18, height: 18 }}>
+                      {active && <span className="h-2 w-2 rounded-full bg-accent" />}
                     </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+                    <MethodBrand method={m.id} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold text-fg">{m.title}</span>
+                      <span className="block truncate text-xs text-fg-3">{m.sub}</span>
+                    </span>
+                    {index === 0 && (
+                      <span className="hidden rounded-pill bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent sm:block">
+                        Recommended
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <div className="mt-5 flex items-start gap-3 rounded-card border border-line bg-base/60 p-4">
             <ShieldCheck size={16} className="mt-0.5 shrink-0 text-info" />
@@ -177,10 +207,10 @@ export default function AddMoneyPage() {
 
           <button
             onClick={submit}
-            disabled={!data}
+            disabled={!data || accounts === null || accounts.length === 0}
             className="mt-5 flex w-full items-center justify-center gap-2 rounded-input bg-gradient-to-r from-accent to-accent-strong py-3.5 font-display text-base font-bold text-white shadow-[0_6px_24px_rgba(139,92,246,0.4)] transition hover:brightness-110 disabled:opacity-60"
           >
-            {!data ? <Loader2 size={18} className="animate-spin" /> : null}
+            {!data || accounts === null ? <Loader2 size={18} className="animate-spin" /> : null}
             Continue to Payment <ArrowRight size={18} />
           </button>
         </div>

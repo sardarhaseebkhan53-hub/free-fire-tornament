@@ -170,8 +170,12 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
   // Resolve settings BEFORE opening the transaction: reading them inside would
   // use the global client and deadlock the single-writer embedded database.
   const currency = await getSetting('platform.currency', 'PKR');
-  const allowIndependentDuo = await getSetting('tournament.allowIndependentDuo', false);
-  const allowIndependentSquad = await getSetting('tournament.allowIndependentSquad', false);
+  // Default-ON with an explicit admin override: a player who is not a team
+  // captain should be able to enter DUO/SQUAD/Clash Squad as a free agent and be
+  // paired by admin. Admins can switch either setting off in System Settings if
+  // they want strict captain-only team registration.
+  const allowIndependentDuo = await getSetting('tournament.allowIndependentDuo', true);
+  const allowIndependentSquad = await getSetting('tournament.allowIndependentSquad', true);
 
   // --- identity requirement -------------------------------------------------
   // SOLO: the joining player must confirm UID + nickname at join time.

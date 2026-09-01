@@ -152,8 +152,8 @@ export async function getTournamentBySlug(slug: string) {
     // for team modes (DUO and SQUAD / Clash Squad). The join engine re-reads
     // the same settings at join time, so the UI gate and server-side
     // enforcement can never drift.
-    allowIndependentDuo: await getSetting('tournament.allowIndependentDuo', false),
-    allowIndependentSquad: await getSetting('tournament.allowIndependentSquad', false),
+    allowIndependentDuo: await getSetting('tournament.allowIndependentDuo', true),
+    allowIndependentSquad: await getSetting('tournament.allowIndependentSquad', true),
     prizes,
     matches: matches.map(({ resultsStatus, ...m }) => ({
       ...m,

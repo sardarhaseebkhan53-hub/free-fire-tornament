@@ -129,14 +129,14 @@ const RULES: Rule[] = [
     intent: 'modes',
     patterns: [/modes?/i, /(solo|duo|squad|clash\s*squad)/i, /types?\s*of\s*tournament/i],
     answer: () =>
-      'CLUTCHNEX runs four modes. SOLO: you play alone, no team needed. DUO: you and one partner (invite them, no 4-player squad required). SQUAD: a full 4-player team, registered by the captain. CLASH SQUAD: the configured team structure — check each tournament\u2019s rules for its exact size and format.',
+      'CLUTCHNEX runs four modes. SOLO: you play alone, no team needed. DUO: you and one partner (invite them, no 4-player squad required). SQUAD: a full 4-player team, registered by the captain. CLASH SQUAD: the configured team structure — check each tournament\\u2019s rules for its exact size and format. For Duo, Squad and Clash Squad you can also register alone when independent entry is enabled and get paired by an admin later.',
     quickReplies: ['How do I join a tournament?', 'How do teams work?'],
   },
   {
     intent: 'join_tournament',
     patterns: [/(how|kaise).{0,24}(join|enter|register)/i, /join.{0,16}(tournament|match|game)/i, /entry\s*fee/i, /register/i],
     answer: () =>
-      'Pick a tournament on the Tournaments page, check the entry fee and prize split, then Join. Solo pays from your cash balance instantly; in Duo/Squad modes the captain registers the team and every member pays their own share. Slots are first-come — the join is atomic, so no double charges.',
+      'Pick a tournament on the Tournaments page, check the entry fee and prize split, then Join. Solo pays from your cash balance instantly; in Duo/Squad modes the captain registers the full team and every member pays their own share. If independent entry is enabled you can also register alone and an admin pairs you later. Slots are first-come — the join is atomic, so no double charges.',
     quickReplies: ['What modes are there?', 'Can I get a refund?'],
   },
   {
