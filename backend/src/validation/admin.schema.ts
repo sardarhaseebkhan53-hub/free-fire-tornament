@@ -51,7 +51,7 @@ export const prizeSchema = z.object({
 
 export const createTournamentSchema = z.object({
   title: z.string().trim().min(4).max(120),
-  type: z.enum(['SOLO', 'DUO', 'SQUAD', 'CLASH_SQUAD']),
+  type: z.enum(['SOLO', 'DUO', 'SQUAD', 'CLASH_SQUAD', 'LONE_WOLF', 'CLASH_SQUAD_1V1']),
   description: z.string().trim().max(2000).optional().default(''),
   map: z.string().trim().max(40).optional().default(''),
   startTime: z.coerce.date(),

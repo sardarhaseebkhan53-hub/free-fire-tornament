@@ -33,12 +33,17 @@
   --radius-pill: 999px;
 
   /* Motion */
-  --animate-fade-up: fade-up 0.36s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  /* Entrance animations must NOT keep a transform after they finish: an
+     ancestor with `transform` (even translateY(0)/scale(1)) becomes the
+     containing block for `position: fixed` descendants, which turned admin
+     dialogs / result sheets into clipped, overlapping panels. `backwards`
+     applies the first keyframe before start but releases the fill afterwards. */
+  --animate-fade-up: fade-up 0.36s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
   --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
-  --animate-rise: rise 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both;
-  --animate-modal-in: modal-in 0.18s cubic-bezier(0.22, 0.61, 0.36, 1) both;
-  --animate-fade-in: fade-in 0.16s ease-out both;
-  --animate-drawer-in: drawer-in 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  --animate-rise: rise 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+  --animate-modal-in: modal-in 0.18s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+  --animate-fade-in: fade-in 0.16s ease-out backwards;
+  --animate-drawer-in: drawer-in 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
 
   /* Hero atmosphere — slow ambient drift, shimmering gradients, marquee. */
   --animate-aurora-1: aurora-drift-1 26s ease-in-out infinite alternate;
@@ -322,20 +327,20 @@ img, svg, video, canvas { max-width: 100%; height: auto; }
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.page-in { animation: page-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.page-in { animation: page-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) backwards; }
 
 /* Toast slide-in (top, mobile-friendly) */
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(-14px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
-.toast-in { animation: toast-in 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.toast-in { animation: toast-in 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) backwards; }
 
 /* Modal content entrance (scale + fade) */
-.modal-pop { animation: modal-in 0.18s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.modal-pop { animation: modal-in 0.18s cubic-bezier(0.22, 0.61, 0.36, 1) backwards; }
 
 /* Mobile menu panel */
-.menu-panel { animation: drawer-in 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.menu-panel { animation: drawer-in 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) backwards; }
 
 /* Horizontal snap row for mobile card carousels */
 .snap-row { scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }

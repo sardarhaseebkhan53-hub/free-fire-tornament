@@ -10,7 +10,9 @@ import { rejectsWithCode } from '../helpers/db';
 
 describe('tournament economics', () => {
   it('knows the team size for every mode', () => {
-    expect(TEAM_SIZE).toEqual({ SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4 });
+    expect(TEAM_SIZE).toEqual({
+      SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4, LONE_WOLF: 1, CLASH_SQUAD_1V1: 1,
+    });
   });
 
   it('reproduces the Solo Standard master tier to the rupee', async () => {

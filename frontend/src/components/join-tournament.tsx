@@ -57,7 +57,11 @@ export function JoinTournament({
   const independentDuo = type === 'DUO' && teamSize === 2 && allowIndependentDuo === true;
   const independentSquad = (type === 'SQUAD' || type === 'CLASH_SQUAD') && teamSize === 4 && allowIndependentSquad === true;
   const independentTeam = independentDuo || independentSquad;
-  const modeLabel = type === 'DUO' ? 'duo' : type === 'SQUAD' || type === 'CLASH_SQUAD' ? 'squad' : 'team';
+  const modeLabel = type === 'DUO' ? 'duo'
+    : type === 'SQUAD' || type === 'CLASH_SQUAD' ? 'squad'
+    : type === 'LONE_WOLF' ? 'lone wolf'
+    : type === 'CLASH_SQUAD_1V1' ? '1v1'
+    : 'team';
   const [joinMode, setJoinMode] = useState<'team' | 'solo'>('team');
   const [uid, setUid] = useState('');
   const [ign, setIgn] = useState('');
@@ -98,6 +102,12 @@ export function JoinTournament({
         );
         setTeams(eligible);
         if (eligible.length > 0) setTeamId(eligible[0].team.id);
+        // The most common entry failure is a non-captain landing on the
+        // "Register my squad" tab and being blocked. When the platform allows
+        // solo/free-agent registration for this mode, automatically switch a
+        // player with no eligible captain team to the solo path so they are
+        // NEVER stuck behind a captain-only wall.
+        if (independentTeam && eligible.length === 0) setJoinMode('solo');
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -111,7 +121,7 @@ export function JoinTournament({
         }
       });
     return () => { cancelled = true; };
-  }, [stage, teamSize, type]);
+  }, [stage, teamSize, type, independentTeam]);
 
   if (!registrationOpen) return null;
 
@@ -250,8 +260,16 @@ export function JoinTournament({
             <p className="mt-3 flex items-center gap-2 text-xs text-fg-3"><Loader2 size={13} className="animate-spin" /> Loading your teams…</p>
           ) : teams.length === 0 ? (
             <div className="mt-3 rounded-input border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
-              You need a full {teamSize}-player {modeLabel} where you are captain.{' '}
-              <Link href="/teams" className="font-semibold underline">Manage teams</Link>
+              {independentTeam ? (
+                <>You have no full {teamSize}-player {modeLabel} where you are captain. You can still{' '}
+                  <button onClick={() => setJoinMode('solo')} className="font-semibold underline">register solo</button> and get paired by an admin, or{' '}
+                  <Link href="/teams" className="font-semibold underline">manage teams</Link>.
+                </>
+              ) : (
+                <>You need a full {teamSize}-player {modeLabel} where you are captain.{' '}
+                  <Link href="/teams" className="font-semibold underline">Manage teams</Link>
+                </>
+              )}
             </div>
           ) : (
             <label className="mt-3 block">

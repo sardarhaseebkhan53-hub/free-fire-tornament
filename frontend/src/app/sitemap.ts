@@ -19,6 +19,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/tournaments/duo`, lastModified: now, changeFrequency: 'daily', priority: 0.85 },
     { url: `${SITE_URL}/tournaments/squad`, lastModified: now, changeFrequency: 'daily', priority: 0.85 },
     { url: `${SITE_URL}/tournaments/clash-squad`, lastModified: now, changeFrequency: 'daily', priority: 0.85 },
+    { url: `${SITE_URL}/tournaments/lone-wolf`, lastModified: now, changeFrequency: 'daily', priority: 0.85 },
+    { url: `${SITE_URL}/tournaments/clash-squad-1v1`, lastModified: now, changeFrequency: 'daily', priority: 0.85 },
     { url: `${SITE_URL}/leaderboard`, lastModified: now, changeFrequency: 'daily', priority: 0.8 },
     { url: `${SITE_URL}/winners`, lastModified: now, changeFrequency: 'daily', priority: 0.7 },
     { url: `${SITE_URL}/blog`, lastModified: now, changeFrequency: 'daily', priority: 0.7 },

@@ -5,7 +5,7 @@ export interface TournamentSummary {
   id: string;
   title: string;
   slug: string;
-  type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD';
+  type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1';
   map: string | null;
   status: string;
   banner: string | null;

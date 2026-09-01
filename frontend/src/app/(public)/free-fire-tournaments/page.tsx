@@ -17,6 +17,8 @@ const MODE_CARDS = [
   { href: '/tournaments/duo', label: 'Duo', icon: Users, desc: 'Bring a partner — captain registers, both pay their share.' },
   { href: '/tournaments/squad', label: 'Squad', icon: ShieldCheck, desc: 'Full 4v4 battle royale warfare with your best three.' },
   { href: '/tournaments/clash-squad', label: 'Clash Squad', icon: Sparkles, desc: 'Round-based 4v4 fights — short matches, fast payouts.' },
+  { href: '/tournaments/lone-wolf', label: 'Lone Wolf', icon: Gamepad2, desc: 'Solo-entry rounds — no team, no captain, direct PKR prizes.' },
+  { href: '/tournaments/clash-squad-1v1', label: 'Clash Squad 1v1', icon: Sparkles, desc: 'Head-to-head 1v1 brackets with fast, verified payouts.' },
 ];
 
 export async function generateMetadata(): Promise<Metadata> {

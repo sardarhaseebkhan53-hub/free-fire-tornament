@@ -47,6 +47,8 @@ export const MODE_LABEL: Record<string, string> = {
   DUO: 'Duo',
   SQUAD: 'Squad',
   CLASH_SQUAD: 'Clash Squad',
+  LONE_WOLF: 'Lone Wolf',
+  CLASH_SQUAD_1V1: 'Clash Squad 1v1',
 };
 
 /** PKR formatter for the user app (design v2: `PKR 1,800`, en-PK grouping). */

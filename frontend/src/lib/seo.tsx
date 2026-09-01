@@ -141,7 +141,7 @@ export function eventJsonLd(t: {
   return {
     '@context': 'https://schema.org',
     '@type': 'Event',
-    name: `${t.title} — Free Fire ${t.type === 'CLASH_SQUAD' ? 'Clash Squad' : t.type} Tournament`,
+    name: `${t.title} — Free Fire ${t.type === 'CLASH_SQUAD' ? 'Clash Squad' : t.type === 'LONE_WOLF' ? 'Lone Wolf' : t.type === 'CLASH_SQUAD_1V1' ? 'Clash Squad 1v1' : t.type} Tournament`,
     url: `${SITE_URL}/tournaments/${t.slug}`,
     startDate: start.toISOString(),
     endDate: new Date(start.getTime() + 3 * 3600_000).toISOString(),

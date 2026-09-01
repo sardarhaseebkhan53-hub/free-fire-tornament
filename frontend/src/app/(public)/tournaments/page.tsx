@@ -16,6 +16,8 @@ const TYPE_TABS = [
   { value: 'DUO', label: 'Duo' },
   { value: 'SQUAD', label: 'Squad' },
   { value: 'CLASH_SQUAD', label: 'Clash Squad' },
+  { value: 'LONE_WOLF', label: 'Lone Wolf' },
+  { value: 'CLASH_SQUAD_1V1', label: 'Clash Squad 1v1' },
 ];
 const STATUS_TABS = [
   { value: '', label: 'Any status' },

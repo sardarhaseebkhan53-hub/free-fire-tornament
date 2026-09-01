@@ -15,7 +15,7 @@ const limitQuery = z.coerce.number().int().min(1).max(50).default(12);
 
 publicRouter.get('/tournaments', async (req, res) => {
   const type = typeof req.query.type === 'string' ? req.query.type.toUpperCase() : undefined;
-  if (type && !['SOLO', 'DUO', 'SQUAD', 'CLASH_SQUAD'].includes(type)) {
+  if (type && !['SOLO', 'DUO', 'SQUAD', 'CLASH_SQUAD', 'LONE_WOLF', 'CLASH_SQUAD_1V1'].includes(type)) {
     throw badRequest('VALIDATION_ERROR', 'Invalid tournament type');
   }
   const status = typeof req.query.status === 'string' ? req.query.status.toUpperCase() : undefined;
