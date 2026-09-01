@@ -21,6 +21,22 @@ afterAll(async () => {
   await db.$disconnect();
 });
 
+describe('independent DUO registration (§Modes)', () => {
+  it('lets a player with no team enter a DUO event as a free agent', async () => {
+    await setSetting('tournament.allowIndependentDuo', true);
+    const t = await makeTournament({ type: 'DUO', entryFee: 50, maxSlots: 8 });
+    tournamentIds.push(t.id);
+    const u = await makeUser({ cash: 500, prefix: 'duoag', verified: false });
+    userIds.push(u.id);
+
+    const out = await joinTournament(u.id, { tournamentSlug: t.slug }, ctx.ip);
+    expect(out.registeredPlayers).toBe(1);
+    const reg = await db.tournamentRegistration.findFirstOrThrow({ where: { tournamentId: t.id, userId: u.id } });
+    expect(reg.teamId).toBeNull();
+    expect(reg.seatNumber).toBe(1);
+  });
+});
+
 describe('independent SQUAD registration (§Modes)', () => {
   it('rejects squad join without a team when the opt-in is off', async () => {
     await setSetting('tournament.allowIndependentSquad', false);
@@ -30,6 +46,19 @@ describe('independent SQUAD registration (§Modes)', () => {
     userIds.push(u.id);
 
     await rejectsWithCode(() => joinTournament(u.id, { tournamentSlug: t.slug }, ctx.ip), 'VALIDATION_ERROR');
+  });
+
+  it('lets an unverified free agent register for a squad when independent entry is on', async () => {
+    await setSetting('tournament.allowIndependentSquad', true);
+    const t = await makeTournament({ type: 'SQUAD', entryFee: 50, maxSlots: 8 });
+    tournamentIds.push(t.id);
+    const u = await makeUser({ cash: 500, prefix: 'squnv', verified: false });
+    userIds.push(u.id);
+
+    const out = await joinTournament(u.id, { tournamentSlug: t.slug }, ctx.ip);
+    expect(out.registeredPlayers).toBe(1);
+    const reg = await db.tournamentRegistration.findFirstOrThrow({ where: { tournamentId: t.id, userId: u.id } });
+    expect(reg.teamId).toBeNull();
   });
 
   it('allows four free agents to register alone and be paired into a squad', async () => {

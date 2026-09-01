@@ -13,7 +13,7 @@
 import { Prisma } from '../../generated/prisma';
 import { moneyTx, prisma } from '../lib/prisma';
 import { ApiError, badRequest, conflict, forbidden, notFound } from '../lib/errors';
-import { getSetting } from './settings.service';
+import { getFlag, getSetting } from './settings.service';
 import { fireCouponAbuse, fireJoinFailure } from './fraud.service';
 import { audit } from '../lib/security';
 import { moveBalance } from './wallet.service';
@@ -155,7 +155,10 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
   const user = await confirmAbsent(() => prisma.user.findUnique({ where: { id: userId } }));
   if (!user) throw notFound('Account not found');
   if (user.status !== 'ACTIVE') throw forbidden('Account is not active.');
-  if (!user.isVerified) throw forbidden('Verify your email before joining tournaments.');
+  // Email confirmation is optional (auth.service: ACTIVE on register, isVerified
+  // is a badge + welcome-bonus track). It must never block a paid entry — that
+  // is what produced the fake "Only the team captain can register the team"
+  // error for every new player whose mail never arrived.
 
   if (t.status !== 'REGISTRATION_OPEN') throw badRequest('TOURNAMENT_CLOSED', 'Registration is not open for this tournament.');
   if (t.registrationDeadline <= new Date()) throw badRequest('TOURNAMENT_CLOSED', 'Registration deadline has passed.');
@@ -174,8 +177,8 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
   // captain should be able to enter DUO/SQUAD/Clash Squad as a free agent and be
   // paired by admin. Admins can switch either setting off in System Settings if
   // they want strict captain-only team registration.
-  const allowIndependentDuo = await getSetting('tournament.allowIndependentDuo', true);
-  const allowIndependentSquad = await getSetting('tournament.allowIndependentSquad', true);
+  const allowIndependentDuo = await getFlag('tournament.allowIndependentDuo', true);
+  const allowIndependentSquad = await getFlag('tournament.allowIndependentSquad', true);
 
   // --- identity requirement -------------------------------------------------
   // SOLO: the joining player must confirm UID + nickname at join time.
@@ -184,8 +187,8 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
   // Independent DUO (admin opt-in): same as SOLO — no team required.
   // Independent SQUAD / Clash Squad (admin opt-in): same path.
   const isTeamJoin = teamSize > 1 && !!input.teamId;
-  const isIndependentDuo = t.type === 'DUO' && !input.teamId && allowIndependentDuo === true && teamSize === 2;
-  const isIndependentSquad = (t.type === 'SQUAD' || t.type === 'CLASH_SQUAD') && !input.teamId && allowIndependentSquad === true && teamSize === 4;
+  const isIndependentDuo = t.type === 'DUO' && !input.teamId && allowIndependentDuo && teamSize === 2;
+  const isIndependentSquad = (t.type === 'SQUAD' || t.type === 'CLASH_SQUAD') && !input.teamId && allowIndependentSquad && teamSize === 4;
   const isIndependentTeam = isIndependentDuo || isIndependentSquad;
   // A team mode without a team is only valid when the admin opt-in for that
   // mode is enabled. Never let the backend silently register one player in a
@@ -226,7 +229,7 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
   if (isTeamJoin) {
     const team = await prisma.team.findUnique({
       where: { id: input.teamId },
-      include: { members: { select: { userId: true, user: { select: { status: true, isVerified: true } } } } },
+      include: { members: { select: { userId: true, user: { select: { status: true } } } } },
     });
     if (!team) throw notFound('Team not found');
     if (team.captainId !== userId) throw forbidden('Only the team captain can register the team.');
@@ -238,8 +241,8 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
       throw badRequest('VALIDATION_ERROR', `Team must have exactly ${teamSize} members.`);
     }
     for (const member of team.members) {
-      if (member.user.status !== 'ACTIVE' || !member.user.isVerified) {
-        throw forbidden('Every team member must have an active, verified account.');
+      if (member.user.status !== 'ACTIVE') {
+        throw forbidden('Every team member must have an active account.');
       }
     }
     // Every member must have their Free Fire identity saved.
@@ -354,7 +357,7 @@ async function runJoin(
       await tx.$queryRaw`SELECT "id" FROM "teams" WHERE "id" = ${input.teamId} FOR UPDATE`;
       const currentTeam = await tx.team.findUnique({
         where: { id: input.teamId },
-        include: { members: { select: { userId: true, user: { select: { status: true, isVerified: true } } } } },
+        include: { members: { select: { userId: true, user: { select: { status: true } } } } },
       });
       if (!currentTeam || currentTeam.captainId !== userId || currentTeam.type !== (t.type === 'DUO' ? 'DUO' : 'SQUAD')) {
         throw forbidden('The selected team changed. Refresh and try again.');
@@ -363,8 +366,8 @@ async function runJoin(
         throw badRequest('VALIDATION_ERROR', `Team must have exactly ${teamSize} members.`);
       }
       for (const member of currentTeam.members) {
-        if (member.user.status !== 'ACTIVE' || !member.user.isVerified) {
-          throw forbidden('Every team member must have an active, verified account.');
+        if (member.user.status !== 'ACTIVE') {
+          throw forbidden('Every team member must have an active account.');
         }
       }
       const currentIds = currentTeam.members.map((member) => member.userId).sort();

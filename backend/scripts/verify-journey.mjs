@@ -191,19 +191,14 @@ const mkPlayer = async (n, { withIdentity = true } = {}) => {
       throw new Error(`register ${n} failed: ${reg.s} ${reg.c} ${reg.m}`);
     }
   } else if (reg.d?.verificationTokenDevOnly) {
-    // Registering leaves the account unverified, and an unverified account may not join a
-    // paid event. The dev-only token echo + POST /auth/verify-email is the REAL
-    // confirmation flow, so the run uses it instead of quietly flipping a column.
+    // Email confirmation is optional (badge + welcome bonus). The join engine no
+    // longer requires isVerified; the real verify-email path is still exercised
+    // when the register endpoint echoed a token.
     const v = await api('/auth/verify-email', { body: { token: reg.d.verificationTokenDevOnly } });
     via = v.ok ? 'register endpoint + verify-email endpoint' : `register endpoint (verify-email ${v.s} ${v.c ?? ''})`;
   }
   const row = await q('SELECT id, \"isVerified\" FROM users WHERE username=$1', [username]);
   if (!row.rows.length) throw new Error(`account ${username} does not exist after registration`);
-  if (!row.rows[0].isVerified) {
-    // Loud rather than mysterious: every join would come back 403 and the reader would
-    // think the payment engine refused them.
-    throw new Error(`account ${username} is not email-verified — the journey cannot place a paid entry with an unverified account`);
-  }
   // Session tokens are minted with the deployment's own secret (the same helper the API
   // uses) instead of calling /auth/login: that endpoint is rate limited per IP, and a
   // verification run must not fail because it has been run twice today. Password hashing

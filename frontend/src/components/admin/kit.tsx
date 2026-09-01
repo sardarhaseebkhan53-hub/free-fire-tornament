@@ -6,6 +6,7 @@ import { X } from 'lucide-react';
 import { useDialog, useDialogCloseGuard } from '@/lib/use-dialog';
 import { deferLoad } from '@/lib/session';
 import { api, authedFetchResolved } from '@/lib/client-api';
+import { normalizeAuthedSrc } from '@/lib/authed-src';
 
 export function Kpi({
   label, value, sub, tone = 'accent', icon,
@@ -305,20 +306,6 @@ export function Donut({ parts, label }: { parts: Array<{ label: string; value: n
       </div>
     </div>
   );
-}
-
-/**
- * Normalize an authenticated image src so it always reaches the API through
- * the browser-safe `/api/backend/*` proxy. Backend services return absolute
- * API paths like `/api/wallet/deposits/:id/screenshot`, which the Next.js app
- * does not route — only `/api/backend/*` is proxied. Callers that already pass
- * a `/api/backend/...` path (e.g. ticket attachments) are left untouched.
- */
-function normalizeAuthedSrc(src: string): string {
-  if (!src) return src;
-  if (src.startsWith('/api/backend')) return src;
-  if (src.startsWith('/api/')) return `/api/backend${src}`;
-  return src;
 }
 
 /** Authenticated image loader — fetches an authed endpoint and object-URLs it.

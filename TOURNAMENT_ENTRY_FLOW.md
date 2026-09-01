@@ -89,7 +89,7 @@ show a paid successful entry that the server later refuses.
 | Requirement | Failure |
 |---|---|
 | Signed in | `Account is not active.` |
-| Email verified | `Verify your email before joining tournaments.` |
+| Account status = ACTIVE | `Account is not active.` (email confirmation is optional and never blocks a join) |
 | Tournament exists, not draft | `Tournament not found` |
 | Status = `REGISTRATION_OPEN` | `Registration is not open for this tournament.` |
 | Before registration deadline | `Registration deadline has passed.` |
@@ -320,7 +320,7 @@ POST /admin/tournaments/:id/pair { registrationIds: [...] }
 
 **“I can’t register”**
 1. Is status `REGISTRATION_OPEN`, before deadline, before start, seats left?
-2. Are you ACTIVE and email-verified?
+2. Are you signed in with an ACTIVE account? (email confirmation is optional)
 3. Is your UID (5–15 digits) and IGN (2–24) present?
 4. Do you have enough CASH balance (team modes charge every member)?
 5. Duo/Squad/Clash: full team requires you to be **captain**; otherwise use the

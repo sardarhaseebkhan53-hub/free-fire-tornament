@@ -18,7 +18,6 @@ const FRIENDLY: Record<string, string> = {
   TOURNAMENT_CLOSED: 'Registration is closed for this tournament.',
   ALREADY_REGISTERED: 'Already registered for this tournament.',
   VALIDATION_ERROR: 'Please check your input and try again.',
-  FORBIDDEN: 'Only the team captain can register the team.',
 };
 
 interface MyTeam {
@@ -54,15 +53,17 @@ export function JoinTournament({
   // Independent registrations (spec §Modes): a player can register solo and be
   // paired by an admin later. Gated by the platform settings surfaced on the
   // details API for both DUO and SQUAD / Clash Squad.
-  const independentDuo = type === 'DUO' && teamSize === 2 && allowIndependentDuo === true;
-  const independentSquad = (type === 'SQUAD' || type === 'CLASH_SQUAD') && teamSize === 4 && allowIndependentSquad === true;
+  const independentDuo = type === 'DUO' && teamSize === 2 && Boolean(allowIndependentDuo);
+  const independentSquad = (type === 'SQUAD' || type === 'CLASH_SQUAD') && teamSize === 4 && Boolean(allowIndependentSquad);
   const independentTeam = independentDuo || independentSquad;
   const modeLabel = type === 'DUO' ? 'duo'
     : type === 'SQUAD' || type === 'CLASH_SQUAD' ? 'squad'
     : type === 'LONE_WOLF' ? 'lone wolf'
     : type === 'CLASH_SQUAD_1V1' ? '1v1'
     : 'team';
-  const [joinMode, setJoinMode] = useState<'team' | 'solo'>('team');
+  // Free-agent is the default for Duo/Squad/Clash: most players are not captains.
+  // Captains with a full eligible team are switched onto the team tab once /teams/my loads.
+  const [joinMode, setJoinMode] = useState<'team' | 'solo'>('solo');
   const [uid, setUid] = useState('');
   const [ign, setIgn] = useState('');
   // "Team" path = a full team registers together (the default for team modes).
@@ -101,13 +102,14 @@ export function JoinTournament({
           (t) => t.team.type === need && t.role === 'CAPTAIN' && t.team.members.length === teamSize,
         );
         setTeams(eligible);
-        if (eligible.length > 0) setTeamId(eligible[0].team.id);
-        // The most common entry failure is a non-captain landing on the
-        // "Register my squad" tab and being blocked. When the platform allows
-        // solo/free-agent registration for this mode, automatically switch a
-        // player with no eligible captain team to the solo path so they are
-        // NEVER stuck behind a captain-only wall.
-        if (independentTeam && eligible.length === 0) setJoinMode('solo');
+        if (eligible.length > 0) {
+          setTeamId(eligible[0].team.id);
+          // Captains with a full roster land on the team tab; everyone else stays
+          // on free-agent / solo so they can actually enter.
+          if (independentTeam) setJoinMode('team');
+        } else if (independentTeam) {
+          setJoinMode('solo');
+        }
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -130,7 +132,6 @@ export function JoinTournament({
     if (!token) return router.push(`/login?next=/tournaments/${slug}`);
     setNeedsLogin(false);
     setError(null);
-    if (independentTeam) setJoinMode('team'); // reset to team path on each open
     setStage('confirm');
   }
 
@@ -169,7 +170,10 @@ export function JoinTournament({
         body: {
           tournamentSlug: slug,
           couponCode: coupon || undefined,
-          teamId: usingTeam ? teamId : undefined,
+          // Never send a leftover teamId on the free-agent path — that is what
+          // made the API answer "Only the team captain can register the team"
+          // while the button still said Join solo.
+          teamId: usingTeam && teamId ? teamId : undefined,
           freeFireUID: !usingTeam ? uid.trim() || undefined : undefined,
           freeFireIGN: !usingTeam ? ign.trim() || undefined : undefined,
         },
@@ -187,12 +191,10 @@ export function JoinTournament({
         return;
       }
       if (e instanceof ApiClientError) {
-        // Validation errors carry the precise reason from the backend (e.g.
-        // missing UID/IGN, invalid coupon, tournament closed) — show it so the
-        // player knows what to fix instead of a generic "check your input".
-        const message = e.code === 'VALIDATION_ERROR'
-          ? (e.message || FRIENDLY[e.code]!)
-          : (FRIENDLY[e.code] ?? e.message ?? 'Could not join right now.');
+        // Always prefer the server's message. Mapping every FORBIDDEN to
+        // "Only the team captain…" hid the real reasons (unverified email,
+        // inactive account, team changed) behind a lie.
+        const message = e.message || FRIENDLY[e.code] || 'Could not join right now.';
         setError(message);
       } else {
         setError('Could not reach the server. Please try again.');

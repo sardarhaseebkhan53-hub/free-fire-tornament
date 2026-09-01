@@ -78,11 +78,21 @@ describe('join — race safety', () => {
     await rejectsWithCode(() => joinFF(u.id, t), 'TOURNAMENT_CLOSED');
   });
 
-  it('refuses an unverified or inactive account', async () => {
+  it('refuses an inactive account', async () => {
+    const t = await makeTournament({ entryFee: 50 });
+    const inactive = await makeUser({ cash: 500 });
+    created.push(inactive.id);
+    await db.user.update({ where: { id: inactive.id }, data: { status: 'SUSPENDED' } });
+    await rejectsWithCode(() => joinTournament(inactive.id, { tournamentSlug: t.slug }, ctxIp), 'FORBIDDEN');
+  });
+
+  it('lets an unverified player join — email confirmation never gates a paid entry', async () => {
     const t = await makeTournament({ entryFee: 50 });
     const unverified = await makeUser({ cash: 500, verified: false });
     created.push(unverified.id);
-    await rejectsWithCode(() => joinTournament(unverified.id, { tournamentSlug: t.slug }, ctxIp), 'FORBIDDEN');
+    const out = await joinTournament(unverified.id, { tournamentSlug: t.slug }, ctxIp);
+    expect(out.registeredPlayers).toBe(1);
+    expect((await walletOf(unverified.id)).cash).toBe(450);
   });
 
   it('never trusts a client-supplied entry fee', async () => {

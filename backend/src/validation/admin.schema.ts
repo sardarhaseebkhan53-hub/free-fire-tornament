@@ -30,6 +30,23 @@ const pageSchema = { page: z.coerce.number().int().min(1).default(1), pageSize: 
 
 export const userListQuerySchema = z.object({ q: z.string().trim().max(64).optional(), status: z.enum(['ACTIVE', 'SUSPENDED', 'BANNED', 'PENDING_VERIFICATION']).optional(), ...pageSchema });
 
+const TOURNAMENT_LIST_STATUSES = ['DRAFT', 'REGISTRATION_OPEN', 'LIVE', 'COMPLETED', 'CANCELLED'] as const;
+
+/** Admin tournament list — must NOT reuse userListQuerySchema: that schema's
+ * `status` enum is account states (ACTIVE/BANNED/…), so a leftover `?status=`
+ * from another admin page (or a tournament status filter) 400'd the list.
+ * Unknown / empty status values are dropped rather than rejected so a shared
+ * `?status=` from Users / Deposits cannot take the calendar down. */
+export const tournamentListQuerySchema = z.object({
+  q: z.string().trim().max(64).optional(),
+  status: z.preprocess((v) => {
+    const s = Array.isArray(v) ? v[0] : v;
+    if (typeof s !== 'string' || s === '') return undefined;
+    return (TOURNAMENT_LIST_STATUSES as readonly string[]).includes(s) ? s : undefined;
+  }, z.enum(TOURNAMENT_LIST_STATUSES).optional()),
+  ...pageSchema,
+});
+
 export const userStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'SUSPENDED', 'BANNED']),
   reason: z.string().trim().max(200).optional().default(''),

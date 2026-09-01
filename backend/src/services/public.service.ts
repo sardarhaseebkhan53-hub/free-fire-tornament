@@ -6,7 +6,7 @@
 import { Prisma } from '../../generated/prisma';
 import { prisma } from '../lib/prisma';
 import { notFound } from '../lib/errors';
-import { getSetting } from './settings.service';
+import { getFlag, getSetting } from './settings.service';
 import { rankFor, rankCatalog } from '../lib/rank';
 import { normalizePlacementTable } from '../lib/scoring';
 import { ROOM_FLAG_SELECT, roomStateFor, globalRoomReleaseMinutes } from './room.service';
