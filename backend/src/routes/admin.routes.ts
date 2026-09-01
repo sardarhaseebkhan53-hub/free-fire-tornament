@@ -14,7 +14,7 @@ import {
   slotClearSchema, slotLockSchema, ticketListQuerySchema,
   ticketReplySchema, tournamentStatusSchema, upsertSeoSchema, userListQuerySchema, checkInWindowSchema,
   userStatusSchema, blogStatusSchema, paymentAccountSchema, paymentAccountToggleSchema,
-  tournamentRoomSchema, tournamentRoomStatusSchema,
+  tournamentListQuerySchema, tournamentRoomSchema, tournamentRoomStatusSchema,
 } from '../validation/admin.schema';
 import { listFraudAlerts, reviewFraudAlert } from '../services/fraud.service';
 import { adminWriteLimiter } from '../middleware/rateLimit';
@@ -86,7 +86,7 @@ adminRouter.delete('/users/:id', adminWriteLimiter, async (req, res) => {
 
 // Tournaments + builder
 adminRouter.get('/tournaments', async (req, res) => {
-  const q = userListQuerySchema.partial({ q: true, status: true }).parse(req.query);
+  const q = tournamentListQuerySchema.parse(req.query);
   return ok(res, await listTournamentsAdmin({ page: q.page, pageSize: q.pageSize }));
 });
 adminRouter.post('/tournaments', async (req, res) => {

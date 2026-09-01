@@ -6,7 +6,7 @@
 // pin the safe-URL policy used by admin-storeable links.
 // =============================================================================
 import { describe, expect, it } from 'vitest';
-import { createAdSchema, safeUrl } from '../../src/validation/admin.schema';
+import { createAdSchema, safeUrl, tournamentListQuerySchema, userListQuerySchema } from '../../src/validation/admin.schema';
 
 describe('safeUrl', () => {
   it('accepts http and https links', () => {
@@ -64,5 +64,23 @@ describe('createAdSchema', () => {
   it('refuses an unknown placement and an empty name', () => {
     expect(createAdSchema.safeParse({ placement: 'SIDEWALK', name: 'x' }).success).toBe(false);
     expect(createAdSchema.safeParse({ placement: 'HEADER', name: '' }).success).toBe(false);
+  });
+});
+
+describe('tournamentListQuerySchema', () => {
+  it('parses an empty query and a pageSize-only query (winners/slots/results)', () => {
+    expect(tournamentListQuerySchema.parse({})).toEqual({ page: 1, pageSize: 20 });
+    expect(tournamentListQuerySchema.parse({ pageSize: '50' })).toEqual({ page: 1, pageSize: 50 });
+  });
+
+  it('accepts a tournament status and drops leftover user/deposit statuses', () => {
+    expect(tournamentListQuerySchema.parse({ status: 'REGISTRATION_OPEN' }).status).toBe('REGISTRATION_OPEN');
+    expect(tournamentListQuerySchema.parse({ status: 'PENDING' }).status).toBeUndefined();
+    expect(tournamentListQuerySchema.parse({ status: 'ACTIVE' }).status).toBeUndefined();
+  });
+
+  it('documents why the user-list schema must not gate this endpoint', () => {
+    expect(userListQuerySchema.safeParse({ status: 'REGISTRATION_OPEN' }).success).toBe(false);
+    expect(userListQuerySchema.safeParse({ status: 'PENDING' }).success).toBe(false);
   });
 });
