@@ -15,6 +15,14 @@ const ITEMS = [
 
 export function BottomNav() {
   const pathname = usePathname();
+
+  // The bottom app navigation must not cover the registration/login form on
+  // small screens. Auth pages have their own focused flow and are not part of
+  // the signed-in app shell.
+  if (pathname === '/login' || pathname === '/register' || pathname.startsWith('/forgot-password') || pathname.startsWith('/reset-password') || pathname.startsWith('/verify-email')) {
+    return null;
+  }
+
   return (
     <nav
       aria-label="Bottom navigation"

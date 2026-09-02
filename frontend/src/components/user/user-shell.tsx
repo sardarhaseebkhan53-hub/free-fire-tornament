@@ -185,13 +185,9 @@ export function UserShell({ children }: { children: React.ReactNode }) {
               Premium Free Fire Esports
             </span>
           </Link>
-          <button
-            className="relative flex h-9 w-9 items-center justify-center rounded-input text-fg-2 transition hover:text-fg"
-            title="Notifications — coming soon"
-            disabled
-          >
-            <Bell size={18} />
-          </button>
+          <div className="relative flex h-9 w-9 items-center justify-center">
+            <NotificationsBell />
+          </div>
         </header>
 
         {/* Mobile drawer — design 42 */}
@@ -206,6 +202,10 @@ export function UserShell({ children }: { children: React.ReactNode }) {
                 >
                   <X size={15} />
                 </button>
+              </div>
+              <div className="mx-3 mb-4 rounded-card border border-line bg-white/[3%] p-3">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-fg-3">Notifications</div>
+                <NotificationsBell />
               </div>
               {navList}
               <div className="mt-auto pt-4">{profileCard}</div>

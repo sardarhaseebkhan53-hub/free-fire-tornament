@@ -562,7 +562,7 @@ async function runJoin(
         data: {
           userId: pid, type: 'TOURNAMENT_JOINED',
           title: `You joined ${t.title}`,
-          body: `Entry ${currency} ${payable} deducted. Your ${independentTeam ? 'standalone ' : teamSize > 1 ? 'team ' : ''}seat is #${seatNumber}. Room details unlock 30 minutes before start — see My Matches.`,
+          body: `Entry ${currency} ${payable} deducted. Your ${independentTeam ? 'standalone ' : teamSize > 1 ? 'team ' : ''}seat is #${seatNumber}. Room ID and password unlock 5 minutes before start — see My Matches.`,
           data: { tournamentId: t.id, slug: t.slug, seatNumber },
         },
       });
