@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { money, slotLabel } from '@/lib/format';
 import { api, ApiClientError } from '@/lib/client-api';
+import { useToast } from '@/components/toast';
 
 const FRIENDLY: Record<string, string> = {
   INSUFFICIENT_BALANCE: 'Not enough PKR balance — you or a team member needs to add money first.',
@@ -43,6 +44,7 @@ export function JoinTournament({
   allowIndependentSquad?: boolean;
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [stage, setStage] = useState<'idle' | 'confirm' | 'busy' | 'done'>('idle');
   const [coupon, setCoupon] = useState('');
   const [teams, setTeams] = useState<MyTeam[] | null>(null);
@@ -185,6 +187,11 @@ export function JoinTournament({
         match: out.match,
       });
       setStage('done');
+      toast({
+        title: 'Tournament joined successfully',
+        description: 'Your seat is confirmed. Room ID and password will appear in My Matches 5 minutes before the match starts.',
+        tone: 'success',
+      });
     } catch (e) {
       if (e instanceof ApiClientError && e.status === 401) {
         router.push(`/login?next=/tournaments/${slug}`);
@@ -221,7 +228,7 @@ export function JoinTournament({
               {' · '}
             </>
           )}
-          Room details unlock 30 minutes before start — see{' '}
+          Room ID and password unlock 5 minutes before start — see{' '}
           <a href="/matches" className="font-semibold text-accent">My Matches</a>
           {receipt.balance ? ` · PKR balance now ${money(receipt.balance)}` : ''}.
         </p>

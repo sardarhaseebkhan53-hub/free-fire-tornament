@@ -47,7 +47,10 @@ export async function createMatch(input: CreateMatchInput, adminId?: string, ctx
   });
   if (existing) throw badRequest('VALIDATION_ERROR', `Match #${input.matchNumber} already exists for this tournament.`);
 
-  const defaultReleaseMin = await getSetting('tournament.roomCredentialsReleaseMinutesBeforeStart', 30);
+  // Keep match creation aligned with the room service and the public product
+  // rule: credentials unlock five minutes before start unless an admin sets a
+  // different value in the panel.
+  const defaultReleaseMin = await getSetting('tournament.roomReleaseMinutes', 5);
   const releaseMin = input.releaseMinutesBeforeStart ?? defaultReleaseMin;
 
   const match = await moneyTx(async (tx) => {

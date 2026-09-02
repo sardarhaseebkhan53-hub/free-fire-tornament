@@ -35,7 +35,7 @@ export const MODES: ModeConfig[] = [
     prizeNote: 'Typical solo prize split: 1st ₨10,000 · 2nd ₨6,000 · 3rd ₨4,000 · per kill ₨30 (varies per tournament — always shown before you join).',
     faqs: [
       { question: 'How do I join a solo Free Fire tournament?', answer: 'Pick an open solo tournament, check the entry fee and prize split, then tap Join — the entry fee is debited from your wallet instantly and your slot is locked.' },
-      { question: 'When do I get the room ID and password?', answer: 'Room credentials unlock automatically inside My Matches at the release time shown on your match card — usually 30 minutes before start, and only for registered players.' },
+      { question: 'When do I get the room ID and password?', answer: 'Room credentials unlock automatically inside My Matches at the release time shown on your match card — usually 5 minutes before start, and only for registered players.' },
       { question: 'How are solo prizes paid?', answer: 'After admins verify results, placement prizes and per-kill points are credited straight to your winning balance — one-time-guarded so nothing is ever paid twice.' },
     ],
   },
