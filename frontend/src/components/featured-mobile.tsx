@@ -46,17 +46,9 @@ function Boxes({ targetMs }: { targetMs: number }) {
   );
 }
 
-export function FeaturedMobile({ t }: { t: FeaturedTournament }) {
+function FeaturedMobileCard({ t }: { t: FeaturedTournament }) {
   const fillPct = Math.min(100, Math.round((t.registeredSlots / t.maxSlots) * 100));
   return (
-    <section className="px-4 pt-6 lg:hidden">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="flex items-center gap-2 font-display text-sm font-bold uppercase tracking-wide text-fg">
-          <Crown size={16} className="text-reward" /> Featured Tournament
-        </p>
-        <Link href="/tournaments" className="-m-1.5 px-1.5 py-1.5 text-xs font-semibold text-fg-3 transition hover:text-accent active:scale-95">view all</Link>
-      </div>
-
       <Link href={`/tournaments/${t.slug}`} className="glass card-hover block overflow-hidden rounded-card">
         <div className="flex gap-4 p-4">
           <TournamentImage
@@ -100,6 +92,36 @@ export function FeaturedMobile({ t }: { t: FeaturedTournament }) {
           <Boxes targetMs={t.startsInMs} />
         </div>
       </Link>
+  );
+}
+
+/**
+ * Mobile featured tournaments — one section header, then every featured card
+ * stacked. This is what phones see instead of the desktop grid (which is
+ * `hidden lg:block` on the home page), so a tournament created by an admin
+ * shows up here immediately for mobile players to register.
+ */
+export function FeaturedMobile({ items }: { items: FeaturedTournament[] }) {
+  return (
+    <section className="px-4 pt-6 lg:hidden">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="flex items-center gap-2 font-display text-sm font-bold uppercase tracking-wide text-fg">
+          <Crown size={16} className="text-reward" /> Featured Tournaments
+        </p>
+        <Link href="/tournaments" className="-m-1.5 px-1.5 py-1.5 text-xs font-semibold text-fg-3 transition hover:text-accent active:scale-95">view all</Link>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="space-y-4">
+          {items.map((t) => (
+            <FeaturedMobileCard key={t.slug} t={t} />
+          ))}
+        </div>
+      ) : (
+        <p className="glass rounded-card px-6 py-8 text-center text-sm text-fg-2">
+          New tournaments are being scheduled — check back soon.
+        </p>
+      )}
     </section>
   );
 }

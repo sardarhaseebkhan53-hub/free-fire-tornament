@@ -11,7 +11,7 @@
 //
 // The version constant busts the whole cache on every deploy.
 // =============================================================================
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = `clutchnex-${VERSION}`;
 const PRECACHE = [
   '/offline',

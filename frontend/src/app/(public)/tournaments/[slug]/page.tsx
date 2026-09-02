@@ -109,11 +109,49 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         </div>
       </div>
 
+      {/* Register (mobile) — pinned right under the header so nobody has to
+          scroll past economics, prizes and the whole lobby to find the join
+          button. Desktop keeps the sidebar card. */}
+      {t.registrationOpen && (
+        <div className="mt-6 lg:hidden">
+          <div className="glass rounded-card p-5">
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between"><dt className="text-fg-2">Entry / player</dt><dd className="tabular font-semibold text-fg">{money(t.entryFeePerPlayer)}</dd></div>
+              {t.teamSize > 1 && <div className="flex justify-between"><dt className="text-fg-2">Entry / team ({t.teamSize})</dt><dd className="tabular font-semibold text-fg">{money(t.entryFeePerTeam)}</dd></div>}
+              <div className="flex justify-between"><dt className="text-fg-2">Prize pool</dt><dd className="tabular font-semibold text-reward">{money(t.prizePool)}</dd></div>
+              <div className="flex justify-between"><dt className="text-fg-2">Seats left</dt><dd className={`tabular font-semibold ${t.slotsLeft > 0 ? 'text-success' : 'text-danger'}`}>{t.slotsLeft > 0 ? t.slotsLeft : 'FULL'}</dd></div>
+            </dl>
+            <div className="mt-4">
+              <JoinTournament
+                slug={t.slug}
+                type={t.type}
+                entryPerPlayer={Number(t.entryFeePerPlayer)}
+                entryPerTeam={t.entryFeePerTeam}
+                teamSize={t.teamSize}
+                registrationOpen={t.registrationOpen}
+                slotsLeft={t.slotsLeft}
+                maxSlots={t.maxSlots}
+                allowIndependentDuo={t.allowIndependentDuo}
+                allowIndependentSquad={t.allowIndependentSquad}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       <AdSlot placement="TOURNAMENT_PAGE" className="mt-8" />
 
       <Reveal><div className="mt-8 grid gap-8 lg:grid-cols-[1fr_360px]">
         {/* Main column */}
         <div className="space-y-8">
+          {/* Custom room — first thing a seat holder sees, instead of being
+              buried below the prize tables. Hidden until the release window,
+              and only ever for a confirmed seat: this card holds no value the
+              API did not send it. */}
+          <Reveal>
+            <TournamentRoomCard slug={t.slug} />
+          </Reveal>
+
           {t.description && <p className="text-sm leading-relaxed text-fg-2">{t.description}</p>}
 
           {/* Financial transparency — §68 */}
@@ -199,12 +237,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             </div>
           </section>
 
-          {/* Custom room — hidden until the release window, and only ever for a
-              confirmed seat: this card holds no value the API did not send it. */}
-          <Reveal>
-            <TournamentRoomCard slug={t.slug} />
-          </Reveal>
-
           {/* Participants — numeric Free Fire-style seat board */}
           <section className="glass rounded-card p-6">
             <div className="flex flex-wrap items-end justify-between gap-3">
@@ -257,6 +289,23 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         <aside className="space-y-4">
           <AdSlot placement="SIDEBAR" />
           <div className="glass rounded-card p-5">
+            {/* Join first, details second — the CTA should never hide below the fold. */}
+            {t.registrationOpen && (
+              <div className="mb-5 hidden lg:block">
+                <JoinTournament
+                  slug={t.slug}
+                  type={t.type}
+                  entryPerPlayer={Number(t.entryFeePerPlayer)}
+                  entryPerTeam={t.entryFeePerTeam}
+                  teamSize={t.teamSize}
+                  registrationOpen={t.registrationOpen}
+                  slotsLeft={t.slotsLeft}
+                  maxSlots={t.maxSlots}
+                  allowIndependentDuo={t.allowIndependentDuo}
+                  allowIndependentSquad={t.allowIndependentSquad}
+                />
+              </div>
+            )}
             <h3 className="text-xs font-bold tracking-[0.15em] uppercase text-fg-3">Summary</h3>
             <dl className="mt-3 space-y-2.5 text-sm">
               <div className="flex justify-between"><dt className="text-fg-2">Entry / player</dt><dd className="tabular font-semibold text-fg">{money(t.entryFeePerPlayer)}</dd></div>
@@ -268,20 +317,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               <div className="flex justify-between"><dt className="text-fg-2">Points / kill</dt><dd className="tabular font-semibold text-fg">{t.pointsPerKill}</dd></div>
               <div className="flex justify-between"><dt className="text-fg-2">Refund on cancel</dt><dd className="tabular font-semibold text-success">{Number(t.refundPercent)}%</dd></div>
             </dl>
-            <div className="mt-5">
-              <JoinTournament
-                slug={t.slug}
-                type={t.type}
-                entryPerPlayer={Number(t.entryFeePerPlayer)}
-                entryPerTeam={t.entryFeePerTeam}
-                teamSize={t.teamSize}
-                registrationOpen={t.registrationOpen}
-                slotsLeft={t.slotsLeft}
-                maxSlots={t.maxSlots}
-                allowIndependentDuo={t.allowIndependentDuo}
-                allowIndependentSquad={t.allowIndependentSquad}
-              />
-            </div>
           </div>
 
           {t.rules && (

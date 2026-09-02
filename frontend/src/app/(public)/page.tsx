@@ -10,6 +10,7 @@ import type { Faq, HomeStats, LeaderboardEntry, TournamentSummary, WinnerRow } f
 import { money, MODE_LABEL } from '@/lib/format';
 import { SectionHeading, Avatar } from '@/components/ui';
 import { TournamentCard } from '@/components/tournament-card';
+import { FeaturedMobile } from '@/components/featured-mobile';
 import { FaqList } from '@/components/faq-list';
 import { HomeHero } from '@/components/home-hero';
 import { Reveal } from '@/components/reveal';
@@ -92,6 +93,23 @@ export default async function HomePage() {
         }))}
       />
 
+
+      {/* FEATURED TOURNAMENTS (mobile — design-41 cards). The desktop grid below
+          is `hidden lg:block`, so without this section phones never see newly
+          created tournaments at all. */}
+      <FeaturedMobile
+        items={featured.map((t) => ({
+          slug: t.slug,
+          title: t.title,
+          type: t.type,
+          entryFeePerPlayer: Number(t.entryFeePerPlayer),
+          prizePool: Number(t.prizePool),
+          registeredSlots: t.registeredSlots,
+          maxSlots: t.maxSlots,
+          startsInMs: t.startsInMs,
+          banner: t.banner,
+        }))}
+      />
 
       {/* FEATURED TOURNAMENTS (desktop — design 01; mobile uses the design-41 card) */}
       <section className="mx-auto hidden max-w-7xl px-4 py-14 sm:px-6 lg:block">
