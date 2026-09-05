@@ -134,7 +134,25 @@ export function JoinTournament({
     if (!token) return router.push(`/login?next=/tournaments/${slug}`);
     setNeedsLogin(false);
     setError(null);
-    setStage('confirm');
+    // Profile gate — the Free Fire player profile (UID + in-game name + phone)
+    // must be complete before registration, whatever the sign-in method was.
+    // The backend re-checks everything at join time; this is the friendly
+    // redirect to the completion screen instead of a failed payment attempt.
+    api<{ profileComplete: boolean }>('/auth/me')
+      .then((me) => {
+        if (!me.profileComplete) {
+          router.push(`/complete-profile?next=/tournaments/${slug}`);
+          return;
+        }
+        setStage('confirm');
+      })
+      .catch((e: unknown) => {
+        if (e instanceof ApiClientError && e.status === 401) {
+          router.push(`/login?next=/tournaments/${slug}`);
+        } else {
+          setStage('confirm'); // best-effort: the join API enforces the gate too
+        }
+      });
   }
 
   async function confirm() {
@@ -195,6 +213,12 @@ export function JoinTournament({
     } catch (e) {
       if (e instanceof ApiClientError && e.status === 401) {
         router.push(`/login?next=/tournaments/${slug}`);
+        return;
+      }
+      if (e instanceof ApiClientError && e.code === 'PROFILE_INCOMPLETE') {
+        // Server says the Free Fire profile is incomplete — route to fix it,
+        // then come straight back here. No entry fee was charged.
+        router.push(`/complete-profile?next=/tournaments/${slug}`);
         return;
       }
       if (e instanceof ApiClientError) {

@@ -116,6 +116,9 @@ enum TournamentType {
   CLASH_SQUAD
   LONE_WOLF
   CLASH_SQUAD_1V1
+  /// Admin-defined format: players-per-team and team count are configured per
+  /// event (capacity = playersPerTeam × teams). Never hard-coded to any number.
+  CUSTOM
 }
 
 enum TournamentStatus {
@@ -336,7 +339,12 @@ model User {
   username     String     @unique
   email        String     @unique
   phone        String?    @unique
-  passwordHash String
+  /// NULL for social-only accounts (Google / Microsoft / Apple) — those never
+  /// have a local password; their identity comes from the linked OAuthAccount.
+  passwordHash String?
+  /// How the account was created / primarily signs in: PASSWORD, GOOGLE,
+  /// MICROSOFT or APPLE. Linked identities live in `oauthAccounts`.
+  authProvider String     @default("PASSWORD")
   role         Role       @default(USER)
   avatar       String?
   // Accounts are ACTIVE the moment registration succeeds (automatic activation).
@@ -360,6 +368,7 @@ model User {
   deletedAt   DateTime? // soft delete/archive — keeps the financial ledger intact
 
   profile                 UserProfile?
+  oauthAccounts           OauthAccount[]
   wallet                  Wallet?
   transactions            WalletTransaction[]
   deposits                Deposit[]
@@ -414,6 +423,32 @@ model UserProfile {
 
   @@index([freeFireUID])
   @@map("user_profiles")
+}
+
+/// Linked social-login identities (Google / Microsoft / Apple).
+///
+/// One user account may hold several identities (e.g. password + Google +
+/// Apple) — they all resolve to the SAME User row, so signing in through any
+/// provider never creates a duplicate account. The (provider, providerAccountId)
+/// pair is globally unique; matching an incoming provider subject to an existing
+/// email links the identity instead of creating a second user.
+model OauthAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// GOOGLE | MICROSOFT | APPLE
+  provider          String
+  /// The provider's stable subject claim (Google `sub`, Microsoft `oid`, Apple `sub`).
+  providerAccountId String
+  /// Email the provider reported at link time (informational; the authoritative
+  /// contact stays on the User row).
+  email             String?
+  createdAt         DateTime @default(now())
+  lastUsedAt        DateTime @default(now())
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("oauth_accounts")
 }
 
 /// Refresh tokens + email-verification + password-reset tokens (stored hashed).
@@ -596,9 +631,16 @@ model Tournament {
   platformFee       Decimal @default(0) @db.Decimal(14, 2) // platform/service fee
   bonusPercent      Decimal @default(0) @db.Decimal(10, 2) // bonus credited on join (from BONUS pool rules)
 
-  // Slots — counted in teams for DUO/SQUAD/CLASH_SQUAD, players for SOLO.
+  // Slots — counted in teams for team-based modes, players for solo-style
+  // modes. NEVER a universal fixed number: total player capacity is always
+  // maxSlots × playersPerTeam (see lib/capacity.ts).
   maxSlots        Int
   registeredSlots Int     @default(0)
+  /// Players per team/group: 1 for solo-style modes, 2 DUO, 4 SQUAD/CLASH_SQUAD,
+  /// admin-configured (1–8) for CUSTOM. Total player capacity = maxSlots × this.
+  playersPerTeam  Int     @default(1)
+  /// Optional admin label describing the CUSTOM format (e.g. "3v3 Custom Room").
+  customLabel     String?
   minSlotsToStart Int?
   numWinners      Int     @default(3)
   refundPercent   Decimal @default(100) @db.Decimal(5, 2) // refund share if cancelled

@@ -13,6 +13,7 @@ import { moveBalance, TX_OPTS } from './wallet.service';
 import type { Bucket } from './wallet.service';
 import { syncTournamentParticipants } from './match.service';
 import { roomCreateColumns, roomStates, ROOM_FLAG_SELECT } from './room.service';
+import { capacityOf, playersPerTeamFor, type TournamentTypeLike } from '../lib/capacity';
 
 const num = (d: unknown) => Math.round(Number(d ?? 0) * 100) / 100;
 const pageOf = (p: number) => (Math.max(1, p) - 1);
@@ -351,6 +352,49 @@ export async function updateTournamentScoring(
   return { id, ...input };
 }
 
+/**
+ * Admin edit-panel view of one tournament: every editable field plus the live
+ * registration counts the capacity guards reason about. Room CREDENTIALS are
+ * deliberately excluded — the room panel owns those (GET /tournaments/:id/room).
+ */
+export async function getTournamentAdmin(id: string) {
+  const t = await prisma.tournament.findUnique({
+    where: { id },
+    select: {
+      id: true, title: true, slug: true, type: true, description: true, map: true,
+      status: true, banner: true, rules: true, isFeatured: true,
+      entryFeePerPlayer: true, prizePool: true, maxSlots: true, registeredSlots: true,
+      playersPerTeam: true, customLabel: true, minSlotsToStart: true, numWinners: true,
+      refundPercent: true, pointsPerKill: true, startTime: true, registrationDeadline: true,
+      deletedAt: true,
+    },
+  });
+  if (!t || t.deletedAt) throw badRequest('NOT_FOUND', 'Tournament not found');
+
+  const confirmedPlayers = await prisma.tournamentRegistration.count({
+    where: { tournamentId: id, status: 'CONFIRMED' },
+  });
+  const seatsInUse = await prisma.tournamentRegistration.findMany({
+    where: { tournamentId: id, status: 'CONFIRMED', seatNumber: { not: null } },
+    select: { seatNumber: true },
+    distinct: ['seatNumber'],
+  });
+
+  const cap = capacityOf({ type: t.type as TournamentTypeLike, maxSlots: t.maxSlots, playersPerTeam: t.playersPerTeam });
+  return {
+    ...t,
+    entryFeePerPlayer: num(t.entryFeePerPlayer),
+    prizePool: num(t.prizePool),
+    refundPercent: num(t.refundPercent),
+    playersPerTeam: cap.playersPerTeam,
+    capacityUnit: cap.slotUnit,
+    totalPlayerCapacity: cap.totalPlayers,
+    teamMode: cap.teamMode,
+    confirmedPlayers,
+    confirmedSeats: seatsInUse.length,
+  };
+}
+
 export async function listTournamentsAdmin(filter: { page: number; pageSize: number }) {
   const where: Prisma.TournamentWhereInput = { deletedAt: null };
   const [rows, total] = await Promise.all([
@@ -361,7 +405,7 @@ export async function listTournamentsAdmin(filter: { page: number; pageSize: num
       take: filter.pageSize,
       select: {
         id: true, title: true, slug: true, type: true, status: true, isFeatured: true,
-        entryFeePerPlayer: true, prizePool: true, maxSlots: true, registeredSlots: true,
+        entryFeePerPlayer: true, prizePool: true, maxSlots: true, registeredSlots: true, playersPerTeam: true, customLabel: true,
         startTime: true, createdAt: true,
         // Room STATE for the list's status pill. `ROOM_FLAG_SELECT` deliberately excludes
         // the password column: an admin table is a bad place to print a live credential to
@@ -377,27 +421,38 @@ export async function listTournamentsAdmin(filter: { page: number; pageSize: num
   const rooms = await roomStates(rows);
 
   return {
-    items: rows.map(({ room: _roomRow, ...t }) => ({
-      // The raw room row is dropped rather than spread: `roomStates` already turned it into
-      // the derived, credential-free view below, and this map is a `{ ...t }` — the exact
-      // shape a leak travels through. Same discipline as the public detail response.
-      ...t,
-      entryFeePerPlayer: num(t.entryFeePerPlayer),
-      prizePool: num(t.prizePool),
-      room: rooms.get(t.id) ?? null,
-    })),
+    items: rows.map(({ room: _roomRow, ...t }) => {
+      const cap = capacityOf({ type: t.type as TournamentTypeLike, maxSlots: t.maxSlots, playersPerTeam: t.playersPerTeam });
+      return {
+        // The raw room row is dropped rather than spread: `roomStates` already turned it into
+        // the derived, credential-free view below, and this map is a `{ ...t }` — the exact
+        // shape a leak travels through. Same discipline as the public detail response.
+        ...t,
+        entryFeePerPlayer: num(t.entryFeePerPlayer),
+        prizePool: num(t.prizePool),
+        capacityUnit: cap.slotUnit,
+        playersPerTeam: cap.playersPerTeam,
+        totalPlayerCapacity: cap.totalPlayers,
+        room: rooms.get(t.id) ?? null,
+      };
+    }),
     page: filter.page, pageSize: filter.pageSize, total,
   };
 }
 
 export interface BuilderInput {
   title: string;
-  type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1';
+  type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1' | 'CUSTOM';
   description?: string;
   map?: string;
   startTime: Date | string;
   registrationDeadline: Date | string;
+  /** Seat count: teams for team modes, players for solo-style modes. */
   maxSlots: number;
+  /** CUSTOM only: players per team (1–8). Built-in modes pin their own size. */
+  playersPerTeam?: number;
+  /** Optional label for CUSTOM formats (e.g. "3v3 Custom Room"). */
+  customLabel?: string;
   minSlotsToStart: number;
   entryFeePerPlayer: number;
   pointsPerKill: number;
@@ -429,11 +484,18 @@ export async function createTournament(adminId: string, input: BuilderInput, ctx
   // cost an admin the event they just configured, and the create path shares room.service's
   // patterns with the edit panel so the two can never disagree about what is acceptable.
   const room = roomCreateColumns(input.room ?? {});
-  const slots = input.maxSlots; // slots are player/team-wide per mode
+  const slots = input.maxSlots; // seats: teams for team modes, players for solo-style
+  // Dynamic structure — never a fixed number. CUSTOM keeps the admin's players
+  // per team; every built-in mode is pinned to its real Free Fire team size.
+  const playersPerTeam = playersPerTeamFor(input.type, input.playersPerTeam);
+  if (input.type === 'CUSTOM' && slots * playersPerTeam > 2000) {
+    throw badRequest('VALIDATION_ERROR', 'Total player capacity (teams × players per team) cannot exceed 2000.');
+  }
   const economics = await computeEconomics({
     type: input.type,
     entryFeePerPlayer: input.entryFeePerPlayer,
     slots,
+    playersPerTeam,
     prizes: input.prizes,
   });
 
@@ -465,6 +527,8 @@ export async function createTournament(adminId: string, input: BuilderInput, ctx
           input.prizes.reduce((sum, p) => sum + Number(p.amount || 0), 0),
         ),
         maxSlots: input.maxSlots,
+        playersPerTeam,
+        customLabel: input.type === 'CUSTOM' ? (input.customLabel?.trim() || null) : null,
         minSlotsToStart: input.minSlotsToStart,
         numWinners: input.numWinners,
         pointsPerKill: input.pointsPerKill,
@@ -514,7 +578,7 @@ export async function createTournament(adminId: string, input: BuilderInput, ctx
       data: {
         actorId: adminId, action: 'TOURNAMENT_CREATED', entity: 'Tournament', entityId: row.id,
         after: {
-          title: input.title, slug, publish: !!input.publish, economics: { ...economics },
+          title: input.title, slug, publish: !!input.publish, structure: { maxSlots: slots, playersPerTeam, totalPlayers: slots * playersPerTeam }, economics: { ...economics },
           placementPoints, bonusPoints: input.bonusPoints ?? 0, penaltyPoints: input.penaltyPoints ?? 0,
           matchNumber: input.matchNumber ?? null, banner: input.banner || null,
           // The Room ID belongs in the record (it identifies the room later); the password
@@ -531,6 +595,175 @@ export async function createTournament(adminId: string, input: BuilderInput, ctx
   if (input.publish) await announceTournament(tournament.id, input.title, tournament.slug, input.type, input.entryFeePerPlayer, input.startTime);
 
   return { id: tournament.id, slug: tournament.slug, status: tournament.status, economics };
+}
+
+export interface TournamentUpdateInput {
+  title?: string;
+  description?: string | null;
+  map?: string | null;
+  startTime?: Date;
+  registrationDeadline?: Date;
+  /** Team/group count — becomes the seat column for team-based formats. */
+  teamCount?: number;
+  /** CUSTOM only: players per team. Frozen once seats are sold. */
+  playersPerTeam?: number;
+  customLabel?: string | null;
+  minSlotsToStart?: number;
+  entryFeePerPlayer?: number;
+  numWinners?: number;
+  refundPercent?: number;
+  pointsPerKill?: number;
+  banner?: string | null;
+  rules?: string | null;
+}
+
+/**
+ * Tournament edit — recalculates capacity SAFELY:
+ *   • capacity can never drop below the seats/players already registered
+ *     (the API answers CAPACITY_BELOW_REGISTRATIONS so the panel can show the
+ *     exact warning instead of destroying entries),
+ *   • the format (players per team) is frozen once seats are sold,
+ *   • finished/cancelled events are immutable,
+ *   • registrations are never deleted by an edit.
+ */
+export async function updateTournament(
+  adminId: string,
+  id: string,
+  input: TournamentUpdateInput,
+  ctx: { ip?: string },
+) {
+  const t = await prisma.tournament.findUnique({ where: { id } });
+  if (!t || t.deletedAt) throw badRequest('NOT_FOUND', 'Tournament not found');
+  if (['COMPLETED', 'CANCELLED'].includes(t.status)) {
+    throw conflict('CONFLICT', `A ${t.status.toLowerCase()} tournament can no longer be edited.`);
+  }
+
+  const confirmedPlayers = await prisma.tournamentRegistration.count({
+    where: { tournamentId: id, status: 'CONFIRMED' },
+  });
+  // Highest seat number in use — the hard floor for any capacity reduction.
+  const seatsInUse = await prisma.tournamentRegistration.findMany({
+    where: { tournamentId: id, status: 'CONFIRMED', seatNumber: { not: null } },
+    select: { seatNumber: true },
+    distinct: ['seatNumber'],
+  });
+  const maxSeatUsed = seatsInUse.reduce((m, r) => Math.max(m, r.seatNumber ?? 0), 0);
+
+  const data: Prisma.TournamentUpdateInput = {};
+  const before: Record<string, unknown> = {};
+  const after: Record<string, unknown> = {};
+  const note = (key: string, oldValue: unknown, newValue: unknown) => {
+    before[key] = oldValue ?? null;
+    after[key] = newValue ?? null;
+  };
+
+  // --- capacity (teamCount → seats) -----------------------------------------
+  if (input.teamCount !== undefined) {
+    if (t.status === 'LIVE') {
+      throw conflict('CONFLICT', 'Capacity cannot change while the tournament is live.');
+    }
+    const newSeats = input.teamCount;
+    const floor = Math.max(maxSeatUsed, confirmedPlayers > 0 ? 1 : 0);
+    if (newSeats < floor) {
+      // Master rule: never below the current registration count — the panel
+      // shows this as a warning before the admin can save.
+      throw badRequest(
+        'CAPACITY_BELOW_REGISTRATIONS',
+        `Capacity cannot be reduced below the current registration count (${floor} seat${floor === 1 ? '' : 's'} in use).`,
+      );
+    }
+    note('maxSlots', t.maxSlots, newSeats);
+    data.maxSlots = newSeats;
+  }
+
+  // --- players per team (CUSTOM format) --------------------------------------
+  if (input.playersPerTeam !== undefined) {
+    if (t.type !== 'CUSTOM') {
+      throw badRequest('VALIDATION_ERROR', 'Only CUSTOM tournaments can change their players-per-team size.');
+    }
+    if (confirmedPlayers > 0) {
+      throw conflict('CONFLICT', 'The format is frozen: registrations exist for this tournament. Cancel it to change the structure.');
+    }
+    note('playersPerTeam', t.playersPerTeam, input.playersPerTeam);
+    data.playersPerTeam = input.playersPerTeam;
+  }
+
+  if (input.customLabel !== undefined) {
+    note('customLabel', t.customLabel, input.customLabel);
+    data.customLabel = input.customLabel || null;
+  }
+
+  // --- informational + economy fields ----------------------------------------
+  if (input.title !== undefined) { note('title', t.title, input.title); data.title = input.title; }
+  if (input.description !== undefined) { note('description', t.description, input.description); data.description = input.description || null; }
+  if (input.map !== undefined) { note('map', t.map, input.map); data.map = input.map || null; }
+  if (input.banner !== undefined) { note('banner', t.banner, input.banner); data.banner = input.banner || null; }
+  if (input.rules !== undefined) { note('rules', t.rules, input.rules); data.rules = input.rules || null; }
+  if (input.minSlotsToStart !== undefined) { note('minSlotsToStart', t.minSlotsToStart, input.minSlotsToStart); data.minSlotsToStart = input.minSlotsToStart; }
+  if (input.numWinners !== undefined) { note('numWinners', t.numWinners, input.numWinners); data.numWinners = input.numWinners; }
+  if (input.refundPercent !== undefined) { note('refundPercent', t.refundPercent, input.refundPercent); data.refundPercent = new Prisma.Decimal(input.refundPercent); }
+  if (input.pointsPerKill !== undefined) { note('pointsPerKill', t.pointsPerKill, input.pointsPerKill); data.pointsPerKill = input.pointsPerKill; }
+  if (input.entryFeePerPlayer !== undefined) {
+    if (t.status !== 'DRAFT' && t.status !== 'REGISTRATION_OPEN') {
+      throw conflict('CONFLICT', 'The entry fee can only change before the tournament goes live.');
+    }
+    note('entryFeePerPlayer', Number(t.entryFeePerPlayer), input.entryFeePerPlayer);
+    data.entryFeePerPlayer = new Prisma.Decimal(input.entryFeePerPlayer);
+  }
+
+  // --- schedule ----------------------------------------------------------------
+  const nextStart = input.startTime ?? t.startTime;
+  const nextDeadline = input.registrationDeadline ?? t.registrationDeadline;
+  if (input.startTime !== undefined || input.registrationDeadline !== undefined) {
+    if (nextDeadline.getTime() > nextStart.getTime()) {
+      throw badRequest('VALIDATION_ERROR', 'Registration must close at or before the tournament start time.');
+    }
+    if (input.startTime !== undefined && t.status === 'REGISTRATION_OPEN' && input.startTime.getTime() <= Date.now()) {
+      throw badRequest('VALIDATION_ERROR', 'Start time must be in the future.');
+    }
+    if (input.startTime !== undefined) { note('startTime', t.startTime, input.startTime); data.startTime = input.startTime; }
+    if (input.registrationDeadline !== undefined) {
+      note('registrationDeadline', t.registrationDeadline, input.registrationDeadline);
+      data.registrationDeadline = input.registrationDeadline;
+    }
+  }
+  if (input.minSlotsToStart !== undefined) {
+    const nextSeats = input.teamCount ?? t.maxSlots;
+    if (input.minSlotsToStart > nextSeats) {
+      throw badRequest('VALIDATION_ERROR', 'Minimum slots to start cannot exceed max slots.');
+    }
+  }
+
+  if (Object.keys(data).length === 0) {
+    throw badRequest('VALIDATION_ERROR', 'Nothing to save — change a field first.');
+  }
+
+  const cap = capacityOf({
+    type: t.type as TournamentTypeLike,
+    maxSlots: (data.maxSlots as number | undefined) ?? t.maxSlots,
+    playersPerTeam: (data.playersPerTeam as number | undefined) ?? t.playersPerTeam,
+  });
+
+  await moneyTx(async (tx) => {
+    await tx.tournament.update({ where: { id }, data });
+    await tx.auditLog.create({
+      data: {
+        actorId: adminId, action: 'TOURNAMENT_UPDATED', entity: 'Tournament', entityId: id,
+        before: before as unknown as Prisma.InputJsonValue,
+        after: { ...after, structure: { totalPlayerCapacity: cap.totalPlayers, playersPerTeam: cap.playersPerTeam, seats: cap.seats } } as unknown as Prisma.InputJsonValue,
+        ip: ctx.ip,
+      },
+    });
+  });
+
+  return {
+    id,
+    maxSlots: cap.seats,
+    playersPerTeam: cap.playersPerTeam,
+    totalPlayerCapacity: cap.totalPlayers,
+    capacityUnit: cap.slotUnit,
+    confirmedPlayers,
+  };
 }
 
 /** "New tournament" broadcast — shared by create (publish) and status changes to REGISTRATION_OPEN. */

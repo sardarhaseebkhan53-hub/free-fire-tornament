@@ -66,14 +66,28 @@ export const prizeSchema = z.object({
   label: z.string().trim().max(40).optional(),
 });
 
+/** Solo-style modes where one slot is exactly one player. */
+const SOLO_STYLE_TYPES = ['SOLO', 'LONE_WOLF', 'CLASH_SQUAD_1V1'] as const;
+
 export const createTournamentSchema = z.object({
   title: z.string().trim().min(4).max(120),
-  type: z.enum(['SOLO', 'DUO', 'SQUAD', 'CLASH_SQUAD', 'LONE_WOLF', 'CLASH_SQUAD_1V1']),
+  type: z.enum(['SOLO', 'DUO', 'SQUAD', 'CLASH_SQUAD', 'LONE_WOLF', 'CLASH_SQUAD_1V1', 'CUSTOM']),
   description: z.string().trim().max(2000).optional().default(''),
   map: z.string().trim().max(40).optional().default(''),
   startTime: z.coerce.date(),
   registrationDeadline: z.coerce.date(),
-  maxSlots: z.coerce.number().int().min(2).max(500),
+  /**
+   * Capacity is NEVER a fixed number:
+   *  - solo-style modes → maxSlots = total individual player positions
+   *  - team modes (DUO/SQUAD/CLASH_SQUAD/CUSTOM team) → teamCount teams, each
+   *    holding playersPerTeam players (total = teamCount × playersPerTeam)
+   * `teamCount` wins when both arrive; the transform folds it into maxSlots
+   * (the seat column) so the service layer keeps one notion of capacity.
+   */
+  maxSlots: z.coerce.number().int().min(2).max(500).optional(),
+  teamCount: z.coerce.number().int().min(2).max(500).optional(),
+  playersPerTeam: z.coerce.number().int().min(1).max(8).optional(),
+  customLabel: z.string().trim().max(60).optional().default(''),
   minSlotsToStart: z.coerce.number().int().min(2).max(500),
   entryFeePerPlayer: z.coerce.number().min(0).max(100000),
   pointsPerKill: z.coerce.number().int().min(0).max(20).default(1),
@@ -106,6 +120,35 @@ export const createTournamentSchema = z.object({
   matchMap: z.string().trim().max(40).optional().default(''),
   matchScheduledOffsetMinutes: z.coerce.number().int().min(0).max(1440).optional().default(0),
 })
+  // --- dynamic capacity rules ------------------------------------------------
+  // The capacity unit depends on the format: solo-style modes count PLAYERS,
+  // team modes count TEAMS (× playersPerTeam). CUSTOM must say how many players
+  // share a team. These checks fail with field-level messages the builder can
+  // surface next to the right input.
+  .superRefine((v, ctx) => {
+    const soloStyle = (SOLO_STYLE_TYPES as readonly string[]).includes(v.type);
+    if (soloStyle) {
+      if (!v.maxSlots && !v.teamCount) {
+        ctx.addIssue({ code: 'custom', path: ['maxSlots'], message: 'Set the total player slots for this solo tournament.' });
+      }
+    } else if (v.teamCount === undefined && v.maxSlots === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['teamCount'], message: 'Set the number of teams for this team tournament.' });
+    }
+    if (v.type === 'CUSTOM' && v.playersPerTeam === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['playersPerTeam'], message: 'Custom tournaments need a players-per-team size.' });
+    }
+    const slots = v.teamCount ?? v.maxSlots ?? 0;
+    const ppt = v.type === 'CUSTOM' ? (v.playersPerTeam ?? 1) : undefined;
+    if (ppt && slots * ppt > 2000) {
+      ctx.addIssue({ code: 'custom', path: ['teamCount'], message: 'Total player capacity (teams × players per team) cannot exceed 2000.' });
+    }
+  })
+  // Fold the team count into the seat column so the service layer keeps ONE
+  // notion of capacity (maxSlots = seats, playersPerTeam = players per seat).
+  .transform((v) => ({
+    ...v,
+    maxSlots: v.teamCount ?? v.maxSlots ?? 0,
+  }))
   // A tournament cannot start in the past, and registration must close on or
   // before it starts. Without these the admin form happily saved a match whose
   // start time had already elapsed, which is why the detail page rendered
@@ -122,6 +165,29 @@ export const createTournamentSchema = z.object({
     path: ['minSlotsToStart'],
     message: 'Minimum slots to start cannot exceed max slots.',
   });
+
+/**
+ * Tournament edit — same structure rules as creation, plus the service-layer
+ * guarantees: capacity can never drop below the confirmed registrations and
+ * the format (type / players per team) is frozen once seats are sold.
+ */
+export const updateTournamentSchema = z.object({
+  title: z.string().trim().min(4).max(120).optional(),
+  description: z.string().trim().max(2000).nullish(),
+  map: z.string().trim().max(40).nullish(),
+  startTime: z.coerce.date().optional(),
+  registrationDeadline: z.coerce.date().optional(),
+  teamCount: z.coerce.number().int().min(2).max(500).optional(),
+  playersPerTeam: z.coerce.number().int().min(1).max(8).optional(),
+  customLabel: z.string().trim().max(60).nullish(),
+  minSlotsToStart: z.coerce.number().int().min(2).max(500).optional(),
+  entryFeePerPlayer: z.coerce.number().min(0).max(100000).optional(),
+  numWinners: z.coerce.number().int().min(1).max(50).optional(),
+  refundPercent: z.coerce.number().min(0).max(100).optional(),
+  pointsPerKill: z.coerce.number().int().min(0).max(20).optional(),
+  banner: z.string().trim().max(300).nullish(),
+  rules: z.string().trim().max(4000).nullish(),
+}).refine((v) => Object.keys(v).length > 0, { message: 'Nothing to save — change a field first.' });
 
 export const tournamentScoringSchema = z.object({
   pointsPerKill: z.coerce.number().int().min(0).max(20),

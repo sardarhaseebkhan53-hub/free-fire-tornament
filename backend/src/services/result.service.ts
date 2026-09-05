@@ -315,7 +315,7 @@ interface Ranked {
 export async function tournamentStandings(tournamentId: string) {
   const tournament = await prisma.tournament.findUnique({
     where: { id: tournamentId },
-    select: { id: true, type: true, title: true, status: true, numWinners: true },
+    select: { id: true, type: true, title: true, status: true, numWinners: true, playersPerTeam: true },
   });
   if (!tournament) throw notFound('Tournament not found');
 
@@ -401,8 +401,11 @@ async function distributePrizesOnce(adminId: string, tournamentId: string, ctx: 
     throw conflict('CONFLICT', 'Prizes were already distributed for this tournament — distribution is idempotent and cannot run twice.');
   }
 
-  const teamSizeOf = (type: string) => (type === 'SOLO' ? 1 : type === 'DUO' ? 2 : 4);
-  const isTeamMode = tournament.type !== 'SOLO';
+  // Dynamic structure: the tournament's own players-per-team decides whether a
+  // seat is a team and how many players share it — never a fixed assumption.
+  const ppt = Math.max(1, tournament.playersPerTeam ?? 1);
+  const teamSizeOf = (_type: string) => ppt;
+  const isTeamMode = ppt > 1;
 
   interface Award { position: number; kind: string; label: string; amount: number; userId: string | null; teamId: string | null }
   const awards: Award[] = [];

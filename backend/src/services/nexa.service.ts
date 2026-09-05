@@ -122,7 +122,7 @@ const RULES: Rule[] = [
     intent: 'seats',
     patterns: [/seat/i, /slot/i, /48/i, /capacity/i, /full/i],
     answer: () =>
-      'Tournaments run a 48-seat system: every registration takes the next free seat atomically, so two players can never get the same seat. Your seat number is on the join confirmation, in My Matches and on your dashboard. When all seats are taken the tournament shows FULL and no more entries are accepted.',
+      'Every tournament has its own capacity set by the format: solo events count individual players, while duo/squad/4v4 events count teams (each team seat holds 2 or 4 players). Registration takes the next free seat atomically, so two players can never get the same seat. Your seat number is on the join confirmation, in My Matches and on your dashboard. When all seats are taken the tournament shows FULL and no more entries are accepted.',
     quickReplies: ['How do I join a tournament?', 'What modes are there?'],
   },
   {

@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Bell, ChevronsUpDown, Gift, Headphones, LayoutDashboard, LogOut, Menu, Plus,
-  Settings, Swords, Trophy, Users, Wallet as WalletIcon, X,
+  Settings, Swords, Trophy, User as UserIcon, Users, Wallet as WalletIcon, X,
 } from 'lucide-react';
 import { api } from '@/lib/client-api';
 import { Avatar } from '@/components/ui';
@@ -37,6 +37,7 @@ const NAV: NavItem[] = [
   { href: '/matches', label: 'My Matches', icon: Swords },
   { href: '/wallet', label: 'Wallet', icon: WalletIcon },
   { href: '/teams', label: 'Teams', icon: Users },
+  { href: '/profile', label: 'My Profile', icon: UserIcon },
   { href: '/tournaments', label: 'Tournaments', icon: Trophy },
   { label: 'Referrals', icon: Gift, soon: true },
   { label: 'Notifications', icon: Bell, soon: true },

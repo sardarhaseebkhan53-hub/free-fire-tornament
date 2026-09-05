@@ -29,6 +29,15 @@ export type ApiErrorCode =
   | 'TICKET_CLOSED'
   | 'RATE_LIMITED'
   | 'SERVICE_UNAVAILABLE'
+  // --- Free Fire player profile gate (UID + in-game name + phone) -------------
+  | 'PROFILE_INCOMPLETE'
+  // --- admin tournament editing ------------------------------------------------
+  | 'CAPACITY_BELOW_REGISTRATIONS'
+  // --- social authentication ----------------------------------------------------
+  | 'SOCIAL_ACCOUNT'
+  | 'OAUTH_NOT_CONFIGURED'
+  | 'OAUTH_FAILED'
+  | 'OAUTH_UNREACHABLE'
   | 'INTERNAL_ERROR';
 
 export class ApiError extends Error {

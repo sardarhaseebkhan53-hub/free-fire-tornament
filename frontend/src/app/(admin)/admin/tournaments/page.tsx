@@ -2,7 +2,7 @@
 // Tournaments management — design 28: list, status transitions, create link.
 import { useState } from 'react';
 import Link from 'next/link';
-import { KeyRound, Loader2, Plus, Trash2 } from 'lucide-react';
+import { KeyRound, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { AdminPageTitle } from '@/components/admin/admin-shell';
 import { Pager, Pill, Table, Td, Tr, useAdminList } from '@/components/admin/kit';
 import { RoomPill } from '@/components/room-status';
@@ -14,6 +14,9 @@ import type { RoomState } from '@/lib/types';
 interface Row {
   id: string; title: string; slug: string; type: string; status: string;
   entryFeePerPlayer: number; prizePool: number; maxSlots: number; registeredSlots: number;
+  /** Dynamic structure — what a slot is (players vs teams) and the real player capacity. */
+  playersPerTeam: number; capacityUnit: 'players' | 'teams'; totalPlayerCapacity: number;
+  customLabel?: string | null;
   startTime: string; createdAt: string;
   /**
    * State + timing only (`RoomPublicView`) — the admin list never carries a password, so a
@@ -91,7 +94,10 @@ export default function AdminTournamentsPage() {
                   <Link href={`/tournaments/${t.slug}`} target="_blank" className="font-semibold text-fg hover:text-accent">{t.title}</Link>
                   <p className="text-[11px] text-fg-3">/{t.slug}</p>
                 </Td>
-                <Td><span className="text-xs text-fg-2">{t.type.replace('_', ' ')}</span></Td>
+                <Td>
+                  <span className="text-xs text-fg-2">{t.type === 'CUSTOM' && t.customLabel ? t.customLabel : t.type.replace('_', ' ')}</span>
+                  {t.capacityUnit === 'teams' && <p className="text-[10px] text-fg-3">{t.playersPerTeam}p/team</p>}
+                </Td>
                 <Td><Pill status={t.status} /></Td>
                 <Td>
                   {t.room ? (
@@ -111,10 +117,21 @@ export default function AdminTournamentsPage() {
                 </Td>
                 <Td className="tabular text-fg-2">PKR {t.entryFeePerPlayer.toLocaleString('en-PK')}</Td>
                 <Td className="tabular text-reward">PKR {t.prizePool.toLocaleString('en-PK')}</Td>
-                <Td className="tabular text-xs text-fg-2">{t.registeredSlots}/{t.maxSlots}</Td>
+                <Td className="tabular text-xs text-fg-2">
+                  {t.registeredSlots}/{t.maxSlots} {t.capacityUnit === 'teams' ? 'teams' : 'players'}
+                  {t.capacityUnit === 'teams' && (
+                    <p className="text-[10px] text-fg-3">{t.registeredSlots * t.playersPerTeam}/{t.totalPlayerCapacity} players</p>
+                  )}
+                </Td>
                 <Td className="whitespace-nowrap text-xs text-fg-3">{new Date(t.startTime).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</Td>
                 <Td>
                   <div className="flex flex-wrap items-center gap-1.5">
+                    <Link
+                      href={`/admin/tournaments/${t.id}/edit`}
+                      className="inline-flex items-center gap-1 rounded-input bg-white/5 px-2.5 py-1 text-[11px] font-bold text-fg-2 transition hover:bg-white/10 hover:text-fg"
+                    >
+                      <Pencil size={11} /> Edit
+                    </Link>
                     <button
                       onClick={() => setRoomFor(t.id)}
                       className="inline-flex items-center gap-1 rounded-input bg-white/5 px-2.5 py-1 text-[11px] font-bold text-fg-2 transition hover:bg-white/10 hover:text-fg"

@@ -12,7 +12,7 @@ import {
   teamPairSchema, participantStateSchema, registrationReadySchema, resultsStatusSchema,
   adminTransactionsQuerySchema, revenueQuerySchema, financeQuerySchema, settingUpdateSchema, slotAssignSchema,
   slotClearSchema, slotLockSchema, ticketListQuerySchema,
-  ticketReplySchema, tournamentStatusSchema, upsertSeoSchema, userListQuerySchema, checkInWindowSchema,
+  ticketReplySchema, tournamentStatusSchema, updateTournamentSchema, upsertSeoSchema, userListQuerySchema, checkInWindowSchema,
   userStatusSchema, blogStatusSchema, paymentAccountSchema, paymentAccountToggleSchema,
   tournamentListQuerySchema, tournamentRoomSchema, tournamentRoomStatusSchema,
 } from '../validation/admin.schema';
@@ -22,10 +22,10 @@ import { adminCheckIn, adminMarkNoShow, checkInBoard, setCheckInWindow } from '.
 import {
   adjustBalance, adjustPlayerStats, adminReports, adminStats, createAd, createBlog,
   createTournament, deleteMatch, deleteTournament, deleteUser, listAds, listAllTransactions, listAllTransactionsCsv, listAuditLogs, listBlog, listMatchesAdmin, listSeo,
-  listSettings, listTeamsAdmin, listTickets, listTournamentsAdmin, listUsers,
+  getTournamentAdmin, listSettings, listTeamsAdmin, listTickets, listTournamentsAdmin, listUsers,
   listWinnersAdmin, recalculateLeaderboard, replyTicket, revenueAnalytics,
   setBlogStatus, setMatchStatus, setTournamentStatus, setUserStatus, toggleAd,
-  resetDemoData, updateSetting, updateTournamentScoring, upsertSeo,
+  resetDemoData, updateSetting, updateTournament, updateTournamentScoring, upsertSeo,
 } from '../services/admin.service';
 import { financeCsv, financeDashboard } from '../services/finance.service';
 import { deleteDeposit } from '../services/payment.service';
@@ -96,6 +96,16 @@ adminRouter.post('/tournaments', async (req, res) => {
 adminRouter.post('/tournaments/:id/status', async (req, res) => {
   const { status } = tournamentStatusSchema.parse(req.body);
   return ok(res, await setTournamentStatus(req.auth!.id, String(req.params.id), status, ctxOf(req)), `Tournament ${status.toLowerCase()}.`);
+});
+// Tournament edit — capacity recalculation is guarded server-side: capacity can
+// never drop below the confirmed registrations (CAPACITY_BELOW_REGISTRATIONS),
+// the format freezes once seats are sold, and registrations are never deleted.
+adminRouter.put('/tournaments/:id', adminWriteLimiter, async (req, res) => {
+  const input = updateTournamentSchema.parse(req.body);
+  return ok(res, await updateTournament(req.auth!.id, String(req.params.id), input, ctxOf(req)), 'Tournament updated.');
+});
+adminRouter.get('/tournaments/:id', async (req, res) => {
+  return ok(res, await getTournamentAdmin(String(req.params.id)));
 });
 adminRouter.put('/tournaments/:id/scoring', adminWriteLimiter, async (req, res) => {
   const input = tournamentScoringSchema.parse(req.body);

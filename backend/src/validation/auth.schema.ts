@@ -54,11 +54,19 @@ export const changePasswordSchema = z.object({
   path: ['confirmPassword'],
 });
 
-/** Profile edit (spec §20) — server validates FF identity, never trusts the client. */
+/** Profile edit (spec §20) — server validates FF identity, never trusts the client.
+ * freeFireUID + freeFireIGN + phone are the mandatory Free Fire player profile;
+ * tournament registration is gated on all three being present and valid. */
 export const updateProfileSchema = z.object({
   fullName: z.string().trim().min(2).max(60).optional(),
   freeFireUID: z.string().trim().regex(/^\d{5,15}$/, 'UID must be 5–15 digits').optional().nullable(),
   freeFireIGN: z.string().trim().min(2).max(24).optional().nullable(),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+?\d[\d\s-]{5,18}$/, 'Phone must be 7–15 digits (a leading + is allowed)')
+    .optional()
+    .nullable(),
   city: z.string().trim().max(60).optional().nullable(),
   bio: z.string().trim().max(240).optional().nullable(),
   showPublicProfile: z.boolean().optional(),

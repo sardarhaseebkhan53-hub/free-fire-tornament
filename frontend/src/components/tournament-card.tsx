@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Gem, MapPin, ShieldCheck, Users } from 'lucide-react';
 import type { TournamentSummary } from '@/lib/types';
-import { money, MODE_LABEL, dateTime, displayStatus } from '@/lib/format';
+import { money, MODE_LABEL, dateTime, displayStatus, capacityText } from '@/lib/format';
 import { Badge } from './ui';
 import { Countdown } from './countdown';
 import { TournamentImage } from './tournament-image';
@@ -21,6 +21,10 @@ function statusBadge(t: TournamentSummary) {
 
 export function TournamentCard({ t }: { t: TournamentSummary }) {
   const fillPct = Math.min(100, Math.round((t.registeredSlots / t.maxSlots) * 100));
+  // Honest capacity copy: the primary number is labelled by what it counts
+  // (players on solo modes, teams on team modes) and team cards additionally
+  // show the underlying player count, so nobody reads "8/48" as players.
+  const cap = capacityText(t);
   return (
     <Link
       href={`/tournaments/${t.slug}`}
@@ -77,9 +81,9 @@ export function TournamentCard({ t }: { t: TournamentSummary }) {
           </div>
           <div className="hidden rounded-input bg-white/[4%] px-2 py-2 text-center sm:block">
             <p className="tabular text-base font-bold text-fg">
-              {t.registeredSlots}/{t.maxSlots}
+              {cap.primary}
             </p>
-            <p className="text-[10px] uppercase tracking-wide text-fg-3">Slots</p>
+            <p className="text-[10px] uppercase tracking-wide text-fg-3">{cap.unit}</p>
           </div>
         </div>
 
@@ -93,9 +97,12 @@ export function TournamentCard({ t }: { t: TournamentSummary }) {
           </div>
           <p className="mt-1.5 flex items-center gap-1.5 text-xs text-fg-3">
             <Users size={12} className="shrink-0" />
-            {t.registeredSlots}/{t.maxSlots}
+            {cap.primary} {cap.unit}
+            {cap.secondary && <span className="hidden xs:inline sm:inline">· {cap.secondary}</span>}
             {t.slotsLeft > 0 && t.registrationOpen && (
-              <span className="font-semibold text-warning">· only {t.slotsLeft} left</span>
+              <span className="font-semibold text-warning">
+                · only {t.slotsLeft} {cap.unit === 'teams' ? (t.slotsLeft === 1 ? 'team' : 'teams') : t.slotsLeft === 1 ? 'player' : 'players'} left
+              </span>
             )}
             {t.map && <span className="hidden sm:inline">· {t.map}</span>}
           </p>

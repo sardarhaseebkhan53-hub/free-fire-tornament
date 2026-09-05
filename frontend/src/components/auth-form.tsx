@@ -6,6 +6,7 @@ import { useState, type FormEvent, Suspense } from 'react';
 import Link from 'next/link';
 import { ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
 import { resetSessionBreaker } from '@/lib/client-api';
+import { SocialAuthButtons } from './social-auth';
 
 function Field({
   label, name, type = 'text', placeholder, required = true, hint,
@@ -170,6 +171,9 @@ function AuthFormInner({ mode }: { mode: 'login' | 'register' }) {
           </Link>
         </p>
       )}
+
+      {/* Social sign-in — only providers configured on the server render. */}
+      <SocialAuthButtons mode={mode} />
     </form>
   );
 }
