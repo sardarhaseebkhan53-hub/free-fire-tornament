@@ -59,7 +59,19 @@ export const updateProfileSchema = z.object({
   fullName: z.string().trim().min(2).max(60).optional(),
   freeFireUID: z.string().trim().regex(/^\d{5,15}$/, 'UID must be 5–15 digits').optional().nullable(),
   freeFireIGN: z.string().trim().min(2).max(24).optional().nullable(),
+  phoneNumber: z.string().trim().min(7).max(20).optional().nullable(),
   city: z.string().trim().max(60).optional().nullable(),
   bio: z.string().trim().max(240).optional().nullable(),
   showPublicProfile: z.boolean().optional(),
+});
+
+export const socialLoginSchema = z.object({
+  provider: z.enum(['GOOGLE', 'MICROSOFT', 'APPLE', 'google', 'microsoft', 'apple']).transform((v) => v.toUpperCase()),
+  idToken: z.string().min(20).max(5000),
+});
+
+export const completeProfileSchema = z.object({
+  freeFireUID: z.string().trim().regex(/^\d{6,15}$/, 'Free Fire UID must be 6-15 digits'),
+  freeFireName: z.string().trim().min(2).max(24),
+  phoneNumber: z.string().trim().min(7).max(20),
 });

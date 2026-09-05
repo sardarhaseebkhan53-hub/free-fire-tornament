@@ -116,6 +116,16 @@ enum TournamentType {
   CLASH_SQUAD
   LONE_WOLF
   CLASH_SQUAD_1V1
+  ONE_VS_ONE
+  FOUR_V_FOUR
+  CUSTOM
+}
+
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+  MICROSOFT
+  APPLE
 }
 
 enum TournamentStatus {
@@ -332,12 +342,13 @@ enum ReferralRewardStatus {
 // -----------------------------------------------------------------------------
 
 model User {
-  id           String     @id @default(cuid())
-  username     String     @unique
-  email        String     @unique
-  phone        String?    @unique
-  passwordHash String
-  role         Role       @default(USER)
+  id           String       @id @default(cuid())
+  username     String       @unique
+  email        String       @unique
+  phone        String?      @unique
+  passwordHash String? // nullable for social logins (GOOGLE/MICROSOFT/APPLE)
+  authProvider AuthProvider @default(LOCAL)
+  providerId   String? // sub/id from OAuth provider
   avatar       String?
   // Accounts are ACTIVE the moment registration succeeds (automatic activation).
   // PENDING_VERIFICATION remains in the enum for legacy rows only; it is NOT
@@ -407,8 +418,10 @@ model UserProfile {
   city              String?
   freeFireUID       String?  @unique
   freeFireIGN       String?
+  phoneNumber       String? // required for tournament participation (Free Fire profile)
   bio               String?
   showPublicProfile Boolean  @default(true)
+  profileCompleted  Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -596,9 +609,15 @@ model Tournament {
   platformFee       Decimal @default(0) @db.Decimal(14, 2) // platform/service fee
   bonusPercent      Decimal @default(0) @db.Decimal(10, 2) // bonus credited on join (from BONUS pool rules)
 
-  // Slots — counted in teams for DUO/SQUAD/CLASH_SQUAD, players for SOLO.
-  maxSlots        Int
-  registeredSlots Int     @default(0)
+  // Slots — DYNAMIC: no longer hard-coded 48. Capacity = playersPerTeam × maxTeams
+  // For SOLO/1v1: playersPerTeam=1, maxTeams = total players
+  // For DUO: playersPerTeam=2
+  // For SQUAD/4v4: playersPerTeam=4
+  // For CUSTOM: admin defines both
+  maxSlots        Int // total PLAYER capacity (backward compat) = playersPerTeam * maxTeams
+  registeredSlots Int     @default(0) // counts TEAMS for team modes, PLAYERS for solo
+  playersPerTeam  Int     @default(1) // 1 for SOLO, 2 for DUO, 4 for SQUAD/4v4, custom for CUSTOM
+  maxTeams        Int? // number of teams; null = derived from maxSlots / playersPerTeam
   minSlotsToStart Int?
   numWinners      Int     @default(3)
   refundPercent   Decimal @default(100) @db.Decimal(5, 2) // refund share if cancelled

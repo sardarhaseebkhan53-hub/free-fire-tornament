@@ -2,8 +2,8 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import * as svc from '../services/auth.service';
 import {
-  changePasswordSchema, emailSchema, loginSchema, registerSchema,
-  resetPasswordSchema, updateProfileSchema, verifyEmailSchema,
+  changePasswordSchema, completeProfileSchema, emailSchema, loginSchema, registerSchema,
+  resetPasswordSchema, socialLoginSchema, updateProfileSchema, verifyEmailSchema,
 } from '../validation/auth.schema';
 import {
   loginLimiter, passwordResetLimiter, registerLimiter, resendLimiter,
