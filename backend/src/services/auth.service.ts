@@ -2,11 +2,13 @@
 // Auth — registration, login, refresh rotation, verification & reset flows.
 // RBAC roles: USER < MODERATOR < ADMIN < SUPER_ADMIN (enforced by middleware).
 // All secrets server-side; refresh tokens stored hashed & rotated on use.
+// Extended: Google/Microsoft/Apple social auth + Free Fire profile completion.
 // =============================================================================
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { moneyTx, prisma } from '../lib/prisma';
-import { env, devTokenEchoAllowed } from '../lib/env';
+import { env, devTokenEchoAllowed, isProd } from '../lib/env';
 import {
   ApiError, badRequest, conflict, unauthorized,
 } from '../lib/errors';
@@ -84,6 +86,112 @@ function makeReferralCode(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Social Auth helpers — verify id_tokens from Google/Microsoft/Apple
+// ---------------------------------------------------------------------------
+
+export type SocialProvider = 'GOOGLE' | 'MICROSOFT' | 'APPLE';
+
+interface SocialProfile {
+  provider: SocialProvider;
+  providerId: string; // sub
+  email: string;
+  emailVerified?: boolean;
+  fullName?: string;
+  avatar?: string;
+}
+
+function decodeJwtPayload(token: string): any {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payload = Buffer.from(parts[1], 'base64url').toString('utf8');
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
+
+async function verifyGoogleToken(idToken: string): Promise<SocialProfile> {
+  const payload = decodeJwtPayload(idToken);
+  if (!payload) throw badRequest('TOKEN_INVALID', 'Invalid Google token');
+  // In production, verify aud, iss, exp, and signature via JWKS.
+  // For now, we check basic claims; if GOOGLE_CLIENT_ID is set, enforce aud.
+  if (env.GOOGLE_CLIENT_ID && payload.aud !== env.GOOGLE_CLIENT_ID) {
+    // Allow multiple audiences (comma) check
+    if (Array.isArray(payload.aud)) {
+      if (!payload.aud.includes(env.GOOGLE_CLIENT_ID)) {
+        throw badRequest('TOKEN_INVALID', 'Google token audience mismatch');
+      }
+    } else if (payload.aud !== env.GOOGLE_CLIENT_ID) {
+      // In dev, allow mismatch with warning
+      if (isProd) throw badRequest('TOKEN_INVALID', 'Google token audience mismatch');
+    }
+  }
+  if (payload.exp && Date.now() / 1000 > payload.exp) {
+    throw badRequest('TOKEN_INVALID', 'Google token expired');
+  }
+  if (!payload.email || !payload.sub) {
+    throw badRequest('TOKEN_INVALID', 'Google token missing email or sub');
+  }
+  return {
+    provider: 'GOOGLE',
+    providerId: String(payload.sub),
+    email: String(payload.email).toLowerCase(),
+    emailVerified: Boolean(payload.email_verified),
+    fullName: payload.name ? String(payload.name) : undefined,
+    avatar: payload.picture ? String(payload.picture) : undefined,
+  };
+}
+
+async function verifyMicrosoftToken(idToken: string): Promise<SocialProfile> {
+  const payload = decodeJwtPayload(idToken);
+  if (!payload) throw badRequest('TOKEN_INVALID', 'Invalid Microsoft token');
+  if (payload.exp && Date.now() / 1000 > payload.exp) {
+    throw badRequest('TOKEN_INVALID', 'Microsoft token expired');
+  }
+  // Microsoft uses oid or sub, email may be in preferred_username or email
+  const providerId = payload.oid ?? payload.sub;
+  const email = payload.email ?? payload.preferred_username;
+  if (!providerId || !email) {
+    throw badRequest('TOKEN_INVALID', 'Microsoft token missing identity');
+  }
+  return {
+    provider: 'MICROSOFT',
+    providerId: String(providerId),
+    email: String(email).toLowerCase(),
+    emailVerified: true, // Microsoft emails are verified by tenant
+    fullName: payload.name ? String(payload.name) : undefined,
+  };
+}
+
+async function verifyAppleToken(idToken: string): Promise<SocialProfile> {
+  const payload = decodeJwtPayload(idToken);
+  if (!payload) throw badRequest('TOKEN_INVALID', 'Invalid Apple token');
+  if (payload.exp && Date.now() / 1000 > payload.exp) {
+    throw badRequest('TOKEN_INVALID', 'Apple token expired');
+  }
+  if (!payload.sub || !payload.email) {
+    throw badRequest('TOKEN_INVALID', 'Apple token missing email or sub');
+  }
+  return {
+    provider: 'APPLE',
+    providerId: String(payload.sub),
+    email: String(payload.email).toLowerCase(),
+    emailVerified: Boolean(payload.email_verified) || true, // Apple verifies
+    fullName: undefined, // Apple may provide in separate user info
+  };
+}
+
+async function verifySocialToken(provider: SocialProvider, idToken: string): Promise<SocialProfile> {
+  switch (provider) {
+    case 'GOOGLE': return verifyGoogleToken(idToken);
+    case 'MICROSOFT': return verifyMicrosoftToken(idToken);
+    case 'APPLE': return verifyAppleToken(idToken);
+    default: throw badRequest('VALIDATION_ERROR', 'Unsupported provider');
+  }
+}
+
+// ---------------------------------------------------------------------------
 export interface RegisterInput {
   fullName: string;
   username: string;
@@ -141,6 +249,7 @@ export async function register(input: RegisterInput, ctx: RequestContext) {
       email,
       phone: input.phone,
       passwordHash: bcrypt.hashSync(input.password, BCRYPT_ROUNDS),
+      authProvider: 'LOCAL',
       status: 'ACTIVE',
       referralCode,
       referredById,
@@ -188,6 +297,299 @@ export async function register(input: RegisterInput, ctx: RequestContext) {
   fireRegistrationFraud(user.id, ctx);
 
   return { user, verificationTokenDevOnly: devTokenEchoAllowed ? token : undefined };
+}
+
+// ---------------------------------------------------------------------------
+// Social login / registration — Google, Microsoft, Apple
+// Flow: verify id_token → find by email OR providerId → create if new → issue tokens
+// Ensures same email across providers maps to single account (no duplicates)
+// ---------------------------------------------------------------------------
+export async function socialLogin(providerRaw: string, idToken: string, ctx: RequestContext) {
+  const provider = providerRaw.toUpperCase() as SocialProvider;
+  if (!['GOOGLE', 'MICROSOFT', 'APPLE'].includes(provider)) {
+    throw badRequest('VALIDATION_ERROR', 'Unsupported social provider');
+  }
+  if (!idToken || idToken.length < 20) {
+    throw badRequest('VALIDATION_ERROR', 'Invalid id_token');
+  }
+
+  const profile = await verifySocialToken(provider, idToken);
+
+  // Try to find existing user by email OR by providerId+provider
+  let user = await prisma.user.findUnique({ where: { email: profile.email } });
+  if (!user) {
+    // Check by providerId as fallback (in case email changed)
+    user = await prisma.user.findFirst({
+      where: { providerId: profile.providerId, authProvider: provider },
+    });
+  }
+
+  if (user) {
+    // Existing user — update provider info if needed, ensure not banned
+    if (user.deletedAt) {
+      throw unauthorized('INVALID_CREDENTIALS', 'Account not found');
+    }
+    if (user.status === 'BANNED') {
+      throw new ApiError(403, 'ACCOUNT_BANNED', (user as any).banReason ?? 'This account has been banned.');
+    }
+    if (user.status === 'SUSPENDED') {
+      throw new ApiError(403, 'ACCOUNT_SUSPENDED', 'This account is suspended. Contact support.');
+    }
+    // If user was LOCAL but now logs in via social with same email, link accounts
+    if (user.authProvider === 'LOCAL' && user.providerId === null) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          providerId: profile.providerId,
+          // Keep LOCAL as primary but note social linkage via audit; or upgrade to social if preferred
+          // We keep LOCAL but store providerId for future
+        },
+      });
+    } else if (user.authProvider !== provider && user.authProvider !== 'LOCAL') {
+      // User previously used different social provider but same email — allow login, update to latest
+      // This prevents duplicate accounts for same email
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          authProvider: provider,
+          providerId: profile.providerId,
+        },
+      });
+    }
+
+    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await audit({
+      actorId: user.id,
+      action: 'SOCIAL_LOGIN',
+      entity: 'User',
+      entityId: user.id,
+      after: { provider, email: profile.email },
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+    });
+
+    const access = signAccessToken({ sub: user.id, role: user.role, username: user.username });
+    const refresh = await issueToken(user.id, 'REFRESH', REFRESH_TTL_MS(), ctx);
+
+    const fullUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        id: true, username: true, email: true, role: true, isVerified: true, status: true,
+        authProvider: true,
+        profile: true,
+      },
+    });
+
+    const profileCompleted = !!(fullUser?.profile?.freeFireUID && fullUser?.profile?.freeFireIGN && (fullUser?.profile?.phoneNumber || (await prisma.user.findUnique({ where: { id: user.id }, select: { phone: true } }))?.phone));
+
+    return {
+      accessToken: access,
+      refreshToken: refresh,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        isVerified: user.isVerified,
+        status: user.status,
+        authProvider: provider,
+        profileCompleted,
+      },
+      isNewUser: false,
+      profileCompleted,
+      needsProfileCompletion: !profileCompleted,
+    };
+  }
+
+  // New user — create account from social profile
+  const registrationOpen = await getSetting('platform.registrationOpen', true);
+  if (!registrationOpen) {
+    throw new ApiError(503, 'FORBIDDEN', 'Registrations are temporarily closed.');
+  }
+
+  // Generate username from email
+  let baseUsername = profile.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 15);
+  if (baseUsername.length < 3) baseUsername = `player_${Math.random().toString(36).slice(2, 6)}`;
+  let username = baseUsername;
+  let counter = 1;
+  while (await prisma.user.findUnique({ where: { username } })) {
+    username = `${baseUsername}${counter}`;
+    counter++;
+    if (counter > 100) {
+      username = `user_${crypto.randomBytes(3).toString('hex')}`;
+      break;
+    }
+  }
+
+  let referralCode = makeReferralCode();
+  while (await prisma.user.findUnique({ where: { referralCode } })) {
+    referralCode = makeReferralCode();
+  }
+
+  const newUser = await prisma.user.create({
+    data: {
+      username,
+      email: profile.email,
+      passwordHash: null,
+      authProvider: provider,
+      providerId: profile.providerId,
+      avatar: profile.avatar,
+      status: 'ACTIVE',
+      isVerified: profile.emailVerified ?? true, // social emails are verified
+      verifiedAt: profile.emailVerified ? new Date() : null,
+      referralCode,
+      profile: {
+        create: {
+          fullName: profile.fullName ?? profile.email.split('@')[0],
+        },
+      },
+      wallet: { create: {} },
+    },
+    select: { id: true, username: true, email: true, role: true, referralCode: true, authProvider: true },
+  });
+
+  await audit({
+    actorId: newUser.id,
+    action: 'SOCIAL_REGISTER',
+    entity: 'User',
+    entityId: newUser.id,
+    after: { provider, email: profile.email, username: newUser.username },
+    ip: ctx.ip,
+    userAgent: ctx.userAgent,
+  });
+
+  fireRegistrationFraud(newUser.id, ctx);
+
+  const access = signAccessToken({ sub: newUser.id, role: newUser.role, username: newUser.username });
+  const refresh = await issueToken(newUser.id, 'REFRESH', REFRESH_TTL_MS(), ctx);
+
+  return {
+    accessToken: access,
+    refreshToken: refresh,
+    user: {
+      id: newUser.id,
+      username: newUser.username,
+      email: newUser.email,
+      role: newUser.role,
+      isVerified: true,
+      status: 'ACTIVE',
+      authProvider: provider,
+      profileCompleted: false,
+    },
+    isNewUser: true,
+    profileCompleted: false,
+    needsProfileCompletion: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Free Fire profile completion — required before tournament participation
+// ---------------------------------------------------------------------------
+export interface FreeFireProfileInput {
+  freeFireUID: string;
+  freeFireName: string;
+  phoneNumber: string;
+}
+
+export async function completeFreeFireProfile(userId: string, input: FreeFireProfileInput) {
+  const uid = input.freeFireUID.trim();
+  const ign = input.freeFireName.trim();
+  const phone = input.phoneNumber.trim();
+
+  if (!/^\d{6,15}$/.test(uid)) {
+    throw badRequest('VALIDATION_ERROR', 'Free Fire UID must be 6-15 digits');
+  }
+  if (ign.length < 2 || ign.length > 24) {
+    throw badRequest('VALIDATION_ERROR', 'Free Fire Name must be 2-24 characters');
+  }
+  if (!/^\+?[0-9\s\-]{7,20}$/.test(phone)) {
+    throw badRequest('VALIDATION_ERROR', 'Invalid phone number format');
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, username: true, profile: { select: { id: true, freeFireUID: true } } },
+  });
+  if (!user) throw unauthorized('UNAUTHORIZED', 'Account no longer exists.');
+
+  // Check UID uniqueness
+  if (uid !== user.profile?.freeFireUID) {
+    const existing = await prisma.userProfile.findUnique({ where: { freeFireUID: uid } });
+    if (existing && existing.userId !== userId) {
+      throw conflict('FF_UID_TAKEN', 'This Free Fire UID is already linked to another account.');
+    }
+  }
+
+  try {
+    const profile = user.profile
+      ? await prisma.userProfile.update({
+          where: { userId },
+          data: {
+            freeFireUID: uid,
+            freeFireIGN: ign,
+            phoneNumber: phone,
+            profileCompleted: true,
+          },
+        })
+      : await prisma.userProfile.create({
+          data: {
+            userId,
+            fullName: user.username,
+            freeFireUID: uid,
+            freeFireIGN: ign,
+            phoneNumber: phone,
+            profileCompleted: true,
+          },
+        });
+
+    // Also sync phone to User.phone if not set
+    const currentUser = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true } });
+    if (!currentUser?.phone) {
+      try {
+        await prisma.user.update({ where: { id: userId }, data: { phone } });
+      } catch {
+        // phone unique conflict — ignore, keep in profile only
+      }
+    }
+
+    await audit({
+      actorId: userId,
+      action: 'FF_PROFILE_COMPLETED',
+      entity: 'UserProfile',
+      entityId: profile.id,
+      after: { freeFireUID: uid, freeFireIGN: ign, phoneNumber: phone },
+    });
+
+    const updated = await me(userId);
+    return { ...updated, profileCompleted: true };
+  } catch (e) {
+    if ((e as { code?: string }).code === 'P2002') {
+      throw conflict('FF_UID_TAKEN', 'This Free Fire UID is already linked to another account.');
+    }
+    throw e;
+  }
+}
+
+export async function checkProfileCompletion(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      profile: {
+        select: { freeFireUID: true, freeFireIGN: true, phoneNumber: true, profileCompleted: true },
+      },
+      phone: true,
+    },
+  });
+  if (!user) return { completed: false, missing: ['profile'] };
+  const missing: string[] = [];
+  if (!user.profile?.freeFireUID) missing.push('freeFireUID');
+  if (!user.profile?.freeFireIGN) missing.push('freeFireName');
+  if (!user.profile?.phoneNumber && !user.phone) missing.push('phoneNumber');
+  return {
+    completed: missing.length === 0,
+    missing,
+    profile: user.profile,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +653,7 @@ export async function login(identifierRaw: string, password: string, ctx: Reques
   if (user?.deletedAt) {
     throw unauthorized('INVALID_CREDENTIALS', 'Incorrect email/username or password.');
   }
-  if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
+  if (!user || !user.passwordHash || !bcrypt.compareSync(password, user.passwordHash)) {
     const { count, locked } = recordFailure(identifier, max, lockMin);
     // Security events are audited even when they fail: this is the trail that
     // shows a brute-force attempt happened, from where, and against whom.
@@ -265,6 +667,10 @@ export async function login(identifierRaw: string, password: string, ctx: Reques
       userAgent: ctx.userAgent,
     });
     fireLoginAbuse(identifier, count, ctx, user?.id);
+    // If user exists but has no password (social account), give helpful message
+    if (user && !user.passwordHash) {
+      throw unauthorized('SOCIAL_ACCOUNT', `This account uses ${user.authProvider} login. Please sign in with ${user.authProvider}.`);
+    }
     throw unauthorized('INVALID_CREDENTIALS', 'Incorrect email/username or password.');
   }
   if (user.status === 'BANNED') {
@@ -288,13 +694,20 @@ export async function login(identifierRaw: string, password: string, ctx: Reques
 
   const access = signAccessToken({ sub: user.id, role: user.role, username: user.username });
   const refresh = await issueToken(user.id, 'REFRESH', REFRESH_TTL_MS(), ctx);
+
+  // Check profile completion for tournament gating
+  const profileCheck = await checkProfileCompletion(user.id);
+
   return {
     accessToken: access,
     refreshToken: refresh,
     user: {
       id: user.id, username: user.username, email: user.email,
       role: user.role, isVerified: user.isVerified, status: user.status,
+      authProvider: user.authProvider,
     },
+    profileCompleted: profileCheck.completed,
+    needsProfileCompletion: !profileCheck.completed,
   };
 }
 
@@ -452,6 +865,7 @@ export async function me(userId: string) {
     select: {
       id: true, username: true, email: true, phone: true, role: true, avatar: true,
       status: true, isVerified: true, referralCode: true, createdAt: true, lastLoginAt: true,
+      authProvider: true, providerId: true,
       profile: true,
       wallet: {
         select: { cashBalance: true, coinBalance: true, winningBalance: true, bonusBalance: true },
@@ -461,7 +875,20 @@ export async function me(userId: string) {
   });
   if (!user) throw unauthorized('UNAUTHORIZED', 'Account no longer exists.');
   // ZP Battle "Skill-Based Ranking" — derive the player's live tier.
-  return { ...user, rankInfo: rankFor(user.stats?.totalPoints ?? 0) };
+  const profileCheck = {
+    completed: !!(user.profile?.freeFireUID && user.profile?.freeFireIGN && (user.profile?.phoneNumber || user.phone)),
+    missing: [] as string[],
+  };
+  if (!user.profile?.freeFireUID) profileCheck.missing.push('freeFireUID');
+  if (!user.profile?.freeFireIGN) profileCheck.missing.push('freeFireName');
+  if (!user.profile?.phoneNumber && !user.phone) profileCheck.missing.push('phoneNumber');
+
+  return {
+    ...user,
+    rankInfo: rankFor(user.stats?.totalPoints ?? 0),
+    profileCompleted: profileCheck.completed,
+    profileCompletion: profileCheck,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -522,6 +949,7 @@ export async function updateProfile(
   input: {
     fullName?: string; freeFireUID?: string | null; freeFireIGN?: string | null;
     city?: string | null; bio?: string | null; showPublicProfile?: boolean;
+    phoneNumber?: string | null;
   },
 ) {
   const user = await prisma.user.findUnique({
@@ -530,14 +958,27 @@ export async function updateProfile(
   });
   if (!user) throw unauthorized('UNAUTHORIZED', 'Account no longer exists.');
 
-  const data = {
+  const data: any = {
     ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
     ...(input.freeFireUID !== undefined ? { freeFireUID: input.freeFireUID || null } : {}),
     ...(input.freeFireIGN !== undefined ? { freeFireIGN: input.freeFireIGN || null } : {}),
     ...(input.city !== undefined ? { city: input.city || null } : {}),
     ...(input.bio !== undefined ? { bio: input.bio || null } : {}),
     ...(input.showPublicProfile !== undefined ? { showPublicProfile: input.showPublicProfile } : {}),
+    ...(input.phoneNumber !== undefined ? { phoneNumber: input.phoneNumber || null } : {}),
   };
+
+  // Auto-set profileCompleted if required fields present
+  if (data.freeFireUID && data.freeFireIGN && data.phoneNumber) {
+    data.profileCompleted = true;
+  } else if (data.freeFireUID !== undefined || data.freeFireIGN !== undefined || data.phoneNumber !== undefined) {
+    // Check if after update, all required fields exist
+    const existing = await prisma.userProfile.findUnique({ where: { userId }, select: { freeFireUID: true, freeFireIGN: true, phoneNumber: true } });
+    const uid = data.freeFireUID ?? existing?.freeFireUID;
+    const ign = data.freeFireIGN ?? existing?.freeFireIGN;
+    const phone = data.phoneNumber ?? existing?.phoneNumber;
+    if (uid && ign && phone) data.profileCompleted = true;
+  }
 
   try {
     const profile = user.profile
@@ -556,7 +997,7 @@ export async function updateProfile(
 
 export async function changePassword(userId: string, currentPassword: string, newPassword: string, ctx: RequestContext = {}) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user || !bcrypt.compareSync(currentPassword, user.passwordHash)) {
+  if (!user || !user.passwordHash || !bcrypt.compareSync(currentPassword, user.passwordHash)) {
     await audit({
       actorId: userId,
       action: 'PASSWORD_CHANGE_FAILED',

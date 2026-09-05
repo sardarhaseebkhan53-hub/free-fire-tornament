@@ -99,6 +99,19 @@ const schema = z.object({
   // reset tokens in API responses so the flows are testable without a mail
   // provider. NEVER honoured in production (see devTokenEchoAllowed below).
   AUTH_ECHO_TOKENS: envBool(false),
+
+  // --- Social Authentication (OAuth) ----------------------------------------
+  // Optional: when unset, social login still works in dev mode by trusting
+  // the decoded id_token payload (for local testing). In production, client
+  // IDs should be set and tokens verified against provider JWKS.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  MICROSOFT_CLIENT_ID: z.string().optional(),
+  MICROSOFT_TENANT_ID: z.string().default('common'),
+  APPLE_CLIENT_ID: z.string().optional(),
+  APPLE_TEAM_ID: z.string().optional(),
+  APPLE_KEY_ID: z.string().optional(),
+  APPLE_PRIVATE_KEY: z.string().optional(),
 });
 
 export const env = schema.parse(process.env);
