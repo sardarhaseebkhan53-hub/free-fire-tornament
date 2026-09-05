@@ -141,7 +141,14 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
       <AdSlot placement="TOURNAMENT_PAGE" className="mt-8" />
 
-      <Reveal><div className="mt-8 grid gap-8 lg:grid-cols-[1fr_360px]">
+      {/* NOTE: no Reveal wrapper around this whole grid on purpose. This block
+          holds the page's critical content (economics, prizes, schedule, the
+          full seat-by-seat lobby) and can be many viewports tall. A single
+          scroll-reveal hides it at opacity:0 until an IntersectionObserver
+          sees >=12% of it — on a tall/phone layout that ratio can never be
+          reached, so the entire section would stay invisible. Content that a
+          user needs to actually read and act on must render unconditionally. */}
+      <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_360px]">
         {/* Main column */}
         <div className="space-y-8">
           {/* Custom room — first thing a seat holder sees, instead of being
@@ -326,7 +333,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             </div>
           )}
         </aside>
-      </div></Reveal>
+      </div>
     </div>
   );
 }
