@@ -21,6 +21,8 @@ import type { RankInfo, RoomState } from '@/lib/types';
 
 interface Me {
   username: string; isVerified: boolean; referralCode: string;
+  /** Mandatory Free Fire player profile (UID + IGN + phone) complete? */
+  profileComplete: boolean;
   profile: { fullName: string; freeFireIGN: string | null; freeFireUID: string | null } | null;
   wallet: { cashBalance: number; coinBalance: number; winningBalance: number; bonusBalance: number } | null;
   stats: { matchesPlayed: number; wins: number; kills: number; totalPoints: number; earnings: string } | null;
@@ -136,6 +138,22 @@ export default function DashboardPage() {
         {me.isVerified && <Crown size={20} className="mb-1 inline text-reward" />}
         {me.rankInfo && <RankBadge rankInfo={me.rankInfo} small />}
       </h1></Reveal>
+
+      {/* Profile gate — social sign-ins land here with an incomplete profile */}
+      {!me.profileComplete && (
+        <div className="mt-4 flex flex-col gap-3 rounded-card border border-warning/35 bg-warning/[8%] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <ShieldAlert size={20} className="mt-0.5 shrink-0 text-warning" />
+            <div>
+              <p className="text-sm font-bold text-warning">Complete Your Free Fire Profile</p>
+              <p className="mt-0.5 text-xs text-fg-2">Add your Free Fire UID, in-game name and phone number to unlock tournament registration.</p>
+            </div>
+          </div>
+          <Link href="/complete-profile?next=/dashboard" className="shrink-0 rounded-input bg-accent px-5 py-2.5 text-center text-xs font-bold text-white shadow-[0_0_18px_rgba(139,92,246,0.35)]">
+            Complete now
+          </Link>
+        </div>
+      )}
 
       {/* MOBILE — design 42: wallet balance card + quick actions */}
       <div className="mt-4 lg:hidden">

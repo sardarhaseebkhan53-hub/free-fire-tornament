@@ -29,7 +29,12 @@ export default function TournamentBuilderPage() {
   // that has to be reachable before the first match starts.
   const [roomInput, setRoomInput] = useState({ roomId: '', roomPassword: '', lead: '' });
   const roomTouched = roomInput.roomId.trim() !== '' || roomInput.roomPassword.trim() !== '' || roomInput.lead.trim() !== '';
+  // Capacity is dynamic: solo-style modes count PLAYERS here, team modes count
+  // TEAMS (total players = teams × players per team). 48 is just one default,
+  // never a universal configuration.
   const [maxSlots, setMaxSlots] = useState('48');
+  const [playersPerTeamInput, setPlayersPerTeamInput] = useState('4');
+  const [customLabel, setCustomLabel] = useState('');
   const [minSlots, setMinSlots] = useState('8');
   const [entryFee, setEntryFee] = useState('50');
   const [pointsPerKill, setPointsPerKill] = useState('1');
@@ -42,11 +47,16 @@ export default function TournamentBuilderPage() {
     { kind: 'MVP', label: 'MVP', amount: '60' },
   ]);
 
-  const teamSize = type === 'SOLO' ? 1 : type === 'DUO' ? 2 : 4;
+  const isSoloMode = ['SOLO', 'LONE_WOLF', 'CLASH_SQUAD_1V1'].includes(type);
+  const teamSize = type === 'CUSTOM'
+    ? Math.max(1, Number(playersPerTeamInput || 1))
+    : type === 'DUO' ? 2 : isSoloMode ? 1 : 4;
+  const totalPlayerCapacity = Number(maxSlots || 0) * teamSize;
   const economics = useMemo(() => {
     const fee = Number(entryFee || 0);
     const slots = Number(maxSlots || 0);
-    const collection = fee * slots;
+    // Entry fee is PER PLAYER — a team slot collects playersPerTeam shares.
+    const collection = fee * slots * teamSize;
     let placement = 0, kill = 0, mvp = 0, bonus = 0;
     for (const p of prizes) {
       const amt = Number(p.amount || 0);
@@ -58,7 +68,7 @@ export default function TournamentBuilderPage() {
     const rewards = placement + kill + mvp + bonus;
     const profit = collection - rewards;
     return { collection, placement, kill, mvp, bonus, rewards, profit, safe: profit >= 0 };
-  }, [entryFee, maxSlots, prizes]);
+  }, [entryFee, maxSlots, prizes, teamSize]);
 
   function setPrize(i: number, patch: Partial<Prize>) {
     setPrizes((ps) => ps.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
@@ -66,7 +76,11 @@ export default function TournamentBuilderPage() {
 
   function valid(n: number): boolean {
     if (n === 0) return title.trim().length >= 4;
-    if (n === 1) return startTime !== '' && deadline !== '' && Number(maxSlots) >= 2 && Number(minSlots) >= 2;
+    if (n === 1) {
+      const slotsOk = Number(maxSlots) >= 2 && Number(minSlots) >= 2;
+      const customOk = type !== 'CUSTOM' || (Number(playersPerTeamInput) >= 1 && Number(playersPerTeamInput) <= 8);
+      return startTime !== '' && deadline !== '' && slotsOk && customOk;
+    }
     if (n === 2) return Number(entryFee) >= 0 && Number(pointsPerKill) >= 0 && Number(numWinners) >= 1;
     if (n === 3) return prizes.length > 0 && prizes.every((p) => Number(p.amount) >= 0);
     return true;
@@ -82,7 +96,12 @@ export default function TournamentBuilderPage() {
           title, type, description, map,
           startTime: new Date(startTime).toISOString(),
           registrationDeadline: new Date(deadline).toISOString(),
-          maxSlots: Number(maxSlots), minSlotsToStart: Number(minSlots),
+          // Solo-style formats send total PLAYERS; team formats send the TEAM
+          // count (the server folds it into seats and multiplies by players
+          // per team for the real capacity).
+          ...(isSoloMode ? { maxSlots: Number(maxSlots) } : { teamCount: Number(maxSlots) }),
+          ...(type === 'CUSTOM' ? { playersPerTeam: Number(playersPerTeamInput), customLabel: customLabel.trim() } : {}),
+          minSlotsToStart: Number(minSlots),
           entryFeePerPlayer: Number(entryFee), pointsPerKill: Number(pointsPerKill),
           numWinners: Number(numWinners),
           prizes: prizes.map((p) => ({
@@ -147,10 +166,26 @@ export default function TournamentBuilderPage() {
             </Field>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Mode *">
-                <select value={type} onChange={(e) => setType(e.target.value)} className={inputCls}>
-                  <option value="SOLO">Solo</option><option value="DUO">Duo</option>
-                  <option value="SQUAD">Squad</option><option value="CLASH_SQUAD">Clash Squad</option>
-                  <option value="LONE_WOLF">Lone Wolf</option><option value="CLASH_SQUAD_1V1">Clash Squad 1v1</option>
+                <select
+                  value={type}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setType(v);
+                    // Sensible per-format capacity defaults — never one fixed number.
+                    if (['SOLO', 'LONE_WOLF', 'CLASH_SQUAD_1V1'].includes(v)) setMaxSlots('48');
+                    else if (v === 'DUO') setMaxSlots('24');
+                    else if (v === 'CUSTOM') { setMaxSlots('12'); setPlayersPerTeamInput('4'); }
+                    else setMaxSlots('12');
+                  }}
+                  className={inputCls}
+                >
+                  <option value="SOLO">Solo</option>
+                  <option value="DUO">Duo</option>
+                  <option value="SQUAD">Squad</option>
+                  <option value="CLASH_SQUAD">Clash Squad (4v4)</option>
+                  <option value="LONE_WOLF">Lone Wolf (1v1)</option>
+                  <option value="CLASH_SQUAD_1V1">Clash Squad 1v1</option>
+                  <option value="CUSTOM">Custom (set players per team)</option>
                 </select>
               </Field>
               <Field label="Map">
@@ -159,6 +194,11 @@ export default function TournamentBuilderPage() {
                 </select>
               </Field>
             </div>
+            {type === 'CUSTOM' && (
+              <Field label="Format label (shown to players)">
+                <input value={customLabel} onChange={(e) => setCustomLabel(e.target.value)} className={inputCls} placeholder='e.g. "3v3 Zone Clash" or "2v2 Rush"' />
+              </Field>
+            )}
             <Field label="Description">
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className={inputCls} placeholder="What makes this event special?" />
             </Field>
@@ -176,12 +216,57 @@ export default function TournamentBuilderPage() {
               </Field>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label={type === 'SOLO' ? 'Player slots *' : 'Team slots *'}>
-                <input value={maxSlots} onChange={(e) => setMaxSlots(e.target.value.replace(/[^\d]/g, ''))} className={inputCls} />
-              </Field>
+              {isSoloMode ? (
+                <Field label="Total player slots *">
+                  <input value={maxSlots} onChange={(e) => setMaxSlots(e.target.value.replace(/[^\d]/g, ''))} className={inputCls} placeholder="e.g. 48" />
+                </Field>
+              ) : (
+                <Field label={`Number of teams * (${teamSize} players each)`}>
+                  <input value={maxSlots} onChange={(e) => setMaxSlots(e.target.value.replace(/[^\d]/g, ''))} className={inputCls} placeholder="e.g. 12" />
+                </Field>
+              )}
               <Field label="Minimum slots to start *">
                 <input value={minSlots} onChange={(e) => setMinSlots(e.target.value.replace(/[^\d]/g, ''))} className={inputCls} />
               </Field>
+            </div>
+
+            {type === 'CUSTOM' && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Players per team *">
+                  <select value={playersPerTeamInput} onChange={(e) => setPlayersPerTeamInput(e.target.value)} className={inputCls}>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                      <option key={n} value={n}>{n === 1 ? '1 — individual slots' : `${n} players per team`}</option>
+                    ))}
+                  </select>
+                </Field>
+                <div className="flex items-end pb-1 text-xs text-fg-3">
+                  Capacity = players per team × number of teams — updated live below.
+                </div>
+              </div>
+            )}
+
+            {/* Live slot preview — recalculates on every keystroke */}
+            <div className="rounded-card border border-accent/25 bg-accent/[6%] p-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-accent">Slot Preview</p>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-input bg-white/[4%] px-2 py-2.5">
+                  <p className="tabular text-lg font-bold text-fg">{totalPlayerCapacity || 0}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-fg-3">Total players</p>
+                </div>
+                <div className="rounded-input bg-white/[4%] px-2 py-2.5">
+                  <p className="tabular text-lg font-bold text-fg">{isSoloMode ? (Number(maxSlots || 0) || 0) : (Number(maxSlots || 0) || 0)}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-fg-3">{isSoloMode ? 'Individual slots' : 'Teams'}</p>
+                </div>
+                <div className="rounded-input bg-white/[4%] px-2 py-2.5">
+                  <p className="tabular text-lg font-bold text-fg">{teamSize}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-fg-3">Players / team</p>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-fg-2">
+                {isSoloMode
+                  ? <>1 registration = <strong className="text-fg">1 player slot</strong>. {totalPlayerCapacity || 0} individual players can register.</>
+                  : <>1 team registration reserves <strong className="text-fg">{teamSize} player positions</strong>. {Number(maxSlots || 0) || 0} teams × {teamSize} = <strong className="text-fg">{totalPlayerCapacity || 0} players</strong> total.</>}
+              </p>
             </div>
 
             <div className="rounded-card border border-line bg-white/[3%] p-4">
@@ -223,7 +308,7 @@ export default function TournamentBuilderPage() {
               </Field>
             </div>
             <div className="rounded-card border border-line bg-base/50 p-4 text-xs text-fg-3">
-              Slots are {type === 'SOLO' ? 'players' : `teams of ${teamSize}`}; every player pays the entry fee individually. Collection = fee × slots ={' '}
+              Slots are {isSoloMode ? 'individual players' : `teams of ${teamSize}`}; every player pays the entry fee individually. Collection = fee × {isSoloMode ? 'slots' : `teams × ${teamSize} players`} ={' '}
               <span className="font-bold text-fg">PKR {economics.collection.toLocaleString('en-PK')}</span>.
             </div>
           </div>
@@ -293,7 +378,10 @@ export default function TournamentBuilderPage() {
           <div className="flex flex-col gap-4">
             <div className="rounded-card border border-line bg-white/[2%] p-4 text-sm">
               <p className="font-display text-base font-bold text-fg">{title || 'Untitled tournament'}</p>
-              <p className="mt-1 text-xs text-fg-3">{type.replace('_', ' ')} · {map} · {maxSlots} slots · entry PKR {Number(entryFee).toLocaleString('en-PK')}</p>
+              <p className="mt-1 text-xs text-fg-3">
+                {type === 'CUSTOM' ? (customLabel.trim() || 'Custom') : type.replace('_', ' ')} · {map} ·{' '}
+                {isSoloMode ? `${maxSlots} player slots` : `${maxSlots} teams × ${teamSize} players = ${totalPlayerCapacity} players`} · entry PKR {Number(entryFee).toLocaleString('en-PK')}
+              </p>
               <p className="mt-2 text-xs text-fg-2">
                 {startTime ? new Date(startTime).toLocaleString('en-PK', { dateStyle: 'medium', timeStyle: 'short' }) : '—'} → deadline{' '}
                 {deadline ? new Date(deadline).toLocaleString('en-PK', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}

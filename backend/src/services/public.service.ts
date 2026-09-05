@@ -10,6 +10,7 @@ import { getFlag, getSetting } from './settings.service';
 import { rankFor, rankCatalog } from '../lib/rank';
 import { normalizePlacementTable } from '../lib/scoring';
 import { ROOM_FLAG_SELECT, roomStateFor, globalRoomReleaseMinutes } from './room.service';
+import { capacityOf, type TournamentTypeLike } from '../lib/capacity';
 
 // ---------------------------------------------------------------------------
 export interface TournamentListQuery {
@@ -22,16 +23,53 @@ export interface TournamentListQuery {
   limit?: number;
 }
 
-/** Players-per-team for every playable Free Fire mode (1 for solo-style modes). */
-const MODE_TEAM_SIZE: Record<string, number> = {
-  SOLO: 1,
-  DUO: 2,
-  SQUAD: 4,
-  CLASH_SQUAD: 4,
-  LONE_WOLF: 1,
-  CLASH_SQUAD_1V1: 1,
-};
-const teamSizeFor = (type: string) => MODE_TEAM_SIZE[type] ?? 1;
+/**
+ * Confirmed-registration headcount per tournament (individual PLAYERS, not
+ * seats). One grouped query keeps the list endpoint O(1) round-trips no matter
+ * how many events it renders.
+ */
+async function confirmedPlayerCounts(tournamentIds: string[]): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (tournamentIds.length === 0) return counts;
+  const rows = await prisma.tournamentRegistration.groupBy({
+    by: ['tournamentId'],
+    where: { tournamentId: { in: tournamentIds }, status: 'CONFIRMED' },
+    _count: { _all: true },
+  });
+  for (const row of rows) counts.set(row.tournamentId, row._count._all);
+  return counts;
+}
+
+/**
+ * Dynamic capacity view appended to every public tournament payload, so cards
+ * and detail pages can say exactly what a slot is (players vs teams) and never
+ * show "8/48 slots" when 8 actually means teams.
+ */
+function capacityFields(t: {
+  type: string; maxSlots: number; registeredSlots: number;
+  playersPerTeam: number; registeredPlayers: number;
+  entryFeePerPlayer: unknown;
+}) {
+  const cap = capacityOf({
+    type: t.type as TournamentTypeLike,
+    maxSlots: t.maxSlots,
+    playersPerTeam: t.playersPerTeam,
+  });
+  return {
+    teamSize: cap.playersPerTeam,
+    playersPerTeam: cap.playersPerTeam,
+    capacityUnit: cap.slotUnit, // what maxSlots/registeredSlots count
+    totalPlayerCapacity: cap.totalPlayers,
+    // Individual players confirmed (real headcount from registrations).
+    registeredPlayers: t.registeredPlayers,
+    playersLeft: Math.max(0, cap.totalPlayers - t.registeredPlayers),
+    // Team-mode conveniences (equal to the seat counters there; on solo modes
+    // they mirror the player counters so the UI can render uniformly).
+    teamsTotal: cap.teamMode ? t.maxSlots : null,
+    teamsFilled: cap.teamMode ? t.registeredSlots : null,
+    entryFeePerTeam: Number(t.entryFeePerPlayer ?? 0) * cap.playersPerTeam,
+  };
+}
 
 export async function listTournaments(q: TournamentListQuery) {
   const page = Math.max(1, q.page ?? 1);
@@ -62,19 +100,20 @@ export async function listTournaments(q: TournamentListQuery) {
         id: true, title: true, slug: true, type: true, map: true, status: true,
         banner: true, isVerified: true, isFeatured: true,
         entryFeePerPlayer: true, prizePool: true, platformFee: true,
-        maxSlots: true, registeredSlots: true, numWinners: true,
+        maxSlots: true, registeredSlots: true, playersPerTeam: true, customLabel: true,
+        numWinners: true,
         startTime: true, registrationDeadline: true, createdAt: true,
       },
     }),
     prisma.tournament.count({ where }),
   ]);
 
+  const playerCounts = await confirmedPlayerCounts(items.map((t) => t.id));
   const now = new Date();
   return {
     items: items.map((t) => ({
       ...t,
-      teamSize: teamSizeFor(t.type),
-      entryFeePerTeam: Number(t.entryFeePerPlayer) * teamSizeFor(t.type),
+      ...capacityFields({ ...t, registeredPlayers: playerCounts.get(t.id) ?? 0 }),
       slotsLeft: Math.max(0, t.maxSlots - t.registeredSlots),
       registrationOpen: t.status === 'REGISTRATION_OPEN' && t.registrationDeadline > now,
       startsInMs: t.startTime.getTime() - now.getTime(),
@@ -141,16 +180,21 @@ export async function getTournamentBySlug(slug: string) {
   // of the graph here and re-enters only as the derived, credential-free `room` view at the
   // bottom of this object.
   const { registrations, matches, prizes, room: roomRow, ...core } = t;
-  const teamSize = teamSizeFor(t.type);
+  // Counted separately: `registrations` is capped at 500 rows for the public
+  // seat grid, while player capacity can legitimately exceed that.
+  const registeredPlayers = await prisma.tournamentRegistration.count({
+    where: { tournamentId: t.id, status: 'CONFIRMED' },
+  });
   return {
     ...core,
-    teamSize,
-    entryFeePerTeam: Number(t.entryFeePerPlayer) * teamSize,
+    ...capacityFields({ ...t, registeredPlayers }),
     slotsLeft: Math.max(0, t.maxSlots - t.registeredSlots),
     registrationOpen: t.status === 'REGISTRATION_OPEN' && t.registrationDeadline > now,
     startsInMs: t.startTime.getTime() - now.getTime(),
     prizeBreakdown: {
-      entryFeesCollected: Number(t.entryFeePerPlayer) * t.registeredSlots * teamSize,
+      // Real headcount (one confirmed registration = one paid player), never
+      // derived from seat math — free-agent entries pay a single share.
+      entryFeesCollected: Number(t.entryFeePerPlayer) * registeredPlayers,
       prizePool: Number(t.prizePool),
       platformFee: Number(t.platformFee),
     },

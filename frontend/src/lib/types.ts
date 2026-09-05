@@ -1,11 +1,14 @@
 // API payload types (mirror the backend public contract).
 // Decimal fields arrive as strings over JSON.
 
+export type TournamentType =
+  | 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1' | 'CUSTOM';
+
 export interface TournamentSummary {
   id: string;
   title: string;
   slug: string;
-  type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1';
+  type: TournamentType;
   map: string | null;
   status: string;
   banner: string | null;
@@ -14,12 +17,27 @@ export interface TournamentSummary {
   entryFeePerPlayer: string;
   prizePool: string;
   platformFee: string;
+  /** Seat count — what one slot IS depends on `capacityUnit`. */
   maxSlots: number;
   registeredSlots: number;
+  /** CUSTOM events carry an admin label for their format. */
+  customLabel?: string | null;
   numWinners: number;
   startTime: string;
   registrationDeadline: string;
+  /** Players per team/group — 1 for solo-style modes. */
   teamSize: number;
+  playersPerTeam: number;
+  /** What maxSlots/registeredSlots count: 'players' (solo) or 'teams'. */
+  capacityUnit: 'players' | 'teams';
+  /** maxSlots × playersPerTeam — the real individual-player capacity. */
+  totalPlayerCapacity: number;
+  /** Confirmed individual players (headcount from registrations). */
+  registeredPlayers: number;
+  playersLeft: number;
+  /** Team-mode counters (null on solo modes). */
+  teamsTotal: number | null;
+  teamsFilled: number | null;
   entryFeePerTeam: number;
   slotsLeft: number;
   registrationOpen: boolean;

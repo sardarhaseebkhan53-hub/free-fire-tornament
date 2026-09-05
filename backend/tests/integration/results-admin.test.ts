@@ -188,7 +188,8 @@ describe('solo identity requirement + team join codes', () => {
     created.push(u.id);
     // Strip the profile identity the factory set.
     await db.userProfile.update({ where: { userId: u.id }, data: { freeFireUID: null, freeFireIGN: null } });
-    await rejectsWithCode(() => joinTournament(u.id, { tournamentSlug: t.slug }, ctx.ip), 'VALIDATION_ERROR');
+    // PROFILE_INCOMPLETE routes the client to the profile-completion screen.
+    await rejectsWithCode(() => joinTournament(u.id, { tournamentSlug: t.slug }, ctx.ip), 'PROFILE_INCOMPLETE');
     // Confirm values submitted at join time are accepted and persisted.
     await joinTournament(u.id, { tournamentSlug: t.slug, freeFireUID: '9988776655', freeFireIGN: 'ClutchKing' }, ctx.ip);
     const profile = await db.userProfile.findUniqueOrThrow({ where: { userId: u.id } });

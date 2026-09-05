@@ -24,6 +24,10 @@ export function uid(prefix = 't'): string {
   return `${prefix}${Date.now().toString(36)}${seq.toString(36)}`.slice(0, 24);
 }
 
+/** Strictly-increasing phone suffix: seq never repeats within a process, so
+ * generated phones cannot collide on the unique constraint. */
+let phoneSeq = 0;
+
 export interface TestUser {
   id: string;
   username: string;
@@ -45,16 +49,20 @@ export async function makeUser(opts: {
 } = {}): Promise<TestUser> {
   const name = uid(opts.prefix ?? 'u');
   const password = 'Test@12345';
-  // Unique-ish Free Fire identity: test users get a UID + IGN up front so the
-  // join engine's identity requirement (SOLO + team modes) is satisfied.
+  // Unique-ish Free Fire identity: test users get a UID + IGN + phone up
+  // front so the join engine's mandatory player-profile gate (FF UID + IGN +
+  // phone — same for password and social accounts) is satisfied.
   const nameHash = name.split('').reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
   const uidNum = String((nameHash % 9_000_000_000) + 1_000_000_000);
+  phoneSeq += 1;
+  const phoneNum = `+9230${String(Date.now() % 10_000_000).padStart(7, '0')}${String(phoneSeq % 1000).padStart(3, '0')}`;
   // Cost 4 keeps the suite fast; production uses 12 (asserted in auth.test.ts).
   const { hashSync } = await import('bcryptjs');
   const user = await db.user.create({
     data: {
       username: name,
       email: `${name}@example.com`,
+      phone: phoneNum,
       passwordHash: hashSync(password, 4),
       role: opts.role ?? 'USER',
       status: 'ACTIVE',

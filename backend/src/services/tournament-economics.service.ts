@@ -26,10 +26,12 @@ export interface PrizeInput {
 }
 
 export interface EconomicsInput {
-  type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1';
+  type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1' | 'CUSTOM';
   entryFeePerPlayer: number;
-  /** Slots in TEAMS (players for SOLO). */
+  /** Slots in TEAMS for team modes (players for solo-style modes). */
   slots: number;
+  /** CUSTOM only: players per team (capacity = slots × playersPerTeam). */
+  playersPerTeam?: number;
   prizes: PrizeInput[];
   /** Bonus credited on join, percent of entry (0–100). */
   bonusPercent?: number;
@@ -66,6 +68,7 @@ export const TEAM_SIZE: Record<EconomicsInput['type'], number> = {
   CLASH_SQUAD: 4,
   LONE_WOLF: 1,
   CLASH_SQUAD_1V1: 1,
+  CUSTOM: 4, // fallback only — CUSTOM events always pass their own playersPerTeam
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -105,7 +108,12 @@ export async function computeEconomics(input: EconomicsInput): Promise<Economics
     }
   }
 
-  const teamSize = TEAM_SIZE[input.type];
+  // CUSTOM resolves its real players-per-team; built-in modes are pinned to
+  // their Free Fire team size. Collection math follows from that, so no mode
+  // is ever priced with an assumed slot size.
+  const teamSize = input.type === 'CUSTOM'
+    ? Math.min(8, Math.max(1, Math.floor(input.playersPerTeam ?? 4)))
+    : TEAM_SIZE[input.type];
   const entryFeePerTeam = input.entryFeePerPlayer * teamSize;
   const expectedCollection = round2(entryFeePerTeam * input.slots * fillRate);
 

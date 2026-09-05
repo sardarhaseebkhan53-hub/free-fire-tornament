@@ -24,9 +24,16 @@ import { confirmAbsent, isRetryableTxError, withIdempotentRetry } from '../lib/t
 import { syncTournamentParticipants } from './match.service';
 import { ROOM_FLAG_SELECT, globalRoomReleaseMinutes, roomStateFor } from './room.service';
 
-const TEAM_SIZE: Record<'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1', number> = {
-  SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4, LONE_WOLF: 1, CLASH_SQUAD_1V1: 1,
+import { type TournamentTypeLike } from '../lib/capacity';
+
+/** Default players-per-team for the built-in modes. CUSTOM events read their own
+ * `playersPerTeam` column — the team size is never assumed, always resolved. */
+const TEAM_SIZE: Record<TournamentTypeLike, number> = {
+  SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4, LONE_WOLF: 1, CLASH_SQUAD_1V1: 1, CUSTOM: 1,
 };
+
+const teamSizeFor = (t: { type: string; playersPerTeam?: number | null }) =>
+  t.type === 'CUSTOM' ? Math.max(1, t.playersPerTeam ?? 1) : (TEAM_SIZE[t.type as TournamentTypeLike] ?? 1);
 
 // Financial transactions get a generous budget: under load they queue on the
 // database writer (especially the embedded dev database); the work itself is small.
@@ -89,17 +96,35 @@ export interface JoinInput {
 
 export interface ActorCtx { ip?: string; userAgent?: string }
 
-/** Profile completeness for tournament play: UID (digits) + IGN (2-24 chars). */
+/**
+ * Profile completeness for tournament play: Free Fire UID (digits) + in-game
+ * name (2-24 chars). Missing identity raises PROFILE_INCOMPLETE so clients can
+ * route the player to the "Complete Your Free Fire Profile" screen instead of
+ * accepting a registration the platform cannot field.
+ */
 function validateFFIdentity(uidRaw?: string, ignRaw?: string): { uid: string; ign: string } {
   const uid = (uidRaw ?? '').trim();
   const ign = (ignRaw ?? '').trim();
   if (!/^\d{5,15}$/.test(uid)) {
-    throw badRequest('VALIDATION_ERROR', 'A valid Free Fire UID (5-15 digits) is required to join. Update it in your profile.');
+    throw badRequest('PROFILE_INCOMPLETE', 'A valid Free Fire UID (5-15 digits) is required before you can join a tournament. Complete your Free Fire profile first.');
   }
   if (ign.length < 2 || ign.length > 24) {
-    throw badRequest('VALIDATION_ERROR', 'Your Free Fire nickname (2-24 characters) is required to join.');
+    throw badRequest('PROFILE_INCOMPLETE', 'Your Free Fire in-game name (2-24 characters) is required before you can join a tournament. Complete your Free Fire profile first.');
   }
   return { uid, ign };
+}
+
+/**
+ * Phone requirement — the third mandatory profile field. Phone lives on the
+ * account row (not the join payload), so it can only be set through the
+ * authenticated profile endpoint; a missing value routes to profile completion.
+ */
+function validatePhone(phone: string | null | undefined): string {
+  const cleaned = (phone ?? '').replace(/[\s-]/g, '');
+  if (!/^\+?\d{7,15}$/.test(cleaned)) {
+    throw badRequest('PROFILE_INCOMPLETE', 'A phone number is required before you can join a tournament. Complete your Free Fire profile first.');
+  }
+  return cleaned;
 }
 
 /**
@@ -155,6 +180,13 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
   const user = await confirmAbsent(() => prisma.user.findUnique({ where: { id: userId } }));
   if (!user) throw notFound('Account not found');
   if (user.status !== 'ACTIVE') throw forbidden('Account is not active.');
+
+  // Profile gate (backend is the final authority): the phone number is part
+  // of the mandatory Free Fire player profile and can only be saved through
+  // the authenticated profile endpoint — never via the join payload. A missing
+  // value raises PROFILE_INCOMPLETE so the client routes to the completion
+  // screen instead of collecting an entry the platform cannot field.
+  validatePhone(user.phone);
   // Email confirmation is optional (auth.service: ACTIVE on register, isVerified
   // is a badge + welcome-bonus track). It must never block a paid entry — that
   // is what produced the fake "Only the team captain can register the team"
@@ -167,7 +199,7 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
   // stayed joinable — the "closes in 00:03:45 / starts in Now" state.
   if (t.startTime <= new Date()) throw badRequest('TOURNAMENT_CLOSED', 'This tournament has already started.');
 
-  const teamSize = TEAM_SIZE[t.type];
+  const teamSize = teamSizeFor(t);
   const feePerPlayer = Number(t.entryFeePerPlayer);
 
   // Resolve settings BEFORE opening the transaction: reading them inside would
@@ -187,8 +219,12 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
   // Independent DUO (admin opt-in): same as SOLO — no team required.
   // Independent SQUAD / Clash Squad (admin opt-in): same path.
   const isTeamJoin = teamSize > 1 && !!input.teamId;
-  const isIndependentDuo = t.type === 'DUO' && !input.teamId && allowIndependentDuo && teamSize === 2;
-  const isIndependentSquad = (t.type === 'SQUAD' || t.type === 'CLASH_SQUAD') && !input.teamId && allowIndependentSquad && teamSize === 4;
+  // Independent (free-agent) entry for team modes: DUO listens to the duo flag,
+  // anything bigger (SQUAD / CLASH_SQUAD / CUSTOM 3+) to the squad flag. Built-in
+  // modes keep exactly their previous semantics; CUSTOM simply reuses them so a
+  // custom team format is never forced onto a player without a team.
+  const isIndependentDuo = teamSize === 2 && !input.teamId && allowIndependentDuo && (t.type === 'DUO' || t.type === 'CUSTOM');
+  const isIndependentSquad = teamSize > 2 && !input.teamId && allowIndependentSquad && (t.type === 'SQUAD' || t.type === 'CLASH_SQUAD' || t.type === 'CUSTOM');
   const isIndependentTeam = isIndependentDuo || isIndependentSquad;
   // A team mode without a team is only valid when the admin opt-in for that
   // mode is enabled. Never let the backend silently register one player in a
@@ -227,13 +263,19 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
   let payerIds: string[] = [userId];
   let flowTeamSize = teamSize;
   if (isTeamJoin) {
+    // The platform's team model supports DUO (2) and SQUAD (4) rosters, so a
+    // full-team entry requires one of those sizes — including CUSTOM events
+    // configured at 2 or 4 per team. Other custom sizes take individual entries.
+    if (teamSize !== 2 && teamSize !== 4) {
+      throw badRequest('VALIDATION_ERROR', 'This tournament format does not support full-team registration — register individually and staff will group the lobby.');
+    }
     const team = await prisma.team.findUnique({
       where: { id: input.teamId },
-      include: { members: { select: { userId: true, user: { select: { status: true } } } } },
+      include: { members: { select: { userId: true, user: { select: { status: true, phone: true } } } } },
     });
     if (!team) throw notFound('Team not found');
     if (team.captainId !== userId) throw forbidden('Only the team captain can register the team.');
-    const expectedType = t.type === 'DUO' ? 'DUO' : 'SQUAD';
+    const expectedType = teamSize === 2 ? 'DUO' : 'SQUAD';
     if (team.type !== expectedType) {
       throw badRequest('VALIDATION_ERROR', `A ${expectedType.toLowerCase()} team is required for this tournament.`);
     }
@@ -244,6 +286,9 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
       if (member.user.status !== 'ACTIVE') {
         throw forbidden('Every team member must have an active account.');
       }
+      if (!/^\+?\d{7,15}$/.test((member.user.phone ?? '').replace(/[\s-]/g, ''))) {
+        throw badRequest('PROFILE_INCOMPLETE', 'Every team member must complete their Free Fire profile (including phone number) before the team can register.');
+      }
     }
     // Every member must have their Free Fire identity saved.
     const profiles = await prisma.userProfile.findMany({
@@ -253,7 +298,7 @@ async function joinTournamentOnce(userId: string, input: JoinInput, actorIp?: st
     for (const member of team.members) {
       const profile = profiles.find((p) => p.userId === member.userId);
       if (!profile?.freeFireUID || !profile.freeFireIGN) {
-        throw badRequest('VALIDATION_ERROR', `Every team member must set their Free Fire UID and nickname in Profile before the team can register (member ${member.userId.slice(0, 6)}…).`);
+        throw badRequest('PROFILE_INCOMPLETE', `Every team member must set their Free Fire UID and nickname in Profile before the team can register (member ${member.userId.slice(0, 6)}…).`);
       }
     }
     payerIds = team.members.map((m) => m.userId);
@@ -319,7 +364,7 @@ async function runJoinWithRetry(
 async function runJoin(
   userId: string,
   input: JoinInput,
-  t: { id: string; title: string; slug: string; type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1'; status: string; registrationDeadline: Date; startTime: Date; maxSlots: number; refundPercent: unknown },
+  t: { id: string; title: string; slug: string; type: 'SOLO' | 'DUO' | 'SQUAD' | 'CLASH_SQUAD' | 'LONE_WOLF' | 'CLASH_SQUAD_1V1' | 'CUSTOM'; status: string; registrationDeadline: Date; startTime: Date; maxSlots: number; playersPerTeam: number; refundPercent: unknown },
   feePerPlayer: number,
   currency: string,
   payerIds: string[],
@@ -359,7 +404,7 @@ async function runJoin(
         where: { id: input.teamId },
         include: { members: { select: { userId: true, user: { select: { status: true } } } } },
       });
-      if (!currentTeam || currentTeam.captainId !== userId || currentTeam.type !== (t.type === 'DUO' ? 'DUO' : 'SQUAD')) {
+      if (!currentTeam || currentTeam.captainId !== userId || currentTeam.type !== (teamSize === 2 ? 'DUO' : 'SQUAD')) {
         throw forbidden('The selected team changed. Refresh and try again.');
       }
       if (currentTeam.members.length !== teamSize) {
@@ -630,7 +675,7 @@ export async function cancelRegistration(userId: string, tournamentSlug: string)
     });
     if (!mine || mine.status !== 'CONFIRMED') throw notFound('No confirmed registration found.');
 
-    const teamSize = TEAM_SIZE[current.type];
+    const teamSize = teamSizeFor(current);
     const isTeam = teamSize > 1 && mine.teamId !== null;
     if (isTeam && mine.team?.captainId !== userId) {
       throw forbidden('Only the team captain can cancel a team registration.');

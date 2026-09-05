@@ -5,7 +5,7 @@ import { notFound } from 'next/navigation';
 import { Clock, MapPin, ShieldCheck, Skull, Star, Users } from 'lucide-react';
 import { apiServerDetail } from '@/lib/api';
 import type { TournamentDetails } from '@/lib/types';
-import { money, MODE_LABEL, STATUS_LABEL, dateTime, displayStatus } from '@/lib/format';
+import { money, MODE_LABEL, STATUS_LABEL, dateTime, displayStatus, capacityText } from '@/lib/format';
 import { Badge, Avatar } from '@/components/ui';
 import { Reveal } from '@/components/reveal';
 import { Countdown, CountdownUntil } from '@/components/countdown';
@@ -90,7 +90,14 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           <p className="mt-3 flex flex-wrap items-center gap-4 text-sm text-fg-2">
             {t.map && <span className="inline-flex items-center gap-1.5"><MapPin size={14} /> {t.map}</span>}
             <span className="inline-flex items-center gap-1.5"><Clock size={14} /> {dateTime(t.startTime)}</span>
-            <span className="inline-flex items-center gap-1.5"><Users size={14} /> {t.registeredSlots}/{t.maxSlots} {t.type === 'SOLO' ? 'players' : 'teams'}</span>
+            <span className="inline-flex items-center gap-1.5">
+              <Users size={14} /> {(() => {
+                const cap = capacityText(t);
+                return cap.secondary
+                  ? `${cap.primary} ${cap.unit} · ${cap.secondary}`
+                  : `${cap.primary} ${cap.unit}`;
+              })()}
+            </span>
           </p>
 
           <div className="mt-6 flex flex-wrap items-center gap-4">
@@ -119,7 +126,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               <div className="flex justify-between"><dt className="text-fg-2">Entry / player</dt><dd className="tabular font-semibold text-fg">{money(t.entryFeePerPlayer)}</dd></div>
               {t.teamSize > 1 && <div className="flex justify-between"><dt className="text-fg-2">Entry / team ({t.teamSize})</dt><dd className="tabular font-semibold text-fg">{money(t.entryFeePerTeam)}</dd></div>}
               <div className="flex justify-between"><dt className="text-fg-2">Prize pool</dt><dd className="tabular font-semibold text-reward">{money(t.prizePool)}</dd></div>
-              <div className="flex justify-between"><dt className="text-fg-2">Seats left</dt><dd className={`tabular font-semibold ${t.slotsLeft > 0 ? 'text-success' : 'text-danger'}`}>{t.slotsLeft > 0 ? t.slotsLeft : 'FULL'}</dd></div>
+              <div className="flex justify-between"><dt className="text-fg-2">{t.capacityUnit === 'teams' ? 'Team slots' : 'Player slots'} filled</dt><dd className="tabular font-semibold text-fg">{t.registeredSlots}/{t.maxSlots}</dd></div>
+              {t.capacityUnit === 'teams' && (
+                <div className="flex justify-between"><dt className="text-fg-2">Players registered</dt><dd className="tabular font-semibold text-fg">{t.registeredPlayers}/{t.totalPlayerCapacity}</dd></div>
+              )}
+              <div className="flex justify-between"><dt className="text-fg-2">{t.capacityUnit === 'teams' ? 'Teams left' : 'Slots left'}</dt><dd className={`tabular font-semibold ${t.slotsLeft > 0 ? 'text-success' : 'text-danger'}`}>{t.slotsLeft > 0 ? t.slotsLeft : 'FULL'}</dd></div>
             </dl>
             <div className="mt-4">
               <JoinTournament
@@ -249,7 +260,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h2 className="font-display text-lg font-bold text-fg">Custom Room Lobby</h2>
-                <p className="mt-1 text-xs text-fg-2">{t.registeredSlots} of {t.maxSlots} slots occupied · <strong className="text-success">{t.slotsLeft} available</strong></p>
+                <p className="mt-1 text-xs text-fg-2">
+                  {t.capacityUnit === 'teams'
+                    ? <>{t.registeredSlots} of {t.maxSlots} {t.registeredSlots === 1 ? 'team' : 'teams'} filled ({t.registeredPlayers}/{t.totalPlayerCapacity} players) · <strong className="text-success">{t.slotsLeft} {t.slotsLeft === 1 ? 'team slot' : 'team slots'} open</strong></>
+                    : <>{t.registeredSlots} of {t.maxSlots} player slots filled · <strong className="text-success">{t.slotsLeft} available</strong></>}
+                </p>
               </div>
               <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.12em] text-fg-2">
                 <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-success" /> Available</span>
@@ -262,11 +277,18 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 const p = t.participants.find((x) => x.seatNumber === seat);
                 const teamName = p?.team ? `${p.team.name} [${p.team.tag}]` : null;
                 const members = p?.team?.members ?? (p ? [{ username: p.user.ign ?? p.user.username, uid: p.user.uid }] : []);
+                const seatNoun = t.capacityUnit === 'teams' ? 'Team' : 'Player';
+                const readyCount = p ? members.length : 0;
+                const isPartial = Boolean(p && t.capacityUnit === 'teams' && readyCount < (t.playersPerTeam ?? 1));
                 return (
                   <div key={seat} className={`rounded-card border p-4 ${p ? 'border-accent/35 bg-accent/[0.07]' : 'border-dashed border-success/35 bg-success/[0.035]'}`}>
                     <div className="flex items-center justify-between gap-3">
-                      <span className="font-display text-sm font-bold uppercase tracking-[0.14em] text-fg">Slot {String(seat).padStart(2, '0')}</span>
-                      <span className={`rounded-pill px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.12em] ${p ? 'bg-accent/15 text-accent' : 'bg-success/10 text-success'}`}>{p ? 'Confirmed' : 'Available'}</span>
+                      <span className="font-display text-sm font-bold uppercase tracking-[0.14em] text-fg">{seatNoun} {String(seat).padStart(2, '0')}</span>
+                      {isPartial ? (
+                        <span className="rounded-pill bg-warning/15 px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.12em] text-warning">{readyCount}/{t.playersPerTeam} Players Ready</span>
+                      ) : (
+                        <span className={`rounded-pill px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.12em] ${p ? 'bg-accent/15 text-accent' : 'bg-success/10 text-success'}`}>{p ? 'Confirmed' : 'Available'}</span>
+                      )}
                     </div>
                     {p ? (
                       <div className="mt-3 space-y-2">
@@ -318,8 +340,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               <div className="flex justify-between"><dt className="text-fg-2">Entry / player</dt><dd className="tabular font-semibold text-fg">{money(t.entryFeePerPlayer)}</dd></div>
               {t.teamSize > 1 && <div className="flex justify-between"><dt className="text-fg-2">Entry / team ({t.teamSize})</dt><dd className="tabular font-semibold text-fg">{money(t.entryFeePerTeam)}</dd></div>}
               <div className="flex justify-between"><dt className="text-fg-2">Prize pool</dt><dd className="tabular font-semibold text-reward">{money(t.prizePool)}</dd></div>
-              <div className="flex justify-between"><dt className="text-fg-2">Seats</dt><dd className="tabular font-semibold text-fg">{t.registeredSlots}/{t.maxSlots}</dd></div>
-              <div className="flex justify-between"><dt className="text-fg-2">Remaining</dt><dd className={`tabular font-semibold ${t.slotsLeft > 0 ? 'text-success' : 'text-danger'}`}>{t.slotsLeft > 0 ? t.slotsLeft : 'FULL'}</dd></div>
+              <div className="flex justify-between"><dt className="text-fg-2">{t.capacityUnit === 'teams' ? 'Teams filled' : 'Players filled'}</dt><dd className="tabular font-semibold text-fg">{t.registeredSlots}/{t.maxSlots}</dd></div>
+              {t.capacityUnit === 'teams' && (
+                <div className="flex justify-between"><dt className="text-fg-2">Players registered</dt><dd className="tabular font-semibold text-fg">{t.registeredPlayers}/{t.totalPlayerCapacity}</dd></div>
+              )}
+              <div className="flex justify-between"><dt className="text-fg-2">Remaining</dt><dd className={`tabular font-semibold ${t.slotsLeft > 0 ? 'text-success' : 'text-danger'}`}>{t.slotsLeft > 0 ? `${t.slotsLeft} ${t.capacityUnit === 'teams' ? (t.slotsLeft === 1 ? 'team' : 'teams') : t.slotsLeft === 1 ? 'player' : 'players'}` : 'FULL'}</dd></div>
               <div className="flex justify-between"><dt className="text-fg-2">Winners paid</dt><dd className="tabular font-semibold text-fg">Top {t.numWinners}</dd></div>
               <div className="flex justify-between"><dt className="text-fg-2">Points / kill</dt><dd className="tabular font-semibold text-fg">{t.pointsPerKill}</dd></div>
               <div className="flex justify-between"><dt className="text-fg-2">Refund on cancel</dt><dd className="tabular font-semibold text-success">{Number(t.refundPercent)}%</dd></div>

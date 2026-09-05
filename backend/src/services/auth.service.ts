@@ -21,6 +21,7 @@ import { applyWalletTx } from './wallet.service';
 import { fireLoginAbuse, fireRefreshReuse, fireRegistrationFraud } from './fraud.service';
 import { audit, auditIn } from '../lib/security';
 import { rankFor } from '../lib/rank';
+import { isProfileComplete, missingProfileFields } from './oauth.service';
 
 /** bcrypt cost — 12 is the current OWASP floor for bcryptjs (≈250ms/hash). */
 const BCRYPT_ROUNDS = 12;
@@ -251,7 +252,12 @@ export async function login(identifierRaw: string, password: string, ctx: Reques
   if (user?.deletedAt) {
     throw unauthorized('INVALID_CREDENTIALS', 'Incorrect email/username or password.');
   }
-  if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
+  // Social-only accounts carry no local password — the password route answers
+  // with a pointer to the provider instead of an endless "wrong password".
+  if (user && user.passwordHash === null) {
+    throw unauthorized('SOCIAL_ACCOUNT', `This account signs in with ${user.authProvider === 'PASSWORD' ? 'a social provider' : user.authProvider.charAt(0) + user.authProvider.slice(1).toLowerCase()} — use the ${user.authProvider === 'GOOGLE' ? 'Google' : user.authProvider === 'APPLE' ? 'Apple' : 'Microsoft'} button below.`);
+  }
+  if (!user || !user.passwordHash || !bcrypt.compareSync(password, user.passwordHash)) {
     const { count, locked } = recordFailure(identifier, max, lockMin);
     // Security events are audited even when they fail: this is the trail that
     // shows a brute-force attempt happened, from where, and against whom.
@@ -451,6 +457,7 @@ export async function me(userId: string) {
     where: { id: userId },
     select: {
       id: true, username: true, email: true, phone: true, role: true, avatar: true,
+      authProvider: true,
       status: true, isVerified: true, referralCode: true, createdAt: true, lastLoginAt: true,
       profile: true,
       wallet: {
@@ -460,8 +467,25 @@ export async function me(userId: string) {
     },
   });
   if (!user) throw unauthorized('UNAUTHORIZED', 'Account no longer exists.');
+
+  // Free Fire player profile completeness — the same three fields gate every
+  // tournament registration (UID + in-game name + phone), regardless of how
+  // the account signed in (password, Google, Microsoft or Apple).
+  const completeness = {
+    phone: user.phone,
+    freeFireUID: user.profile?.freeFireUID ?? null,
+    freeFireIGN: user.profile?.freeFireIGN ?? null,
+  };
+  const profileComplete = isProfileComplete(completeness);
+
   // ZP Battle "Skill-Based Ranking" — derive the player's live tier.
-  return { ...user, rankInfo: rankFor(user.stats?.totalPoints ?? 0) };
+  return {
+    ...user,
+    authProvider: user.authProvider,
+    profileComplete,
+    missingProfileFields: profileComplete ? [] : missingProfileFields(completeness),
+    rankInfo: rankFor(user.stats?.totalPoints ?? 0),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -516,11 +540,14 @@ export async function resetPassword(token: string, newPassword: string, ctx: Req
   return { reset: true };
 }
 
-/** Profile edit (spec §20) — updates/creates the profile row; UID uniqueness enforced. */
+/** Profile edit (spec §20) — updates/creates the profile row; UID uniqueness enforced.
+ * `phone` lives on the User row; UID/IGN live on UserProfile. Both halves of the
+ * Free Fire player profile are saved by this one endpoint. */
 export async function updateProfile(
   userId: string,
   input: {
     fullName?: string; freeFireUID?: string | null; freeFireIGN?: string | null;
+    phone?: string | null;
     city?: string | null; bio?: string | null; showPublicProfile?: boolean;
   },
 ) {
@@ -539,12 +566,34 @@ export async function updateProfile(
     ...(input.showPublicProfile !== undefined ? { showPublicProfile: input.showPublicProfile } : {}),
   };
 
+  // Phone: normalise (keep digits + leading +), guard uniqueness ourselves so
+  // the message is honest instead of a raw constraint crash.
+  let phoneToSave: string | null | undefined;
+  if (input.phone !== undefined) {
+    phoneToSave = input.phone ? input.phone.replace(/[\s-]/g, '') : null;
+    if (phoneToSave) {
+      const taken = await prisma.user.findFirst({
+        where: { phone: phoneToSave, NOT: { id: userId }, deletedAt: null },
+        select: { id: true },
+      });
+      if (taken) throw conflict('PHONE_TAKEN', 'This phone number is already registered on another account.');
+    }
+  }
+
   try {
     const profile = user.profile
       ? await prisma.userProfile.update({ where: { userId }, data })
       : await prisma.userProfile.create({ data: { userId, fullName: input.fullName ?? user.username, ...data } });
+    if (phoneToSave !== undefined) {
+      await prisma.user.update({ where: { id: userId }, data: { phone: phoneToSave } });
+    }
     const updated = await me(userId);
-    await audit({ actorId: userId, action: 'PROFILE_UPDATED', entity: 'UserProfile', entityId: profile.id, after: data });
+    await audit({
+      actorId: userId, action: 'PROFILE_UPDATED', entity: 'UserProfile', entityId: profile.id,
+      // The phone value itself stays out of the audit payload (personal data);
+      // only the fact that it was set/cleared is recorded.
+      after: { ...data, phoneChanged: phoneToSave !== undefined },
+    });
     return updated;
   } catch (e) {
     if ((e as { code?: string }).code === 'P2002') {
@@ -556,7 +605,8 @@ export async function updateProfile(
 
 export async function changePassword(userId: string, currentPassword: string, newPassword: string, ctx: RequestContext = {}) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user || !bcrypt.compareSync(currentPassword, user.passwordHash)) {
+  // Social-only accounts have no local password to compare against.
+  if (!user || !user.passwordHash || !bcrypt.compareSync(currentPassword, user.passwordHash)) {
     await audit({
       actorId: userId,
       action: 'PASSWORD_CHANGE_FAILED',

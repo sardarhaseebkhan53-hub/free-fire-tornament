@@ -56,6 +56,11 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
     headers: { 'content-type': upstream.headers.get('content-type') ?? 'application/json' },
   });
 
+  // Redirects (the OAuth sign-in flow 302s browser → provider → callback):
+  // the Location target must reach the browser untouched, or the flow dies.
+  const location = upstream.headers.get('location');
+  if (location) res.headers.set('location', location);
+
   const setCookies = upstream.headers.getSetCookie?.() ?? [];
   for (const c of setCookies) {
     res.headers.append('set-cookie', c.replace(/path=\/api\/auth/i, 'path=/api/backend/auth'));

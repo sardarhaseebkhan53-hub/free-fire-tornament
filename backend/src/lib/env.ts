@@ -99,6 +99,27 @@ const schema = z.object({
   // reset tokens in API responses so the flows are testable without a mail
   // provider. NEVER honoured in production (see devTokenEchoAllowed below).
   AUTH_ECHO_TOKENS: envBool(false),
+
+  // --- Social authentication (Google / Microsoft / Apple) -------------------
+  // Each provider is enabled only when BOTH its client id and secret are set —
+  // the /auth/oauth/providers endpoint reports exactly that, so the login page
+  // only ever offers buttons that actually work. Secrets stay server-side; the
+  // frontend only receives the provider list and redirects into the flow.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  MICROSOFT_CLIENT_ID: z.string().optional(),
+  MICROSOFT_CLIENT_SECRET: z.string().optional(),
+  /// 'common' (work + personal), 'consumers' (personal) or a tenant id.
+  MICROSOFT_TENANT_ID: z.string().default('common'),
+  APPLE_CLIENT_ID: z.string().optional(),
+  APPLE_TEAM_ID: z.string().optional(),
+  APPLE_KEY_ID: z.string().optional(),
+  /// PKCS#8 private key (PEM). Newlines may arrive env-escaped as \n.
+  APPLE_PRIVATE_KEY: z.string().optional(),
+  /// Base URL the providers redirect back to. Defaults to the frontend's
+  /// /api/backend proxy path, which forwards to this API — the flow therefore
+  /// works behind the Next.js preview proxy without extra origins.
+  OAUTH_REDIRECT_BASE: z.string().optional(),
 });
 
 export const env = schema.parse(process.env);

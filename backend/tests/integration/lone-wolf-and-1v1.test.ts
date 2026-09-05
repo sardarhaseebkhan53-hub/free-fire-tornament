@@ -44,9 +44,24 @@ describe('Lone Wolf entry', () => {
     userIds.push(u.id);
     await db.userProfile.update({ where: { userId: u.id }, data: { freeFireUID: null } });
 
+    // PROFILE_INCOMPLETE (not a generic validation error) so the client can
+    // route the player to the "Complete Your Free Fire Profile" screen.
     await rejectsWithCode(
       () => joinTournament(u.id, { tournamentSlug: t.slug }, ctx.ip),
-      'VALIDATION_ERROR',
+      'PROFILE_INCOMPLETE',
+    );
+  });
+
+  it('rejects an entry when the phone number is missing from the player profile', async () => {
+    const t = await makeTournament({ type: 'LONE_WOLF', entryFee: 50, maxSlots: 8 });
+    tournamentIds.push(t.id);
+    const u = await makeUser({ cash: 500, prefix: 'lonephone' });
+    userIds.push(u.id);
+    await db.user.update({ where: { id: u.id }, data: { phone: null } });
+
+    await rejectsWithCode(
+      () => joinTournament(u.id, { tournamentSlug: t.slug }, ctx.ip),
+      'PROFILE_INCOMPLETE',
     );
   });
 });

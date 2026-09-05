@@ -46,10 +46,42 @@ export const MODE_LABEL: Record<string, string> = {
   SOLO: 'Solo',
   DUO: 'Duo',
   SQUAD: 'Squad',
-  CLASH_SQUAD: 'Clash Squad',
-  LONE_WOLF: 'Lone Wolf',
+  CLASH_SQUAD: 'Clash Squad (4v4)',
+  LONE_WOLF: 'Lone Wolf (1v1)',
   CLASH_SQUAD_1V1: 'Clash Squad 1v1',
+  CUSTOM: 'Custom',
 };
+
+/**
+ * Capacity copy that always says what a slot IS. Team modes show teams AND the
+ * underlying player count; solo modes show players only — never "8/48 slots"
+ * when 8 actually means teams.
+ */
+export function capacityText(t: {
+  capacityUnit?: 'players' | 'teams';
+  maxSlots: number;
+  registeredSlots: number;
+  playersPerTeam?: number;
+  totalPlayerCapacity?: number;
+  registeredPlayers?: number;
+}): { primary: string; secondary: string | null; unit: string } {
+  const isTeams = t.capacityUnit === 'teams' || ((t.playersPerTeam ?? 1) > 1 && t.capacityUnit !== 'players');
+  if (!isTeams) {
+    return {
+      primary: `${t.registeredSlots}/${t.maxSlots}`,
+      secondary: null,
+      unit: t.registeredSlots === 1 && t.maxSlots === 1 ? 'player' : 'players',
+    };
+  }
+  const ppt = t.playersPerTeam ?? 1;
+  const players = t.registeredPlayers ?? t.registeredSlots * ppt;
+  const totalPlayers = t.totalPlayerCapacity ?? t.maxSlots * ppt;
+  return {
+    primary: `${t.registeredSlots}/${t.maxSlots}`,
+    secondary: `${players}/${totalPlayers} players`,
+    unit: 'teams',
+  };
+}
 
 /** PKR formatter for the user app (design v2: `PKR 1,800`, en-PK grouping). */
 export function fmt(n: number | string | null | undefined, decimals = 0): string {

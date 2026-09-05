@@ -12,7 +12,25 @@ describe('tournament economics', () => {
   it('knows the team size for every mode', () => {
     expect(TEAM_SIZE).toEqual({
       SOLO: 1, DUO: 2, SQUAD: 4, CLASH_SQUAD: 4, LONE_WOLF: 1, CLASH_SQUAD_1V1: 1,
+      // CUSTOM's map entry is only a fallback — real CUSTOM events always pass
+      // their own playersPerTeam (asserted in the next test).
+      CUSTOM: 4,
     });
+  });
+
+  it('prices CUSTOM events from the configured players-per-team, never a default', async () => {
+    // 10 teams × 2 players × PKR 100 = PKR 2,000 collection.
+    const r = await computeEconomics({
+      type: 'CUSTOM',
+      playersPerTeam: 2,
+      entryFeePerPlayer: 100,
+      slots: 10,
+      prizes: [{ kind: 'PLACEMENT', amount: 500 }],
+    });
+    expect(r.teamSize).toBe(2);
+    expect(r.entryFeePerTeam).toBe(200);
+    expect(r.expectedCollection).toBe(2000);
+    expect(r.safe).toBe(true);
   });
 
   it('reproduces the Solo Standard master tier to the rupee', async () => {
