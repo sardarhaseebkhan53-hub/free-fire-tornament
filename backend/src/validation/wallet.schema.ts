@@ -80,8 +80,13 @@ export const depositListQuerySchema = z.object({
 
 export const withdrawalListQuerySchema = z.object({
   status: z.enum(['PENDING', 'APPROVED', 'PROCESSING', 'PAID', 'REJECTED', 'CANCELLED']).optional(),
+  method: z.enum(PAYMENT_METHODS).optional(),
+  // Free text — username, email, phone, FF UID/IGN, account holder, the full
+  // (or partial) account number, or a payout reference.
+  q: z.string().trim().max(120).optional(),
+  format: z.enum(['json', 'csv']).optional(),
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(5).max(100).default(20),
+  pageSize: z.coerce.number().int().min(5).max(200).default(20),
 });
 
 export const depositReviewSchema = z.object({

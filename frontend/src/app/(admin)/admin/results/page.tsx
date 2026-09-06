@@ -17,7 +17,12 @@ interface Submission {
   match: { id: string; matchNumber: number; round: number; tournament: { id: string; title: string; slug: string; type: string } };
 }
 interface Page { items: Submission[]; total: number; page: number; pageSize: number }
-interface Standings { standings: Array<{ key: string; label: string; points: number; kills: number }>; tournament: { title: string } }
+/** `ranked` is false for players the admin chose not to give a position — they
+ * stay listed with 0 points and never receive a prize. */
+interface Standings {
+  standings: Array<{ key: string; label: string; points: number; kills: number; ranked?: boolean }>;
+  tournament: { title: string };
+}
 
 const TABS = [
   ['PENDING', 'Pending'],
@@ -456,25 +461,38 @@ interface Page2 { items: Array<{
 function standingsBody(data: Standings | null) {
   const st = data;
   if (st && st.standings.length > 0) {
+    // Ranked entries (the admin typed a position) keep their 1..N number;
+    // unranked entries are still shown so nothing is hidden, flagged clearly.
+    const ranked = st.standings.filter((s) => s.ranked !== false);
+    const unranked = st.standings.filter((s) => s.ranked === false);
+    const row = (s: Standings['standings'][number], rank: number | null, key: string) => (
+      <tr key={key} className={`border-b border-line/50 ${rank === 1 ? 'bg-reward/[6%]' : ''} ${rank === null ? 'bg-warning/[4%]' : ''}`}>
+        <td className={`py-1.5 font-bold ${rank === 1 ? 'text-reward' : 'text-fg-3'}`}>
+          {rank ?? <span className="rounded-pill bg-warning/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-warning">Unranked</span>}
+        </td>
+        <td className="py-1.5 font-semibold text-fg">{s.label}</td>
+        <td className="tabular py-1.5 text-right text-fg-2">{s.kills}</td>
+        <td className="tabular py-1.5 text-right font-bold text-fg">{rank === null ? 0 : s.points}</td>
+      </tr>
+    );
     return (
-      <table className="mt-2 w-full text-left text-xs">
-        <thead>
-          <tr className="border-b border-line text-[10px] uppercase text-fg-3">
-            <th className="py-1.5">#</th><th className="py-1.5">Team / Player</th>
-            <th className="py-1.5 text-right">Kills</th><th className="py-1.5 text-right">Pts</th>
-          </tr>
-        </thead>
-        <tbody>
-          {st.standings.map((s, i) => (
-            <tr key={s.key} className={`border-b border-line/50 ${i === 0 ? 'bg-reward/[6%]' : ''}`}>
-              <td className={`py-1.5 font-bold ${i === 0 ? 'text-reward' : 'text-fg-3'}`}>{i + 1}</td>
-              <td className="py-1.5 font-semibold text-fg">{s.label}</td>
-              <td className="tabular py-1.5 text-right text-fg-2">{s.kills}</td>
-              <td className="tabular py-1.5 text-right font-bold text-fg">{s.points}</td>
+      <>
+        <p className="mt-1 text-[10px] text-fg-3">
+          {ranked.length} ranked · {unranked.length} unranked (no position given → 0 pts, no prize)
+        </p>
+        <table className="mt-2 w-full text-left text-xs">
+          <thead>
+            <tr className="border-b border-line text-[10px] uppercase text-fg-3">
+              <th className="py-1.5">#</th><th className="py-1.5">Team / Player</th>
+              <th className="py-1.5 text-right">Kills</th><th className="py-1.5 text-right">Pts</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {ranked.map((s, i) => row(s, i + 1, s.key))}
+            {unranked.map((s) => row(s, null, s.key))}
+          </tbody>
+        </table>
+      </>
     );
   }
   return <p className="py-6 text-center text-[11px] text-fg-3">Select a tournament to see live standings.</p>;

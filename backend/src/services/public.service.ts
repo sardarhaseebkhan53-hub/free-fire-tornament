@@ -629,7 +629,10 @@ export async function tournamentResults(slug: string) {
       status: tournament.status,
     },
     published: true,
-    standings: standings.map((s, i) => ({ rank: i + 1, ...s })),
+    // Ranked entries (the admin gave them a position) are numbered 1..N;
+    // entries left unranked are still listed — with `rank: null` — so the public
+    // table never invents a position nobody was given.
+    standings: standings.map((s, i) => ({ ...s, rank: s.ranked ? i + 1 : null })),
     winners: winners.map((w) => ({
       position: w.position,
       label: w.position >= 200 ? 'MVP' : w.position >= 100 ? 'Kill Pool' : `Position ${w.position}`,
