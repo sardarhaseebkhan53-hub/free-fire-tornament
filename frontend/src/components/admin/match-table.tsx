@@ -38,6 +38,9 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
   const [msg, setMsg] = useState<string | null>(null);
   const [showSetup, setShowSetup] = useState(false);
   const [activeRow, setActiveRow] = useState<TableParticipant | null>(null);
+  // Positions are optional — this filter lets the admin see exactly who they
+  // ranked and who is still unranked (nothing is hidden by default).
+  const [rankFilter, setRankFilter] = useState<'ALL' | 'RANKED' | 'UNRANKED'>('ALL');
 
   async function load() {
     setLoading(true);
@@ -72,26 +75,44 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
     return Math.max(0, base + kills + bonus - penalty);
   }
 
-  const visible = (data?.rows ?? []).filter((r) =>
-    !search || `${r.playerOrTeam} ${r.ign ?? ''} ${r.uid ?? ''} ${r.username ?? ''}`.toLowerCase().includes(search.toLowerCase()));
+  const visible = (data?.rows ?? []).filter((r) => {
+    if (rankFilter === 'RANKED' && r.placement === null) return false;
+    if (rankFilter === 'UNRANKED' && r.placement !== null) return false;
+    return !search
+      || `${r.playerOrTeam} ${r.ign ?? ''} ${r.uid ?? ''} ${r.username ?? ''}`.toLowerCase().includes(search.toLowerCase());
+  });
+
+  // ---------------------------------------------------------------------------
+  // Ranking is the admin's choice, not a form-filling chore.
+  //   • a player WITH a position  → ranked: placement points + prize by score
+  //   • a player WITHOUT a position → UNRANKED: still listed, 0 points, no prize
+  // Unranked players never block Confirm or Publish.
+  // ---------------------------------------------------------------------------
+  const played = (data?.rows ?? []).filter((r) => r.status === 'PLAYED' && !r.absent);
+  const rankedRows = played.filter((r) => r.placement !== null);
+  const unrankedRows = played.filter((r) => r.placement === null);
 
   async function saveRow(p: TableParticipant, patch: Partial<TableParticipant>, save = true): Promise<boolean> {
     setBusy(true);
+    // A key present in the patch wins even when its value is null: clearing the
+    // position input must send `null` (un-rank the player) — `??` would silently
+    // fall back to the old value and make "remove position" impossible.
+    const value = <K extends keyof TableParticipant>(k: K) => (k in patch ? patch[k] : p[k]);
     try {
       await api(`/admin/matches/${matchId}/results/row`, {
         method: 'POST',
         body: {
           participantId: p.participantId,
-          position: patch.placement ?? p.placement,
-          kills: patch.kills ?? p.kills,
-          bonus: patch.bonus ?? p.bonus,
-          penalty: patch.penalty ?? p.penalty,
-          prize: patch.prize ?? p.prize,
-          notes: patch.notes ?? p.notes,
-          status: patch.status ?? p.status,
-          absent: patch.absent ?? p.absent,
-          ready: patch.ready ?? p.ready,
-          evidenceUrl: patch.evidenceUrl ?? p.evidenceUrl,
+          position: value('placement'),
+          kills: value('kills'),
+          bonus: value('bonus'),
+          penalty: value('penalty'),
+          prize: value('prize'),
+          notes: value('notes'),
+          status: value('status'),
+          absent: value('absent'),
+          ready: value('ready'),
+          evidenceUrl: value('evidenceUrl'),
         },
       });
       setMsg(`Saved result for ${p.playerOrTeam}.`);
@@ -114,6 +135,23 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
   }
 
   async function setWorkflow(next: 'UNDER_REVIEW' | 'CONFIRMED' | 'PUBLISHED' | 'DRAFT') {
+    // Confirm/Publish settle the leaderboard: warn (never block silently) about
+    // the players left without a position, and refuse when nobody is ranked.
+    if (next === 'CONFIRMED' || next === 'PUBLISHED') {
+      if (rankedRows.length === 0) {
+        alert('Give a position to at least one player first. Players you leave empty stay unranked (0 points, no prize).');
+        return;
+      }
+      if (unrankedRows.length > 0) {
+        const names = unrankedRows.slice(0, 8).map((r) => r.playerOrTeam).join(', ');
+        const go = window.confirm(
+          `${unrankedRows.length} played player(s) have NO position: ${names}${unrankedRows.length > 8 ? ' …' : ''}.\n\n`
+          + `They stay UNRANKED — 0 points, no prize — while the ${rankedRows.length} player(s) you ranked keep their points and prizes.\n\n`
+          + 'Continue?',
+        );
+        if (!go) return;
+      }
+    }
     setBusy(true);
     try {
       if (next === 'PUBLISHED' && data?.match.resultsStatus === 'CONFIRMED') {
@@ -145,6 +183,10 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
               <span className="text-[11px] font-bold uppercase tracking-wide text-fg-2">Results workflow</span>
               <Pill status={rs} />
               <span className="text-[11px] text-fg-3">{data.filled}/{data.totalSeats} seats · map {data.match.map ?? '—'}</span>
+              <span className="text-[11px] text-fg-3">
+                · <b className="text-success">{rankedRows.length} ranked</b>
+                {unrankedRows.length > 0 && <> · <b className="text-warning">{unrankedRows.length} unranked</b></>}
+              </span>
               <div className="ml-auto flex flex-wrap gap-1.5">
                 {rs === 'DRAFT' && <WorkflowBtn onClick={() => setWorkflow('UNDER_REVIEW')} disabled={busy}>Move to Review</WorkflowBtn>}
                 {rs === 'UNDER_REVIEW' && <WorkflowBtn onClick={() => setWorkflow('CONFIRMED')} disabled={busy}>Confirm Results</WorkflowBtn>}
@@ -161,6 +203,15 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
 
             {msg && <p className="mb-3 rounded-input border border-success/30 bg-success/10 px-3 py-2 text-xs font-semibold text-success">{msg}</p>}
 
+            {/* Positions are optional — say so on the screen itself. */}
+            <div className="mb-3 rounded-input border border-line bg-white/[2%] px-3 py-2.5 text-[11px] leading-relaxed text-fg-3">
+              <b className="text-fg-2">Position is your choice.</b> Type a position only for the players you want on the
+              leaderboard — they get placement points and prize money. Players you leave empty stay{' '}
+              <b className="text-warning">UNRANKED</b> (0 points, no prize) and never block Confirm or Publish.
+              Kills, bonus and penalty are optional too.
+              {rs === 'PUBLISHED' && <span className="ml-1 font-bold text-success">Published results are locked.</span>}
+            </div>
+
             <MatchSetupEditor
               matchId={matchId}
               match={data.match}
@@ -175,10 +226,23 @@ export function MatchTableModal({ matchId, onClose, onChanged, onOpenSlots }: {
               }}
             />
 
-            <div className="mb-3 flex items-center gap-2">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               <Search size={14} className="text-fg-3" />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, UID, team…"
                 className="w-64 rounded-input border border-line bg-white/[3%] px-3 py-1.5 text-xs text-fg outline-none placeholder:text-fg-3 focus:border-accent" />
+              <div className="flex gap-1">
+                {([['ALL', 'All'], ['RANKED', 'Ranked'], ['UNRANKED', 'Unranked']] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setRankFilter(key)}
+                    className={`rounded-input px-2.5 py-1.5 text-[11px] font-bold transition ${rankFilter === key ? 'bg-accent text-white' : 'border border-line bg-white/[2%] text-fg-3 hover:text-fg'}`}
+                  >
+                    {label}
+                    {key === 'RANKED' && ` (${rankedRows.length})`}
+                    {key === 'UNRANKED' && ` (${unrankedRows.length})`}
+                  </button>
+                ))}
+              </div>
               <span className="text-[11px] text-fg-3">Placement table: [{data.scoring.placementTable.join(', ')}] · {data.scoring.pointsPerKill} pts/kill · Score = placement + kills + bonus − penalty</span>
             </div>
 
@@ -326,22 +390,33 @@ export function ResultRowEditor({ p, busy, preview, onSave }: {
   onSave: (p: TableParticipant, patch: Partial<TableParticipant>) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState<Partial<TableParticipant>>({});
+  const [open, setOpen] = useState(false);
   const merged = { ...p, ...draft };
   const score = preview(p, {
     position: draft.placement ?? undefined, kills: draft.kills ?? undefined,
     bonus: draft.bonus ?? undefined, penalty: draft.penalty ?? undefined,
   });
+  // No position typed → UNRANKED: visible, 0 points, no prize, never a blocker.
+  const unranked = merged.placement === null || merged.placement === undefined;
 
   const set = (k: keyof TableParticipant, v: unknown) => setDraft((d) => ({ ...d, [k]: v }));
   const inputCls = 'w-16 rounded-input border border-line bg-white/[3%] px-1.5 py-1 text-center text-xs text-fg outline-none focus:border-accent [color-scheme:dark]';
 
   return (
-    <tr className="border-b border-line/50 align-middle hover:bg-accent/[3%]">
+    <>
+    <tr className={`border-b border-line/50 align-middle hover:bg-accent/[3%] ${unranked ? 'bg-warning/[3%]' : ''}`}>
       <td className="px-2 py-2 font-display font-bold text-fg">
         {p.slot !== null ? String(p.slot).padStart(2, '0') : '··'}
         {p.slotLocked && <Lock size={10} className="ml-1 inline text-warning" />}
       </td>
-      <td className="max-w-40 truncate px-2 py-2 font-semibold text-fg">{p.playerOrTeam}</td>
+      <td className="max-w-40 px-2 py-2">
+        <button onClick={() => setOpen(!open)} className="block max-w-40 truncate text-left font-semibold text-fg hover:text-accent" title="Show everything about this player">
+          {p.playerOrTeam}
+        </button>
+        <button onClick={() => setOpen(!open)} className="text-[9px] font-bold uppercase tracking-wide text-fg-3 hover:text-accent">
+          {open ? '▾ hide details' : '▸ all details'}
+        </button>
+      </td>
       <td className="max-w-32 truncate px-2 py-2 text-fg-2">{p.ign ?? '—'}</td>
       <td className="tabular px-2 py-2 text-fg-3">{p.uid ?? '—'}</td>
       <td className="px-2 py-2 text-fg-3">{p.team ?? '—'}</td>
@@ -352,12 +427,23 @@ export function ResultRowEditor({ p, busy, preview, onSave }: {
           {p.ready ? 'READY' : 'SET'}
         </button>
       </td>
-      <td className="px-1 py-2"><input type="number" min={1} value={draft.placement ?? p.placement ?? ''} onChange={(e) => set('placement', e.target.value === '' ? null : Number(e.target.value))} className={inputCls} /></td>
-      <td className="px-1 py-2"><input type="number" min={0} value={draft.kills ?? p.kills ?? ''} onChange={(e) => set('kills', e.target.value === '' ? null : Number(e.target.value))} className={inputCls} /></td>
-      <td className="px-1 py-2"><input type="number" min={0} value={draft.bonus ?? p.bonus ?? ''} onChange={(e) => set('bonus', e.target.value === '' ? null : Number(e.target.value))} className={inputCls} /></td>
-      <td className="px-1 py-2"><input type="number" min={0} value={draft.penalty ?? p.penalty ?? ''} onChange={(e) => set('penalty', e.target.value === '' ? null : Number(e.target.value))} className={`${inputCls} border-danger/30 text-danger`} /></td>
-      <td className="tabular px-2 py-2 text-fg-2">{p.points ?? '—'}</td>
-      <td className="tabular px-2 py-2 font-bold text-fg">{score ?? '—'}</td>
+      <td className="px-1 py-2">
+        <input
+          type="number" min={1} placeholder="—" aria-label={`Position for ${p.playerOrTeam} (leave empty to keep unranked)`}
+          value={draft.placement ?? p.placement ?? ''}
+          onChange={(e) => set('placement', e.target.value === '' ? null : Number(e.target.value))}
+          className={`${inputCls} ${unranked ? 'border-warning/40 text-warning placeholder:text-warning/60' : 'border-success/40 font-bold text-success'}`}
+        />
+      </td>
+      <td className="px-1 py-2"><input type="number" min={0} placeholder="0" aria-label={`Kills for ${p.playerOrTeam}`} value={draft.kills ?? p.kills ?? ''} onChange={(e) => set('kills', e.target.value === '' ? null : Number(e.target.value))} className={inputCls} /></td>
+      <td className="px-1 py-2"><input type="number" min={0} placeholder="0" value={draft.bonus ?? p.bonus ?? ''} onChange={(e) => set('bonus', e.target.value === '' ? null : Number(e.target.value))} className={inputCls} /></td>
+      <td className="px-1 py-2"><input type="number" min={0} placeholder="0" value={draft.penalty ?? p.penalty ?? ''} onChange={(e) => set('penalty', e.target.value === '' ? null : Number(e.target.value))} className={`${inputCls} border-danger/30 text-danger`} /></td>
+      <td className="tabular px-2 py-2 text-fg-2">{unranked ? 0 : (p.points ?? '—')}</td>
+      <td className="tabular px-2 py-2 font-bold text-fg">
+        {unranked
+          ? <span className="rounded-pill bg-warning/15 px-2 py-0.5 text-[9px] font-bold uppercase text-warning">Unranked</span>
+          : (score ?? '—')}
+      </td>
       <td className="px-1 py-2"><input type="number" min={0} value={draft.prize ?? p.prize ?? ''} onChange={(e) => set('prize', e.target.value === '' ? null : Number(e.target.value))} className={`${inputCls} w-20 text-reward`} /></td>
       <td className="px-2 py-2">
         <select value={merged.status} onChange={(e) => set('status', e.target.value)} className="w-24 rounded-input border border-line bg-white/[3%] px-1 py-1 text-[10px] text-fg-2 [color-scheme:dark]">
@@ -382,10 +468,96 @@ export function ResultRowEditor({ p, busy, preview, onSave }: {
             ) : (
               <button disabled={busy} onClick={() => onSave(p, { status: 'PLAYED' })} className="rounded-input bg-success/10 px-1.5 py-0.5 text-[9px] font-bold text-success disabled:opacity-40">UNDO</button>
             )}
+            {!unranked && (
+              <button disabled={busy} title="Remove the position — this player stays unranked (0 points, no prize)"
+                onClick={() => onSave(p, { placement: null })}
+                className="rounded-input bg-warning/10 px-1.5 py-0.5 text-[9px] font-bold text-warning disabled:opacity-40">
+                UNRANK
+              </button>
+            )}
           </div>
         </div>
       </td>
     </tr>
+    {open && (
+      <tr className="border-b border-line/50 bg-white/[2%]">
+        <td colSpan={16} className="px-3 py-3">
+          <ParticipantDetails p={merged} busy={busy} onSave={onSave} />
+        </td>
+      </tr>
+    )}
+    </>
+  );
+}
+
+/** Everything known about one participant — the "I can see all things" panel.
+ * Shared by the desktop detail row and the mobile bottom sheet. */
+function ParticipantDetails({ p, busy, onSave, set }: {
+  p: TableParticipant; busy: boolean;
+  onSave: (p: TableParticipant, patch: Partial<TableParticipant>) => Promise<boolean>;
+  set?: (k: keyof TableParticipant, v: unknown) => void;
+}) {
+  const field = 'w-full rounded-input border border-line bg-white/[3%] px-2.5 py-1.5 text-xs text-fg outline-none placeholder:text-fg-3 focus:border-accent';
+  return (
+    <div className="grid gap-3 md:grid-cols-[1.1fr_1fr]">
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-3">
+        <Detail label="Player / team" value={p.playerOrTeam} />
+        <Detail label="Username" value={p.username ?? '—'} />
+        <Detail label="FF name" value={p.ign ?? '—'} />
+        <Detail label="FF UID" value={p.uid ?? '—'} />
+        <Detail label="Team tag" value={p.team ?? '—'} />
+        <Detail label="Slot" value={p.slot !== null ? String(p.slot) : 'not seated'} />
+        <Detail label="Registration" value={p.registrationId ? `#${p.registrationId.slice(-6)}` : '—'} />
+        <Detail label="Entry paid" value={p.entryAmount !== null ? `PKR ${p.entryAmount.toLocaleString('en-PK')}` : '—'} />
+        <Detail label="Payment" value={p.payment} />
+        <Detail label="Status" value={`${p.status}${p.absent ? ' · ABSENT' : ''}${p.ready ? ' · READY' : ' · not ready'}`} />
+        <Detail label="Position" value={p.placement !== null ? `#${p.placement}` : 'UNRANKED (your choice)'} />
+        <Detail label="Kills / Bonus / Penalty" value={`${p.kills ?? 0} / ${p.bonus ?? 0} / ${p.penalty ?? 0}`} />
+        <Detail label="Points" value={String(p.placement !== null ? (p.points ?? 0) : 0)} />
+        <Detail label="Final score" value={p.placement !== null ? String(p.finalScore ?? 0) : '0 (unranked)'} />
+        <Detail label="Prize" value={p.prize !== null ? `PKR ${p.prize.toLocaleString('en-PK')}` : 'none'} />
+        <Detail label="Slot locked" value={p.slotLocked ? 'yes' : 'no'} />
+      </dl>
+      <div className="space-y-2">
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Admin notes (staff only)</span>
+          {set
+            ? <input value={p.notes ?? ''} onChange={(e) => set('notes', e.target.value)} placeholder="e.g. verified by screenshot" className={field} />
+            : <input defaultValue={p.notes ?? ''} onBlur={(e) => { if (e.target.value !== (p.notes ?? '')) void onSave(p, { notes: e.target.value }); }} placeholder="e.g. verified by screenshot" className={field} />}
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Evidence URL (screenshot / video)</span>
+          {set
+            ? <input value={p.evidenceUrl ?? ''} onChange={(e) => set('evidenceUrl', e.target.value)} placeholder="https://…" className={field} />
+            : <input defaultValue={p.evidenceUrl ?? ''} onBlur={(e) => { if (e.target.value !== (p.evidenceUrl ?? '')) void onSave(p, { evidenceUrl: e.target.value }); }} placeholder="https://…" className={field} />}
+        </label>
+        {p.evidenceUrl && (
+          <a href={p.evidenceUrl} target="_blank" rel="noreferrer" className="inline-block text-[11px] font-bold text-accent hover:underline">
+            Open evidence ↗
+          </a>
+        )}
+        <p className="text-[10px] leading-relaxed text-fg-3">
+          {p.placement !== null
+            ? 'Ranked: placement points + kills are applied, and prize money follows the score order.'
+            : 'Unranked: no position was given, so this player keeps 0 points and receives no prize. Nothing else is blocked.'}
+        </p>
+        {!set && (
+          <button disabled={busy} onClick={() => onSave(p, {})}
+            className="rounded-input bg-accent px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-40">
+            Save notes & evidence
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 border-b border-line/40 py-1">
+      <dt className="text-[9px] font-bold uppercase tracking-wide text-fg-3">{label}</dt>
+      <dd className="truncate break-all font-semibold text-fg-2" title={value}>{value}</dd>
+    </div>
   );
 }
 
@@ -409,11 +581,12 @@ const resultInput = 'w-full rounded-input border border-line bg-white/[3%] px-2 
  *  table shows, with the editing actions behind a bottom sheet. */
 function ResultRowCard({ p, preview, onEdit }: { p: TableParticipant; preview: PreviewFn; onEdit: () => void }) {
   const score = preview(p, {});
+  const unranked = p.placement === null || p.placement === undefined;
   return (
-    <div className="rounded-card border border-line bg-white/[2%] p-3">
+    <div className={`rounded-card border bg-white/[2%] p-3 ${unranked ? 'border-warning/30' : 'border-line'}`}>
       <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-input bg-white/[4%] font-display text-sm font-bold text-fg">
-          {p.slot !== null ? String(p.slot).padStart(2, '0') : '··'}
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-input font-display text-sm font-bold ${unranked ? 'bg-warning/10 text-warning' : 'bg-white/[4%] text-fg'}`}>
+          {unranked ? '–' : `#${p.placement}`}
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-fg">{p.playerOrTeam}</p>
@@ -424,8 +597,10 @@ function ResultRowCard({ p, preview, onEdit }: { p: TableParticipant; preview: P
         <Pill status={p.payment === 'PAID' ? 'APPROVED' : 'PENDING'} label={p.payment} />
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-2">
-        <span>Score <strong className="tabular text-fg">{score ?? '—'}</strong></span>
-        <span>Prize <strong className="tabular text-reward">{p.prize ?? '—'}</strong></span>
+        {unranked
+          ? <span className="rounded-pill bg-warning/15 px-2 py-0.5 text-[9px] font-bold uppercase text-warning">Unranked · 0 pts</span>
+          : <span>Score <strong className="tabular text-fg">{score ?? '—'}</strong></span>}
+        <span>Prize <strong className="tabular text-reward">{unranked ? 'none' : (p.prize ?? '—')}</strong></span>
         <span className={p.ready ? 'font-bold text-success' : 'text-fg-3'}>{p.ready ? 'READY' : 'NOT READY'}</span>
         <span className="text-fg-3">{p.status}{p.absent ? ' · ABSENT' : ''}</span>
       </div>
@@ -433,7 +608,7 @@ function ResultRowCard({ p, preview, onEdit }: { p: TableParticipant; preview: P
         onClick={onEdit}
         className="mt-2.5 w-full rounded-input border border-line py-1.5 text-[11px] font-bold text-fg-2 transition hover:border-accent hover:text-accent"
       >
-        Edit result
+        Edit result · see all details
       </button>
     </div>
   );
@@ -486,12 +661,13 @@ function ResultRowSheet({ p, busy, preview, onSave, onClose }: {
 
         <div className="mt-4 grid grid-cols-2 gap-2.5">
           <label className="block">
-            <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Position</span>
-            <input type="number" min={1} value={draft.placement ?? p.placement ?? ''} onChange={(e) => set('placement', e.target.value === '' ? null : Number(e.target.value))} className={resultInput} />
+            <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Position (optional)</span>
+            <input type="number" min={1} placeholder="empty = unranked" value={draft.placement ?? p.placement ?? ''} onChange={(e) => set('placement', e.target.value === '' ? null : Number(e.target.value))}
+              className={`${resultInput} ${(merged.placement === null || merged.placement === undefined) ? 'border-warning/40 text-warning' : 'border-success/40 text-success'}`} />
           </label>
           <label className="block">
-            <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Kills</span>
-            <input type="number" min={0} value={draft.kills ?? p.kills ?? ''} onChange={(e) => set('kills', e.target.value === '' ? null : Number(e.target.value))} className={resultInput} />
+            <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Kills (optional)</span>
+            <input type="number" min={0} placeholder="0" value={draft.kills ?? p.kills ?? ''} onChange={(e) => set('kills', e.target.value === '' ? null : Number(e.target.value))} className={resultInput} />
           </label>
           <label className="block">
             <span className="mb-1 block text-[10px] font-bold uppercase text-fg-3">Bonus</span>
@@ -524,7 +700,23 @@ function ResultRowSheet({ p, busy, preview, onSave, onClose }: {
             className={`rounded-pill px-3 py-1.5 text-[11px] font-bold ${(draft.absent ?? p.absent) ? 'bg-danger/15 text-danger' : 'bg-white/5 text-fg-3'}`}>
             {(draft.absent ?? p.absent) ? 'ABSENT (undo)' : 'MARK ABSENT'}
           </button>
-          <span className="ml-auto text-xs text-fg-2">Final score <strong className="tabular text-fg">{score ?? '—'}</strong></span>
+          {(merged.placement !== null && merged.placement !== undefined) && (
+            <button onClick={() => set('placement', null)}
+              className="rounded-pill bg-warning/15 px-3 py-1.5 text-[11px] font-bold text-warning">
+              REMOVE POSITION
+            </button>
+          )}
+          <span className="ml-auto text-xs text-fg-2">
+            {(merged.placement === null || merged.placement === undefined)
+              ? <strong className="font-bold uppercase text-warning">Unranked · 0 pts</strong>
+              : <>Final score <strong className="tabular text-fg">{score ?? '—'}</strong></>}
+          </span>
+        </div>
+
+        {/* Everything else about this participant — identity, payment, points. */}
+        <div className="mt-4 rounded-card border border-line bg-white/[2%] p-3">
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-fg-3">All details</p>
+          <ParticipantDetails p={merged} busy={busy} onSave={onSave} set={set} />
         </div>
 
         <button onClick={save} disabled={busy || saving}

@@ -310,6 +310,9 @@ interface Ranked {
   label: string;
   points: number;
   kills: number;
+  /** True when the admin gave this entry a position in at least one match.
+   * Unranked entries stay visible (0 points) but never receive prize money. */
+  ranked: boolean;
 }
 
 export async function tournamentStandings(tournamentId: string) {
@@ -339,13 +342,19 @@ export async function tournamentStandings(tournamentId: string) {
       label: p.team ? `${p.team.name} [${p.team.tag}]` : p.user?.profile?.freeFireIGN ?? p.user?.username ?? 'Unknown',
       points: 0,
       kills: 0,
+      ranked: false,
     };
     cur.points += p.points ?? 0;
     cur.kills += p.kills ?? 0;
+    if (p.placement !== null && p.placement !== undefined) cur.ranked = true;
     agg.set(key, cur);
   }
+  // Ranked entries first (by points, then kills); players the admin chose not
+  // to rank are still listed so nothing is hidden — they simply sit below with
+  // their (zero) points and are excluded from prize money.
   const standings = [...agg.values()].sort(
-    (a, b) => b.points - a.points || b.kills - a.kills || a.key.localeCompare(b.key),
+    (a, b) => Number(b.ranked) - Number(a.ranked)
+      || b.points - a.points || b.kills - a.kills || a.key.localeCompare(b.key),
   );
   return { tournament, standings };
 }
@@ -378,6 +387,16 @@ async function distributePrizesOnce(adminId: string, tournamentId: string, ctx: 
   // a populated but unpublished tournament receives the publication gate below.
   const { tournament, standings } = await tournamentStandings(tournamentId);
   if (!standings.length) throw badRequest('VALIDATION_ERROR', 'No verified results to rank — verify result submissions first.');
+  // Prize money only ever follows the positions the ADMIN typed. Entries left
+  // unranked (no position) stay listed in the standings with 0 points and are
+  // excluded from every award — placement, kill pool and MVP alike.
+  const ranked = standings.filter((s) => s.ranked);
+  if (!ranked.length) {
+    throw badRequest(
+      'VALIDATION_ERROR',
+      'No player has a position yet — open the match results and give a position to the players you want to pay.',
+    );
+  }
 
   const publication = await prisma.tournament.findUnique({
     where: { id: tournamentId },
@@ -415,8 +434,8 @@ async function distributePrizesOnce(adminId: string, tournamentId: string, ctx: 
     .filter((p) => (p.kind ?? 'PLACEMENT') === 'PLACEMENT')
     .sort((a, b) => a.position - b.position);
   placementPrizes.forEach((prize, idx) => {
-    const recipient = standings[idx];
-    if (!recipient) return; // fewer players than prizes — prize not awarded
+    const recipient = ranked[idx];
+    if (!recipient) return; // fewer ranked players than prizes — prize not awarded
     awards.push({
       position: prize.position,
       kind: 'PLACEMENT',
@@ -432,7 +451,7 @@ async function distributePrizesOnce(adminId: string, tournamentId: string, ctx: 
     const perKill = num(prize.perKill);
     const cap = prize.cap !== null ? num(prize.cap) : num(prize.amount);
     if (!(perKill > 0) || !(cap > 0)) continue;
-    const raw = standings.map((s) => ({ s, amount: Math.round(perKill * s.kills * 100) / 100 })).filter((r) => r.amount > 0);
+    const raw = ranked.map((s) => ({ s, amount: Math.round(perKill * s.kills * 100) / 100 })).filter((r) => r.amount > 0);
     const rawSum = Math.round(raw.reduce((t, r) => t + r.amount, 0) * 100) / 100;
     const scale = rawSum > cap ? cap / rawSum : 1;
     let budgetLeft = cap;
@@ -454,7 +473,7 @@ async function distributePrizesOnce(adminId: string, tournamentId: string, ctx: 
 
   // 3. MVP — top-ranked player.
   for (const prize of prizes.filter((p) => p.kind === 'MVP')) {
-    const top = standings[0];
+    const top = ranked[0];
     if (!top) continue;
     awards.push({
       position: MVP_POSITION,
@@ -821,11 +840,16 @@ export async function saveAdminResult(
 
     const table = tableFor(currentMatch.tournament);
     const perKill = currentMatch.tournament.pointsPerKill;
+    // `undefined` = the admin did not touch this field → keep the stored value.
+    // `null`      = the admin cleared it → store null. Removing a position is how
+    // a player is UNRANKED again, and `??` cannot tell those two apart.
+    const resolve = <T>(sent: T | null | undefined, current: T | null): T | null =>
+      sent === undefined ? current : sent;
     const base = {
-      placement: input.position ?? participant.placement,
-      kills: input.kills ?? participant.kills,
-      bonus: input.bonus ?? participant.bonus,
-      penalty: input.penalty ?? participant.penalty,
+      placement: resolve(input.position, participant.placement),
+      kills: resolve(input.kills, participant.kills),
+      bonus: resolve(input.bonus, participant.bonus),
+      penalty: resolve(input.penalty, participant.penalty),
     };
     const finalScore = scoreFor(base, perKill, table);
     const prev = participant;
@@ -838,11 +862,16 @@ export async function saveAdminResult(
         penalty: base.penalty,
         points: base.placement !== null && base.placement !== undefined
           ? placementPointsFor(base.placement, table) + (base.kills ?? 0) * perKill
-          : participant.points,
+          // Position cleared → the row is UNRANKED again: 0 points, never a stale
+          // score left over from a position the admin removed.
+          : 0,
         finalScore,
-        prizeAmount: input.prize !== undefined && input.prize !== null
-          ? new Prisma.Decimal(input.prize)
-          : participant.prizeAmount,
+        // Explicit null clears a manually typed prize; omitting the field keeps it.
+        prizeAmount: input.prize === undefined
+          ? participant.prizeAmount
+          : input.prize === null
+            ? null
+            : new Prisma.Decimal(input.prize),
         notes: input.notes !== undefined ? input.notes : participant.notes,
         status: input.status ?? participant.status,
         absent: input.absent ?? participant.absent,
@@ -1002,13 +1031,27 @@ export async function confirmStandings(adminId: string, matchId: string, ctx: Ct
       }),
     ]);
     if (rows.length === 0) throw badRequest('VALIDATION_ERROR', 'No played participants — enter results first.');
-    if (rows.some((r) => r.placement === null || r.kills === null)) {
-      throw badRequest('VALIDATION_ERROR', 'Every played participant needs a placement and kill count before confirmation.');
+
+    // -----------------------------------------------------------------------
+    // The admin decides who is ranked. A position is typed ONLY for the players
+    // they want on the leaderboard — everyone else stays UNRANKED: still listed
+    // in the table, 0 points, no prize, and never a blocker for confirming or
+    // publishing. Kills are optional too (treated as 0), so a position alone is
+    // enough to rank a player.
+    // -----------------------------------------------------------------------
+    const isRanked = (r: { placement: number | null }) => r.placement !== null && r.placement !== undefined;
+    const rankedRows = rows.filter(isRanked);
+    const unrankedRows = rows.filter((r) => !isRanked(r));
+    if (rankedRows.length === 0) {
+      throw badRequest(
+        'VALIDATION_ERROR',
+        'No positions entered yet — give a position to at least one player. The players you leave empty stay unranked (0 points, no prize).',
+      );
     }
 
     const table = tableFor(match.tournament);
     const perKill = match.tournament.pointsPerKill;
-    const scored = rows.map((r) => {
+    const scored = rankedRows.map((r) => {
       const score = r.finalScore ?? scoreFor({
         placement: r.placement, kills: r.kills, bonus: r.bonus, penalty: r.penalty,
       }, perKill, table);
@@ -1022,7 +1065,7 @@ export async function confirmStandings(adminId: string, matchId: string, ctx: Ct
     ranked.forEach((id, idx) => placementByRank.set(id, idx + 1));
 
     const updates: Array<{ id: string; placement: number; finalScore: number; prizeAmount: number | null }> = [];
-    for (const r of rows) {
+    for (const r of rankedRows) {
       const rank = placementByRank.get(r.id) ?? 0;
       const prize = prizes.find((p) => p.position === rank);
       const amount = prize ? num(prize.amount) : null;
@@ -1037,11 +1080,28 @@ export async function confirmStandings(adminId: string, matchId: string, ctx: Ct
       updates.push({ id: r.id, placement: r.placement ?? rank, finalScore, prizeAmount: amount });
     }
 
+    // Settle the unranked rows explicitly so no stale points/prize survives from
+    // an earlier draft (e.g. the admin typed a position and then cleared it).
+    const unranked: string[] = [];
+    for (const r of unrankedRows) {
+      await tx.matchParticipant.update({
+        where: { id: r.id },
+        data: { points: 0, finalScore: 0, prizeAmount: null },
+      });
+      unranked.push(r.id);
+    }
+
     await tx.match.update({ where: { id: matchId }, data: { resultsStatus: 'CONFIRMED' } });
     await tx.auditLog.create({
       data: {
         actorId: adminId, action: 'MATCH_RESULTS_CONFIRMED', entity: 'Match', entityId: matchId,
-        after: { ranked, scored: updates.map((u) => ({ participantId: u.id, finalScore: u.finalScore, prize: u.prizeAmount })) },
+        after: {
+          ranked,
+          scored: updates.map((u) => ({ participantId: u.id, finalScore: u.finalScore, prize: u.prizeAmount })),
+          // Recorded so it is always possible to see who the admin chose NOT to
+          // rank — an unranked player is a decision, not an omission.
+          unranked,
+        },
         ip: ctx.ip, userAgent: ctx.userAgent,
       },
     });
@@ -1070,23 +1130,38 @@ export async function matchStandings(matchId: string) {
     orderBy: { finalScore: 'desc' },
   });
 
+  const labelOf = (r: (typeof rows)[number]) =>
+    r.team ? `${r.team.name} [${r.team.tag}]` : (r.user?.profile?.freeFireIGN ?? r.user?.username ?? 'Unknown');
+  // Players the admin gave a position to are ranked 1..N by score; players left
+  // without a position are still returned (nothing hidden) but flagged UNRANKED
+  // with no rank number, so a partial leaderboard is a first-class state.
+  const ranked = rows.filter((r) => r.placement !== null && r.placement !== undefined);
+  const unranked = rows.filter((r) => r.placement === null || r.placement === undefined);
+  const serialize = (r: (typeof rows)[number], rank: number | null) => ({
+    id: r.id,
+    rank,
+    ranked: rank !== null,
+    label: labelOf(r),
+    placement: r.placement,
+    kills: r.kills,
+    bonus: r.bonus,
+    penalty: r.penalty,
+    points: r.points,
+    finalScore: r.finalScore,
+    prizeAmount: r.prizeAmount ? num(r.prizeAmount) : null,
+    notes: r.notes,
+    status: r.status,
+  });
+
   return {
     matchId,
     resultsStatus: match.resultsStatus,
     published: match.resultsStatus === 'PUBLISHED',
-    rows: rows.map((r, i) => ({
-      id: r.id,
-      rank: i + 1,
-      label: r.team ? `${r.team.name} [${r.team.tag}]` : (r.user?.profile?.freeFireIGN ?? r.user?.username ?? 'Unknown'),
-      placement: r.placement,
-      kills: r.kills,
-      bonus: r.bonus,
-      penalty: r.penalty,
-      points: r.points,
-      finalScore: r.finalScore,
-      prizeAmount: r.prizeAmount ? num(r.prizeAmount) : null,
-      notes: r.notes,
-      status: r.status,
-    })),
+    rankedCount: ranked.length,
+    unrankedCount: unranked.length,
+    rows: [
+      ...ranked.map((r, i) => serialize(r, i + 1)),
+      ...unranked.map((r) => serialize(r, null)),
+    ],
   };
 }

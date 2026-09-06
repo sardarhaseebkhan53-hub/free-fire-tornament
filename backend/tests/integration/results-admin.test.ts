@@ -4,7 +4,7 @@
 // =============================================================================
 import { afterAll, describe, expect, it } from 'vitest';
 import { createMatch, matchTable, updateMatch } from '../../src/services/match.service';
-import { confirmStandings, saveAdminResult, setResultsStatus } from '../../src/services/result.service';
+import { confirmStandings, distributePrizes, matchStandings, saveAdminResult, setResultsStatus, tournamentStandings } from '../../src/services/result.service';
 import { assignSlot, clearSlot, setParticipantState, setSlotLock, slotBoard } from '../../src/services/slot.service';
 import { createTeam, joinByCode, teamJoinCode } from '../../src/services/team.service';
 import { joinTournament } from '../../src/services/tournament.service';
@@ -134,6 +134,89 @@ describe('admin result workflow', () => {
       () => saveAdminResult(players[0]!.id, matchId, { participantId: participants[0]!.id, position: 2, kills: 9 }, ctx),
       'CONFLICT',
     );
+  });
+});
+
+describe('positions are the admin\'s choice (partial ranking)', () => {
+  // The admin ranks ONLY the players they type a position for. Everyone else
+  // stays visible as UNRANKED — 0 points, no prize — and never blocks the
+  // confirm/publish workflow or prize distribution.
+  it('confirms and publishes with only some players ranked, and pays only the ranked ones', async () => {
+    const { tournament, players, matchId } = await soloArena(3);
+    const participants = await db.matchParticipant.findMany({ where: { matchId }, orderBy: { createdAt: 'asc' } });
+    const admin = players[0]!.id;
+
+    await saveAdminResult(admin, matchId, { participantId: participants[0]!.id, position: 1, kills: 4, status: 'PLAYED' }, ctx);
+    await saveAdminResult(admin, matchId, { participantId: participants[1]!.id, position: 2, kills: 1, status: 'PLAYED' }, ctx);
+    // Third player PLAYED and even has kills, but the admin gave no position.
+    await saveAdminResult(admin, matchId, { participantId: participants[2]!.id, kills: 9, status: 'PLAYED' }, ctx);
+
+    await setResultsStatus(admin, matchId, 'UNDER_REVIEW', ctx);
+    await setResultsStatus(admin, matchId, 'CONFIRMED', ctx); // must NOT demand a position for everyone
+    await setResultsStatus(admin, matchId, 'PUBLISHED', ctx);
+
+    const table = await matchTable(matchId);
+    const rankedById = new Map(table.rows.map((r) => [r.participantId, r]));
+    const unranked = rankedById.get(participants[2]!.id)!;
+    expect(unranked.placement).toBeNull();
+    expect(unranked.points).toBe(0);
+    expect(unranked.finalScore).toBe(0);
+    expect(unranked.prize).toBeNull();
+
+    expect(rankedById.get(participants[0]!.id)!.prize).toBe(300); // 1st
+    expect(rankedById.get(participants[1]!.id)!.prize).toBe(200); // 2nd
+    // The 3rd-place prize exists but has no recipient: it is simply not awarded.
+    expect(await db.winner.count({ where: { tournamentId: tournament.id } })).toBe(0);
+
+    // Match standings keep the unranked player listed, flagged, with no rank.
+    const standings = await matchStandings(matchId);
+    expect(standings.rankedCount).toBe(2);
+    expect(standings.unrankedCount).toBe(1);
+    expect(standings.rows).toHaveLength(3);
+    expect(standings.rows[2]!.rank).toBeNull();
+    expect(standings.rows[2]!.ranked).toBe(false);
+
+    // Tournament standings + prize money follow the same rule.
+    const tour = await tournamentStandings(tournament.id);
+    expect(tour.standings.filter((x) => x.ranked)).toHaveLength(2);
+    expect(tour.standings.filter((x) => !x.ranked)).toHaveLength(1);
+
+    const out = await distributePrizes(admin, tournament.id, ctx);
+    expect(out.awards).toHaveLength(2);
+    expect(out.totalPaid).toBe(500); // 300 + 200 — the unranked player gets nothing
+    const paidTo = await db.winner.findMany({ where: { tournamentId: tournament.id } });
+    expect(paidTo.map((w) => Number(w.amount)).sort((a, b) => b - a)).toEqual([300, 200]);
+    expect(paidTo.some((w) => w.userId === participants[2]!.userId)).toBe(false);
+  });
+
+  it('refuses to confirm when nobody was given a position', async () => {
+    const { players, matchId } = await soloArena(2);
+    const participants = await db.matchParticipant.findMany({ where: { matchId } });
+    for (const p of participants) {
+      await saveAdminResult(players[0]!.id, matchId, { participantId: p.id, kills: 3, status: 'PLAYED' }, ctx);
+    }
+    await setResultsStatus(players[0]!.id, matchId, 'UNDER_REVIEW', ctx);
+    await rejectsWithCode(
+      () => setResultsStatus(players[0]!.id, matchId, 'CONFIRMED', ctx),
+      'VALIDATION_ERROR',
+    );
+  });
+
+  it('clearing a position un-ranks the player again (no stale points or prize)', async () => {
+    const { players, matchId } = await soloArena(2);
+    const participants = await db.matchParticipant.findMany({ where: { matchId }, orderBy: { createdAt: 'asc' } });
+    const admin = players[0]!.id;
+
+    await saveAdminResult(admin, matchId, { participantId: participants[0]!.id, position: 1, kills: 2, status: 'PLAYED' }, ctx);
+    await saveAdminResult(admin, matchId, { participantId: participants[1]!.id, position: 2, kills: 1, status: 'PLAYED' }, ctx);
+    expect((await db.matchParticipant.findUniqueOrThrow({ where: { id: participants[0]!.id } })).points).toBeGreaterThan(0);
+
+    // Admin changes their mind: position removed → unranked, points reset.
+    const cleared = await saveAdminResult(admin, matchId, { participantId: participants[0]!.id, position: null }, ctx);
+    expect(cleared.placement).toBeNull();
+    expect(cleared.points).toBe(0);
+    const row = await db.matchParticipant.findUniqueOrThrow({ where: { id: participants[0]!.id } });
+    expect(row.finalScore).toBeNull();
   });
 });
 

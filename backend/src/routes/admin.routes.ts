@@ -281,6 +281,7 @@ import { depositListQuerySchema, depositReviewSchema, withdrawalListQuerySchema,
 import { reviewResultSchema, submissionListQuerySchema } from '../validation/result.schema';
 import {
   listDeposits, listWithdrawals, reviewDeposit, reviewWithdrawal,
+  withdrawalDetail, withdrawalsCsv,
   listPaymentAccounts, createPaymentAccount, updatePaymentAccount,
   togglePaymentAccount, deletePaymentAccount,
 } from '../services/payment.service';
@@ -299,7 +300,17 @@ adminRouter.post('/deposits/:id/review', async (req, res) => {
 });
 adminRouter.get('/withdrawals', async (req, res) => {
   const q = withdrawalListQuerySchema.parse(req.query);
+  if (q.format === 'csv') {
+    res.setHeader('content-type', 'text/csv; charset=utf-8');
+    res.setHeader('content-disposition', 'attachment; filename="clutchnex-withdrawals.csv"');
+    return res.send(await withdrawalsCsv(q));
+  }
   return ok(res, await listWithdrawals(q));
+});
+// Full payout dossier — complete destination account, player identity, wallet,
+// ledger entries behind the hold, audit trail and the player's other payouts.
+adminRouter.get('/withdrawals/:id', async (req, res) => {
+  return ok(res, await withdrawalDetail(String(req.params.id)));
 });
 adminRouter.post('/withdrawals/:id/review', async (req, res) => {
   const { action, note, paidReference } = withdrawalReviewSchema.parse(req.body);

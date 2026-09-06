@@ -5,7 +5,7 @@
 // =============================================================================
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { Prisma, type DepositStatus, type WithdrawalStatus } from '../../generated/prisma';
+import { Prisma, type DepositStatus, type PaymentMethod, type WithdrawalStatus } from '../../generated/prisma';
 import { moneyTx, prisma } from '../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { getSetting } from './settings.service';
@@ -467,7 +467,9 @@ export async function listMyWithdrawals(userId: string, page: number, pageSize: 
     }),
     prisma.withdrawal.count({ where: { userId } }),
   ]);
-  return { items: rows.map(serializeWithdrawal), page, pageSize, total };
+  // Player-facing: never revealed — `reveal` defaults to false here (an explicit
+  // arrow also stops Array.map from passing the index as the `reveal` argument).
+  return { items: rows.map((w) => serializeWithdrawal(w)), page, pageSize, total };
 }
 
 /** Player cancels a still-PENDING withdrawal → holding released. */
@@ -522,12 +524,18 @@ export async function cancelWithdrawal(userId: string, id: string, ctx: Ctx) {
   }, TX_OPTS);
 }
 
+/**
+ * `reveal` is the ADMIN payout view only: the person sending the money cannot
+ * send it to `0300•••123`, so the real account number is included verbatim.
+ * Every player-facing call site keeps `reveal = false` and only ever sees the
+ * masked form of its own number.
+ */
 function serializeWithdrawal(w: {
   id: string; amount: Prisma.Decimal; method: string; accountName: string;
   accountNumber: string; accountDetails: string | null; status: string;
   adminNote: string | null; paidReference: string | null; reviewedAt: Date | null;
   paidAt: Date | null; createdAt: Date;
-}) {
+}, reveal = false) {
   const acc = w.accountNumber;
   return {
     id: w.id,
@@ -536,6 +544,8 @@ function serializeWithdrawal(w: {
     methodLabel: METHOD_LABEL[w.method],
     accountName: w.accountName,
     accountMasked: acc.length > 6 ? `${acc.slice(0, 4)}••••${acc.slice(-3)}` : acc,
+    // Full destination account — present for ADMIN+ endpoints only.
+    ...(reveal ? { accountNumber: acc } : {}),
     accountDetails: w.accountDetails,
     status: w.status,
     adminNote: w.adminNote,
@@ -727,24 +737,247 @@ export async function deleteDeposit(adminId: string, depositId: string, ctx: Ctx
   return { id: depositId, deleted: true };
 }
 
-export async function listWithdrawals(filter: { status?: string; page: number; pageSize: number }) {
-  const where: Prisma.WithdrawalWhereInput = filter.status
-    ? { status: filter.status as WithdrawalStatus }
-    : {};
+// ---------------------------------------------------------------------------
+// Admin payout view — the admin is the person actually sending the money, so
+// this view shows the COMPLETE destination account plus everything needed to
+// verify the player (contact, FF ID, wallet, payout history, ledger, audit).
+// ---------------------------------------------------------------------------
+
+const ADMIN_WITHDRAWAL_INCLUDE = {
+  user: {
+    select: {
+      id: true, username: true, email: true, phone: true, status: true, role: true,
+      isVerified: true, createdAt: true,
+      profile: { select: { fullName: true, freeFireUID: true, freeFireIGN: true, city: true, country: true } },
+      wallet: { select: { cashBalance: true, winningBalance: true, bonusBalance: true, lockedBalance: true } },
+    },
+  },
+  reviewedBy: { select: { username: true } },
+} satisfies Prisma.WithdrawalInclude;
+
+type AdminWithdrawalRow = Prisma.WithdrawalGetPayload<{ include: typeof ADMIN_WITHDRAWAL_INCLUDE }>;
+
+export interface WithdrawalAdminFilter {
+  status?: string; method?: string; q?: string; page: number; pageSize: number;
+}
+
+interface PayoutHistory {
+  paidCount: number; paidTotal: number; pendingCount: number;
+  openCount: number; rejectedCount: number; totalCount: number;
+}
+const EMPTY_HISTORY: PayoutHistory = {
+  paidCount: 0, paidTotal: 0, pendingCount: 0, openCount: 0, rejectedCount: 0, totalCount: 0,
+};
+
+function adminWithdrawalWhere(filter: WithdrawalAdminFilter): Prisma.WithdrawalWhereInput {
+  const where: Prisma.WithdrawalWhereInput = {};
+  if (filter.status) where.status = filter.status as WithdrawalStatus;
+  if (filter.method) where.method = filter.method as PaymentMethod;
+  const q = filter.q?.trim();
+  if (q) {
+    // Search by the real account number (or any part of it) so an admin can
+    // paste the number they are about to pay and find the request instantly.
+    where.OR = [
+      { accountNumber: { contains: q, mode: 'insensitive' } },
+      { accountName: { contains: q, mode: 'insensitive' } },
+      { paidReference: { contains: q, mode: 'insensitive' } },
+      { user: { username: { contains: q, mode: 'insensitive' } } },
+      { user: { email: { contains: q, mode: 'insensitive' } } },
+      { user: { phone: { contains: q, mode: 'insensitive' } } },
+      { user: { profile: { freeFireUID: { contains: q, mode: 'insensitive' } } } },
+      { user: { profile: { freeFireIGN: { contains: q, mode: 'insensitive' } } } },
+    ];
+  }
+  return where;
+}
+
+function adminWithdrawalUser(w: AdminWithdrawalRow) {
+  const u = w.user;
+  return {
+    id: u.id,
+    username: u.username,
+    email: u.email,
+    phone: u.phone,
+    status: u.status,
+    role: u.role,
+    isVerified: u.isVerified,
+    joinedAt: u.createdAt,
+    fullName: u.profile?.fullName ?? null,
+    freeFireUID: u.profile?.freeFireUID ?? null,
+    freeFireIGN: u.profile?.freeFireIGN ?? null,
+    city: u.profile?.city ?? null,
+    country: u.profile?.country ?? null,
+    wallet: {
+      cash: num(u.wallet?.cashBalance ?? 0),
+      winning: num(u.wallet?.winningBalance ?? 0),
+      bonus: num(u.wallet?.bonusBalance ?? 0),
+      locked: num(u.wallet?.lockedBalance ?? 0),
+    },
+  };
+}
+
+/** One aggregate query per page — never one query per withdrawal row. */
+async function payoutHistory(userIds: string[]): Promise<Map<string, PayoutHistory>> {
+  const out = new Map<string, PayoutHistory>();
+  if (userIds.length === 0) return out;
+  const grouped = await prisma.withdrawal.groupBy({
+    by: ['userId', 'status'],
+    where: { userId: { in: userIds } },
+    _count: { _all: true },
+    _sum: { amount: true },
+  });
+  for (const g of grouped) {
+    const cur = out.get(g.userId) ?? { ...EMPTY_HISTORY };
+    const count = g._count._all;
+    cur.totalCount += count;
+    if (g.status === 'PAID') {
+      cur.paidCount += count;
+      cur.paidTotal = round2(cur.paidTotal + num(g._sum.amount ?? 0));
+    } else if (g.status === 'REJECTED') {
+      cur.rejectedCount += count;
+    } else if (g.status === 'PENDING') {
+      cur.pendingCount += count;
+    }
+    if (['PENDING', 'APPROVED', 'PROCESSING'].includes(g.status)) cur.openCount += count;
+    out.set(g.userId, cur);
+  }
+  return out;
+}
+
+export async function listWithdrawals(filter: WithdrawalAdminFilter) {
+  const where = adminWithdrawalWhere(filter);
   const [rows, total] = await Promise.all([
     prisma.withdrawal.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       skip: (filter.page - 1) * filter.pageSize,
       take: filter.pageSize,
-      include: { user: { select: { username: true, email: true } } },
+      include: ADMIN_WITHDRAWAL_INCLUDE,
     }),
     prisma.withdrawal.count({ where }),
   ]);
+  const history = await payoutHistory([...new Set(rows.map((r) => r.userId))]);
   return {
-    items: rows.map((w) => ({ ...serializeWithdrawal(w), user: { username: w.user.username, email: w.user.email } })),
+    items: rows.map((w) => ({
+      // `reveal = true` — admin only: the full account number is the whole point
+      // of this screen, without it the payout cannot be executed.
+      ...serializeWithdrawal(w, true),
+      user: adminWithdrawalUser(w),
+      reviewedBy: w.reviewedBy?.username ?? null,
+      history: history.get(w.userId) ?? { ...EMPTY_HISTORY },
+    })),
     page: filter.page, pageSize: filter.pageSize, total,
   };
+}
+
+/**
+ * Full payout dossier for one withdrawal: complete destination account, player
+ * identity + wallet, the immutable ledger entries behind this request (holding
+ * debit / reversal), the audit trail and the player's other withdrawals — so an
+ * admin can verify and pay without opening four different screens.
+ */
+export async function withdrawalDetail(withdrawalId: string) {
+  const w = await prisma.withdrawal.findUnique({
+    where: { id: withdrawalId },
+    include: ADMIN_WITHDRAWAL_INCLUDE,
+  });
+  if (!w) throw notFound('Withdrawal not found');
+
+  const [history, ledger, audit, recent] = await Promise.all([
+    payoutHistory([w.userId]),
+    prisma.walletTransaction.findMany({
+      where: { entityType: 'Withdrawal', entityId: w.id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true, bucket: true, type: true, direction: true, amount: true,
+        balanceBefore: true, balanceAfter: true, reference: true, description: true,
+        status: true, createdAt: true,
+      },
+    }),
+    prisma.auditLog.findMany({
+      where: { entity: 'Withdrawal', entityId: w.id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true, action: true, before: true, after: true, ip: true, createdAt: true,
+        actor: { select: { username: true } },
+      },
+    }),
+    prisma.withdrawal.findMany({
+      where: { userId: w.userId, id: { not: w.id } },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: {
+        id: true, amount: true, method: true, accountName: true, accountNumber: true,
+        accountDetails: true, status: true, paidReference: true, adminNote: true,
+        reviewedAt: true, paidAt: true, createdAt: true,
+      },
+    }),
+  ]);
+
+  const feePct = Number(await getSetting('wallet.withdrawalFeePercent', 0));
+  const fee = round2((num(w.amount) * feePct) / 100);
+
+  return {
+    ...serializeWithdrawal(w, true),
+    fee,
+    net: round2(num(w.amount) - fee),
+    currency: await getSetting('platform.currency', 'PKR'),
+    user: adminWithdrawalUser(w),
+    reviewedBy: w.reviewedBy?.username ?? null,
+    history: history.get(w.userId) ?? { ...EMPTY_HISTORY },
+    ledger: ledger.map((t) => ({
+      id: t.id, bucket: t.bucket, type: t.type, direction: t.direction,
+      amount: num(t.amount), balanceBefore: num(t.balanceBefore), balanceAfter: num(t.balanceAfter),
+      reference: t.reference, description: t.description, status: t.status, createdAt: t.createdAt,
+    })),
+    audit: audit.map((a) => ({
+      id: a.id, action: a.action, by: a.actor?.username ?? 'system', ip: a.ip,
+      before: a.before, after: a.after, createdAt: a.createdAt,
+    })),
+    recentWithdrawals: recent.map((r) => ({
+      id: r.id, amount: num(r.amount), method: r.method, methodLabel: METHOD_LABEL[r.method],
+      accountMasked: r.accountNumber.length > 6
+        ? `${r.accountNumber.slice(0, 4)}••••${r.accountNumber.slice(-3)}`
+        : r.accountNumber,
+      status: r.status, paidReference: r.paidReference, createdAt: r.createdAt,
+    })),
+  };
+}
+
+/** Payout sheet CSV — full account numbers, for offline reconciliation. */
+export async function withdrawalsCsv(filter: WithdrawalAdminFilter): Promise<string> {
+  const where = adminWithdrawalWhere(filter);
+  const rows = await prisma.withdrawal.findMany({
+    where, orderBy: { createdAt: 'desc' }, take: 5000, include: ADMIN_WITHDRAWAL_INCLUDE,
+  });
+  const esc = (v: unknown) => {
+    const s = String(v ?? '');
+    return /["\n,]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+  };
+  const lines: string[] = [];
+  lines.push('CLUTCHNEX Withdrawals — admin payout sheet (full account numbers)');
+  lines.push(`Generated,${new Date().toISOString()}`);
+  lines.push('');
+  lines.push([
+    'Requested', 'Status', 'Player', 'Email', 'Phone', 'FF UID', 'FF Name',
+    'Account Holder', 'Method', 'Account Number', 'Account Details',
+    'Amount (PKR)', 'Paid Reference', 'Reviewed By', 'Winning Balance', 'Cash Balance',
+    'Paid Before (count)', 'Paid Before (PKR)',
+  ].map(esc).join(','));
+  const history = await payoutHistory([...new Set(rows.map((r) => r.userId))]);
+  for (const w of rows) {
+    const u = adminWithdrawalUser(w);
+    const h = history.get(w.userId) ?? EMPTY_HISTORY;
+    lines.push([
+      w.createdAt.toISOString(), w.status, u.username, u.email, u.phone ?? '', u.freeFireUID ?? '',
+      u.freeFireIGN ?? '', w.accountName, METHOD_LABEL[w.method] ?? w.method,
+      // Keep the number as text in Excel/Sheets so leading zeros survive.
+      `\t${w.accountNumber}`, w.accountDetails ?? '', num(w.amount).toFixed(2),
+      w.paidReference ?? '', w.reviewedBy?.username ?? '',
+      u.wallet.winning.toFixed(2), u.wallet.cash.toFixed(2), h.paidCount, h.paidTotal.toFixed(2),
+    ].map(esc).join(','));
+  }
+  return lines.join('\n');
 }
 
 const WITHDRAWAL_FLOW: Record<string, { from: string[]; to: string }> = {

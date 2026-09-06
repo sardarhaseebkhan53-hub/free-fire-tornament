@@ -4,7 +4,8 @@
 // =============================================================================
 import { afterAll, describe, expect, it } from 'vitest';
 import {
-  cancelWithdrawal, createDeposit, deleteDeposit, listActivePaymentAccounts, reviewDeposit, reviewWithdrawal,
+  cancelWithdrawal, createDeposit, deleteDeposit, listActivePaymentAccounts, listMyWithdrawals,
+  listWithdrawals, reviewDeposit, reviewWithdrawal, withdrawalDetail, withdrawalsCsv,
 } from '../../src/services/payment.service';
 import { png } from '../../scripts/lib/fixtures';
 import crypto from 'node:crypto';
@@ -241,6 +242,77 @@ describe('withdrawals', () => {
     await rejectsWithCode(() => reviewWithdrawalAndRequest(u.id, 1, 'JAZZCASH', '03001234567'), 'VALIDATION_ERROR');
     await rejectsWithCode(() => reviewWithdrawalAndRequest(u.id, 500, 'JAZZCASH', '12345'), 'VALIDATION_ERROR');
     await rejectsWithCode(() => reviewWithdrawalAndRequest(u.id, 500, 'BANK_TRANSFER', 'x'), 'VALIDATION_ERROR');
+  });
+});
+
+describe('admin payout view — the complete destination account', () => {
+  // The admin is the person sending the money: the payout desk must show the
+  // REAL account number, while the player-facing view stays masked.
+  it('reveals the full account number + player dossier to the admin only', async () => {
+    const u = await makeUser({ winning: 5000 });
+    created.push(u.id);
+    const account = '03005551234';
+    const { withdrawal } = await requestWithdrawal(u.id, 1500, account);
+
+    const adminList = await listWithdrawals({ status: 'PENDING', page: 1, pageSize: 100 });
+    const row = adminList.items.find((w) => w.id === withdrawal.id);
+    expect(row).toBeTruthy();
+    expect(row!.accountNumber).toBe(account);
+    expect(row!.accountMasked).toBe('0300\u2022\u2022\u2022\u2022234');
+    expect(row!.accountName).toBe('Test Player');
+    expect(row!.user.username).toBe(u.username);
+    expect(row!.user.email).toBe(u.email);
+    expect(row!.user.wallet.winning).toBe(3500);
+    expect(row!.history.openCount).toBe(1);
+
+    // Searching by the real (or partial) account number finds the request.
+    const byFullNumber = await listWithdrawals({ q: account, page: 1, pageSize: 20 });
+    expect(byFullNumber.items.some((w) => w.id === withdrawal.id)).toBe(true);
+    const byPartial = await listWithdrawals({ q: '5551', page: 1, pageSize: 20 });
+    expect(byPartial.items.some((w) => w.id === withdrawal.id)).toBe(true);
+    const byMethod = await listWithdrawals({ method: 'JAZZCASH', q: u.username, page: 1, pageSize: 20 });
+    expect(byMethod.items.some((w) => w.id === withdrawal.id)).toBe(true);
+
+    // The player's own list never carries the raw number.
+    const mine = await listMyWithdrawals(u.id, 1, 10);
+    expect(mine.items).toHaveLength(1);
+    expect(mine.items[0]!.accountMasked).toBe('0300\u2022\u2022\u2022\u2022234');
+    expect('accountNumber' in mine.items[0]!).toBe(false);
+
+    // Full dossier: identity, wallet, the ledger entries behind the hold, audit.
+    const detail = await withdrawalDetail(withdrawal.id);
+    expect(detail.accountNumber).toBe(account);
+    expect(detail.user.wallet.winning).toBe(3500);
+    // The holding debit that reserved the money is part of the dossier.
+    expect(detail.ledger.length).toBeGreaterThan(0);
+    expect(detail.ledger.some((t) => t.direction === 'DEBIT' && t.type === 'WITHDRAWAL')).toBe(true);
+    expect(detail.history.paidCount).toBe(0);
+
+    // CSV payout sheet carries the complete number for offline reconciliation.
+    const csv = await withdrawalsCsv({ status: 'PENDING', q: u.username, page: 1, pageSize: 20 });
+    expect(csv).toContain(account);
+    expect(csv).toContain(u.username);
+  });
+
+  it('tracks the payout history after a withdrawal is paid', async () => {
+    const u = await makeUser({ winning: 5000 });
+    created.push(u.id);
+    const { withdrawal } = await requestWithdrawal(u.id, 500, '03007778888');
+    await reviewWithdrawal(u.id, withdrawal.id, 'APPROVE', '', '', ctx);
+    await reviewWithdrawal(u.id, withdrawal.id, 'PROCESS', '', '', ctx);
+    await reviewWithdrawal(u.id, withdrawal.id, 'PAID', '', 'EWP-778899', ctx);
+
+    const paid = await listWithdrawals({ status: 'PAID', q: u.username, page: 1, pageSize: 20 });
+    const row = paid.items.find((w) => w.id === withdrawal.id)!;
+    expect(row.accountNumber).toBe('03007778888');
+    expect(row.paidReference).toBe('EWP-778899');
+    expect(row.history.paidCount).toBe(1);
+    expect(row.history.paidTotal).toBe(500);
+    expect(row.history.openCount).toBe(0);
+
+    const detail = await withdrawalDetail(withdrawal.id);
+    expect(detail.audit.length).toBeGreaterThan(0);
+    expect(detail.recentWithdrawals).toHaveLength(0);
   });
 });
 
