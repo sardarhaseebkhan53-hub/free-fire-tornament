@@ -12,9 +12,9 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
   obsidian/violet glassmorphism design system. Concept mockups were removed from
   the repo for a clean production tree; the live app renders every surface from
   actual components.
-- 🔧 **API-first backend** — the same REST API will serve the web app today and a
-  future Flutter Android/iOS app without changes.
-- 🌐 **Web + PWA first** — no Docker, no Flutter in this version.
+- 🔧 **Shared API** — the same REST API serves the web app and the native Flutter Android/iOS client in `mobile/flutter/`.
+- 📱 **Mobile client** — Flutter + Dart consumes the existing Express API; authentication, money, tournament entry and room-release rules remain server-authoritative.
+- 🌐 **Web + PWA** — Next.js website and installable PWA remain available alongside mobile; no Docker required.
 
 ---
 
@@ -22,7 +22,8 @@ referrals, leaderboards, support, SEO, PWA and a full admin control center.
 
 | Layer | Technology |
 |---|---|
-| Frontend | Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4 · Framer Motion · Lucide icons |
+| Web frontend | Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4 · Framer Motion · Lucide icons |
+| Mobile app | Flutter · Dart · Riverpod · GoRouter · Dio · platform secure storage |
 | Backend | Node.js · Express 5 · TypeScript · modular routes/services/middleware/validation |
 | Database | PostgreSQL via Prisma 7 (dev: embedded PGlite — `npm run db:dev`, no install) |
 | Auth | JWT access tokens + rotating HttpOnly refresh cookies, bcrypt, RBAC |
@@ -740,6 +741,8 @@ Deliberate limits, written down so nobody reads them as finished features:
   that is not subscribed, changes nothing about the event, the seat, or the money. No VAPID
   keys in the environment means no push and no error — `/api/push/config` answers
   `enabled: false`, and the browser UI says "not configured" rather than pretending.
+  The Flutter app includes the durable in-app inbox; native APNs/FCM push remains
+  disabled until the backend has a native-token provider integration.
 - **Check-in windows are derived, not scheduled by hand.** Attendance opens at
   `registrationDeadline` and shuts at `startTime` unless an admin sets explicit bounds
   (the admin panel can, and an inverted window is rejected). A finished event is not
@@ -820,8 +823,10 @@ free-fire-tornament/
 │   ├── prisma/        # schema, migrations, seed
 │   ├── src/           # routes / services / middleware / validation / lib
 │   └── scripts/       # embedded dev database, verification harnesses
-├── frontend/          # Next.js 16 App Router website + user app
-└── README.md          # this file
+├── frontend/          # Next.js 16 App Router website + PWA
+├── mobile/flutter/     # Flutter Android/iOS player app
+├── mobile/            # Legacy Expo React Native client and shared preview art
+└── README.md           # this file
 ```
 
 **Build record:** PR #1 (Phase 1, merged) · [PR #2](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/2) (Phases 2–6, merged) · PR #3 (Phases 7–9, merged) · [PR #4](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/4) (Phases 10–13, merged) · [PR #5](https://github.com/sardarhaseebkhan53-hub/free-fire-tornament/pull/5) (Phases 14–16: security, testing, deployment).
